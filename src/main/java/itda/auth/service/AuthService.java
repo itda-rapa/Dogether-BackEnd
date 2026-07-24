@@ -9,6 +9,7 @@ import itda.common.security.service.TokenProvider;
 import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
+import itda.user.service.PublicTagGenerator;
 import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,24 +19,33 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
 
+    private static final int PUBLIC_TAG_SAVE_ATTEMPTS = 5;
+    private static final String EMAIL_UNIQUE_CONSTRAINT = "uk_users_email_lower";
+    private static final String PUBLIC_TAG_UNIQUE_CONSTRAINT = "uk_users_public_tag";
+
     private final UserRepository userRepository;
     private final NeighborhoodRepository neighborhoodRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenProvider tokenProvider;
+    private final PublicTagGenerator publicTagGenerator;
+    private final UserRegistrationService userRegistrationService;
 
     public AuthService(
             UserRepository userRepository,
             NeighborhoodRepository neighborhoodRepository,
             PasswordEncoder passwordEncoder,
-            TokenProvider tokenProvider
+            TokenProvider tokenProvider,
+            PublicTagGenerator publicTagGenerator,
+            UserRegistrationService userRegistrationService
     ) {
         this.userRepository = userRepository;
         this.neighborhoodRepository = neighborhoodRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
+        this.publicTagGenerator = publicTagGenerator;
+        this.userRegistrationService = userRegistrationService;
     }
 
-    @Transactional
     public AuthTokensResponse signup(SignupRequest request) {
         String email = normalizeEmail(request.email());
 
@@ -46,20 +56,35 @@ public class AuthService {
             throw new BusinessException(ErrorCode.NEIGHBORHOOD_NOT_FOUND);
         }
 
-        User user = User.register(
-                email,
-                passwordEncoder.encode(request.password()),
-                request.nickname().trim(),
-                request.neighborhoodCode()
-        );
+        String passwordHash = passwordEncoder.encode(request.password());
+        for (int attempt = 0; attempt < PUBLIC_TAG_SAVE_ATTEMPTS; attempt++) {
+            User user = User.register(
+                    email,
+                    passwordHash,
+                    request.nickname().trim(),
+                    publicTagGenerator.generate(request.nickname()),
+                    request.neighborhoodCode()
+            );
 
-        try {
-            userRepository.saveAndFlush(user);
-        } catch (DataIntegrityViolationException exception) {
-            throw new BusinessException(ErrorCode.USER_EMAIL_DUPLICATED);
+            try {
+                User registeredUser = userRegistrationService.save(user);
+                return AuthTokensResponse.from(
+                        tokenProvider.issueTokens(registeredUser)
+                );
+            } catch (DataIntegrityViolationException exception) {
+                if (isConstraintViolation(exception, EMAIL_UNIQUE_CONSTRAINT)) {
+                    throw new BusinessException(ErrorCode.USER_EMAIL_DUPLICATED);
+                }
+                if (!isConstraintViolation(
+                        exception,
+                        PUBLIC_TAG_UNIQUE_CONSTRAINT
+                )) {
+                    throw exception;
+                }
+            }
         }
 
-        return AuthTokensResponse.from(tokenProvider.issueTokens(user));
+        throw new BusinessException(ErrorCode.PUBLIC_TAG_GENERATION_FAILED);
     }
 
     @Transactional
@@ -91,5 +116,28 @@ public class AuthService {
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isConstraintViolation(
+            Throwable throwable,
+            String expectedConstraint
+    ) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof org.hibernate.exception.ConstraintViolationException
+                    constraintViolation
+                    && expectedConstraint.equalsIgnoreCase(
+                    constraintViolation.getConstraintName()
+            )) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase(Locale.ROOT)
+                    .contains(expectedConstraint.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

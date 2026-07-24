@@ -10,6 +10,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 @Slf4j
@@ -50,6 +51,18 @@ public class GlobalExceptionHandler {
                         ErrorCode.VALIDATION_FAILED.getDescription()
                 )
         );
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(
+            NoResourceFoundException exception
+    ) {
+        return ResponseEntity
+                .status(ErrorCode.RESOURCE_NOT_FOUND.getStatus())
+                .body(ApiResponse.fail(
+                        ErrorCode.RESOURCE_NOT_FOUND.name(),
+                        ErrorCode.RESOURCE_NOT_FOUND.getDescription()
+                ));
     }
 
     @ExceptionHandler(Exception.class)

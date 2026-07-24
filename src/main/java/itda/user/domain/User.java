@@ -35,6 +35,9 @@ public class User extends BaseEntity {
     @Column(nullable = false, length = 30)
     private String nickname;
 
+    @Column(name = "public_tag", nullable = false, unique = true, length = 30)
+    private String publicTag;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role = Role.USER;
@@ -60,11 +63,13 @@ public class User extends BaseEntity {
             String email,
             String passwordHash,
             String nickname,
+            String publicTag,
             String neighborhoodCode
     ) {
         this.email = email.trim().toLowerCase(Locale.ROOT);
         this.passwordHash = passwordHash;
         this.nickname = nickname;
+        this.publicTag = publicTag;
         this.neighborhoodCode = neighborhoodCode;
     }
 
@@ -72,9 +77,16 @@ public class User extends BaseEntity {
             String email,
             String passwordHash,
             String nickname,
+            String publicTag,
             String neighborhoodCode
     ) {
-        return new User(email, passwordHash, nickname, neighborhoodCode);
+        return new User(
+                email,
+                passwordHash,
+                nickname,
+                publicTag,
+                neighborhoodCode
+        );
     }
 
     public boolean isActive() {

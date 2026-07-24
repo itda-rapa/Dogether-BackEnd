@@ -3,6 +3,7 @@ package itda.auth.service;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import itda.auth.dto.LoginRequest;
@@ -14,6 +15,7 @@ import itda.common.security.service.TokenProvider;
 import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
+import itda.user.service.PublicTagGenerator;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
@@ -34,6 +37,10 @@ class AuthServiceTest {
     private PasswordEncoder passwordEncoder;
     @Mock
     private TokenProvider tokenProvider;
+    @Mock
+    private PublicTagGenerator publicTagGenerator;
+    @Mock
+    private UserRegistrationService userRegistrationService;
 
     private AuthService authService;
 
@@ -43,7 +50,9 @@ class AuthServiceTest {
                 userRepository,
                 neighborhoodRepository,
                 passwordEncoder,
-                tokenProvider
+                tokenProvider,
+                publicTagGenerator,
+                userRegistrationService
         );
     }
 
@@ -60,7 +69,8 @@ class AuthServiceTest {
         given(neighborhoodRepository.existsByCodeAndActiveTrue("1168010100"))
                 .willReturn(true);
         given(passwordEncoder.encode("long-password")).willReturn("encoded");
-        given(userRepository.saveAndFlush(any(User.class)))
+        given(publicTagGenerator.generate("사용자")).willReturn("사용자#A7K2");
+        given(userRegistrationService.save(any(User.class)))
                 .willAnswer(invocation -> invocation.getArgument(0));
         given(tokenProvider.issueTokens(any(User.class)))
                 .willReturn(new IssuedTokens(
@@ -72,7 +82,7 @@ class AuthServiceTest {
         authService.signup(request);
 
         verify(passwordEncoder).encode("long-password");
-        verify(userRepository).saveAndFlush(any(User.class));
+        verify(userRegistrationService).save(any(User.class));
     }
 
     @Test
@@ -86,5 +96,38 @@ class AuthServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCode.LOGIN_FAILED);
+    }
+
+    @Test
+    void signupRetriesAfterPublicTagUniqueCollision() {
+        SignupRequest request = new SignupRequest(
+                "user@example.com",
+                "long-password",
+                "사용자",
+                "4113111500"
+        );
+        given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                .willReturn(Optional.empty());
+        given(neighborhoodRepository.existsByCodeAndActiveTrue("4113111500"))
+                .willReturn(true);
+        given(passwordEncoder.encode("long-password")).willReturn("encoded");
+        given(publicTagGenerator.generate("사용자"))
+                .willReturn("사용자#AAAA", "사용자#BBBB");
+        given(userRegistrationService.save(any(User.class)))
+                .willThrow(new DataIntegrityViolationException(
+                        "duplicate key violates uk_users_public_tag"
+                ))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(tokenProvider.issueTokens(any(User.class)))
+                .willReturn(new IssuedTokens(
+                        "access",
+                        "refresh",
+                        Instant.parse("2026-07-24T00:30:00Z")
+                ));
+
+        authService.signup(request);
+
+        verify(userRegistrationService, times(2)).save(any(User.class));
+        verify(publicTagGenerator, times(2)).generate("사용자");
     }
 }

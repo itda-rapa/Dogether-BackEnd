@@ -36,7 +36,10 @@ public class S3Config {
     S3Presigner s3Presigner(S3Properties properties) {
         Builder builder = S3Presigner.builder()
                 .region(Region.of(properties.region()))
-                .credentialsProvider(DefaultCredentialsProvider.builder().build());
+                .credentialsProvider(DefaultCredentialsProvider.builder().build())
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(properties.pathStyleAccessEnabled())
+                        .build());
 
         if (StringUtils.hasText(properties.endpoint())) {
             builder.endpointOverride(URI.create(properties.endpoint()));

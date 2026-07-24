@@ -11,7 +11,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 public record CurrentUser(
         Long id,
         String email,
-        String password,
         Role role
 ) implements UserDetails {
 
@@ -19,7 +18,6 @@ public record CurrentUser(
         return new CurrentUser(
                 user.getId(),
                 user.getEmail(),
-                user.getPasswordHash(),
                 user.getRole()
         );
     }
@@ -36,6 +34,6 @@ public record CurrentUser(
 
     @Override
     public String getPassword() {
-        return password;
+        return null;
     }
 }

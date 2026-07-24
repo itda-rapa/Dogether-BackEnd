@@ -9,6 +9,8 @@ import itda.media.dto.MediaAssetResponse;
 import itda.media.dto.MediaUploadRequest;
 import itda.media.dto.MediaUploadResponse;
 import itda.media.repository.MediaAssetRepository;
+import itda.media.domain.MediaPurpose;
+import itda.user.domain.Role;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.time.Clock;
@@ -29,6 +31,7 @@ public class MediaService {
     private final S3StorageService storageService;
     private final MediaPolicy mediaPolicy;
     private final MediaProperties properties;
+    private final MediaStatusService mediaStatusService;
     private final Clock clock = Clock.systemUTC();
 
     public MediaService(
@@ -36,13 +39,15 @@ public class MediaService {
             UserRepository userRepository,
             S3StorageService storageService,
             MediaPolicy mediaPolicy,
-            MediaProperties properties
+            MediaProperties properties,
+            MediaStatusService mediaStatusService
     ) {
         this.mediaAssetRepository = mediaAssetRepository;
         this.userRepository = userRepository;
         this.storageService = storageService;
         this.mediaPolicy = mediaPolicy;
         this.properties = properties;
+        this.mediaStatusService = mediaStatusService;
     }
 
     @Transactional
@@ -56,6 +61,10 @@ public class MediaService {
         User owner = userRepository.findById(userId)
                 .filter(User::isActive)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ACCOUNT_NOT_ACTIVE));
+        if (request.purpose() == MediaPurpose.SETLOG
+                && owner.getRole() == Role.USER) {
+            throw new BusinessException(ErrorCode.MEDIA_PURPOSE_FORBIDDEN);
+        }
         Instant expiresAt = clock.instant().plus(properties.uploadUrlTtl());
         String objectKey = generateObjectKey(userId, request);
 
@@ -87,7 +96,10 @@ public class MediaService {
             throw new BusinessException(ErrorCode.MEDIA_STATE_CONFLICT);
         }
         if (!mediaAsset.getExpiresAt().isAfter(clock.instant())) {
-            mediaAsset.markExpired();
+            mediaStatusService.expirePending(
+                    mediaAsset.getId(),
+                    clock.instant()
+            );
             throw new BusinessException(ErrorCode.MEDIA_EXPIRED);
         }
 

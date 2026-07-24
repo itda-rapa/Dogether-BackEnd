@@ -65,7 +65,7 @@ public class TokenProvider {
         return issueTokens(user, now);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public IssuedTokens rotateRefreshToken(String rawRefreshToken) {
         Instant now = clock.instant();
         RefreshToken refreshToken = refreshTokenRepository

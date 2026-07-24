@@ -82,7 +82,7 @@ public class SecurityConfig {
                                 "/auth/login",
                                 "/auth/refresh"
                         ).permitAll()
-                        .requestMatchers("/api/admin/**")
+                        .requestMatchers("/admin/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)

@@ -5,6 +5,7 @@ import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.user.domain.Role;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
+import itda.user.service.PublicTagGenerator;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,17 +20,20 @@ public class AdminBootstrapRunner implements ApplicationRunner {
     private final UserRepository userRepository;
     private final NeighborhoodRepository neighborhoodRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PublicTagGenerator publicTagGenerator;
 
     public AdminBootstrapRunner(
             AdminBootstrapProperties properties,
             UserRepository userRepository,
             NeighborhoodRepository neighborhoodRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            PublicTagGenerator publicTagGenerator
     ) {
         this.properties = properties;
         this.userRepository = userRepository;
         this.neighborhoodRepository = neighborhoodRepository;
         this.passwordEncoder = passwordEncoder;
+        this.publicTagGenerator = publicTagGenerator;
     }
 
     @Override
@@ -54,6 +58,7 @@ public class AdminBootstrapRunner implements ApplicationRunner {
                 properties.email(),
                 passwordEncoder.encode(properties.password()),
                 properties.nickname(),
+                publicTagGenerator.generate(properties.nickname()),
                 properties.neighborhoodCode()
         );
         admin.changeRole(Role.SUPER_ADMIN);
