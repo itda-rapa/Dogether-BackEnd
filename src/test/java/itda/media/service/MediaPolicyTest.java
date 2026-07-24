@@ -15,6 +15,7 @@ class MediaPolicyTest {
             new MediaProperties(
                     Duration.ofMinutes(15),
                     Duration.ofMinutes(10),
+                    Duration.ofMinutes(5),
                     10 * 1024 * 1024
             )
     );

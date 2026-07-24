@@ -3,8 +3,10 @@ package itda.media.service;
 import itda.media.domain.MediaAsset;
 import itda.media.domain.MediaStatus;
 import itda.media.repository.MediaAssetRepository;
+import itda.common.properties.MediaProperties;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,14 +17,33 @@ public class MediaMaintenanceService {
 
     private final MediaAssetRepository mediaAssetRepository;
     private final S3StorageService storageService;
-    private final Clock clock = Clock.systemUTC();
+    private final MediaProperties properties;
+    private final Clock clock;
 
+    @Autowired
     public MediaMaintenanceService(
             MediaAssetRepository mediaAssetRepository,
-            S3StorageService storageService
+            S3StorageService storageService,
+            MediaProperties properties
+    ) {
+        this(
+                mediaAssetRepository,
+                storageService,
+                properties,
+                Clock.systemUTC()
+        );
+    }
+
+    MediaMaintenanceService(
+            MediaAssetRepository mediaAssetRepository,
+            S3StorageService storageService,
+            MediaProperties properties,
+            Clock clock
     ) {
         this.mediaAssetRepository = mediaAssetRepository;
         this.storageService = storageService;
+        this.properties = properties;
+        this.clock = clock;
     }
 
     @Scheduled(fixedDelayString = "${app.media.maintenance-delay:1m}")
@@ -46,7 +67,10 @@ public class MediaMaintenanceService {
 
     private void deleteRequestedAssets() {
         List<MediaAsset> requested = mediaAssetRepository
-                .findTop100ByStatusOrderById(MediaStatus.DELETE_REQUESTED);
+                .findTop100ByStatusAndExpiresAtBeforeOrderById(
+                        MediaStatus.DELETE_REQUESTED,
+                        clock.instant().minus(properties.deleteGrace())
+                );
         for (MediaAsset mediaAsset : requested) {
             try {
                 storageService.delete(mediaAsset.getObjectKey());

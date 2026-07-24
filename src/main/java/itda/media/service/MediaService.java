@@ -31,7 +31,6 @@ public class MediaService {
     private final S3StorageService storageService;
     private final MediaPolicy mediaPolicy;
     private final MediaProperties properties;
-    private final MediaStatusService mediaStatusService;
     private final Clock clock = Clock.systemUTC();
 
     public MediaService(
@@ -39,15 +38,13 @@ public class MediaService {
             UserRepository userRepository,
             S3StorageService storageService,
             MediaPolicy mediaPolicy,
-            MediaProperties properties,
-            MediaStatusService mediaStatusService
+            MediaProperties properties
     ) {
         this.mediaAssetRepository = mediaAssetRepository;
         this.userRepository = userRepository;
         this.storageService = storageService;
         this.mediaPolicy = mediaPolicy;
         this.properties = properties;
-        this.mediaStatusService = mediaStatusService;
     }
 
     @Transactional
@@ -89,17 +86,14 @@ public class MediaService {
         return new MediaUploadResponse(mediaAsset.getId(), uploadUrl, expiresAt);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = BusinessException.class)
     public MediaAssetResponse complete(Long userId, Long mediaAssetId) {
-        MediaAsset mediaAsset = ownedAsset(userId, mediaAssetId);
+        MediaAsset mediaAsset = ownedAssetForUpdate(userId, mediaAssetId);
         if (mediaAsset.getStatus() != MediaStatus.PENDING) {
             throw new BusinessException(ErrorCode.MEDIA_STATE_CONFLICT);
         }
         if (!mediaAsset.getExpiresAt().isAfter(clock.instant())) {
-            mediaStatusService.expirePending(
-                    mediaAsset.getId(),
-                    clock.instant()
-            );
+            mediaAsset.markExpired();
             throw new BusinessException(ErrorCode.MEDIA_EXPIRED);
         }
 
@@ -133,6 +127,10 @@ public class MediaService {
     @Transactional(readOnly = true)
     public MediaAssetResponse get(Long userId, Long mediaAssetId) {
         MediaAsset mediaAsset = ownedAsset(userId, mediaAssetId);
+        if (mediaAsset.getStatus() == MediaStatus.DELETE_REQUESTED
+                || mediaAsset.getStatus() == MediaStatus.DELETED) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+        }
         String viewUrl = mediaAsset.getStatus() == MediaStatus.UPLOADED
                 ? storageService.createViewUrl(
                         mediaAsset.getObjectKey(),
@@ -144,11 +142,20 @@ public class MediaService {
 
     @Transactional
     public void requestDeletion(Long userId, Long mediaAssetId) {
-        ownedAsset(userId, mediaAssetId).requestDeletion();
+        ownedAssetForUpdate(userId, mediaAssetId).requestDeletion();
     }
 
     private MediaAsset ownedAsset(Long userId, Long mediaAssetId) {
         MediaAsset mediaAsset = mediaAssetRepository.findById(mediaAssetId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
+        if (!mediaAsset.belongsTo(userId)) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);
+        }
+        return mediaAsset;
+    }
+
+    private MediaAsset ownedAssetForUpdate(Long userId, Long mediaAssetId) {
+        MediaAsset mediaAsset = mediaAssetRepository.findByIdForUpdate(mediaAssetId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
         if (!mediaAsset.belongsTo(userId)) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);

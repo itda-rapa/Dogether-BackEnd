@@ -7,6 +7,8 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -50,6 +52,19 @@ public class GlobalExceptionHandler {
                         ErrorCode.VALIDATION_FAILED.name(),
                         ErrorCode.VALIDATION_FAILED.getDescription()
                 )
+        );
+    }
+
+    @ExceptionHandler({
+            ObjectOptimisticLockingFailureException.class,
+            PessimisticLockingFailureException.class
+    })
+    public ResponseEntity<ApiResponse<Void>> handleConcurrentUpdateConflict(
+            RuntimeException exception
+    ) {
+        ErrorCode code = ErrorCode.CONCURRENT_UPDATE_CONFLICT;
+        return ResponseEntity.status(code.getStatus()).body(
+                ApiResponse.fail(code.name(), code.getDescription())
         );
     }
 

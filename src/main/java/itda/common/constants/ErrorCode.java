@@ -13,6 +13,10 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증에 실패했습니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "현재 계정에 권한이 없습니다."),
+    CONCURRENT_UPDATE_CONFLICT(
+            HttpStatus.CONFLICT,
+            "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
+    ),
 
     USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
     PUBLIC_TAG_GENERATION_FAILED(HttpStatus.CONFLICT, "공개 사용자 태그를 생성하지 못했습니다."),

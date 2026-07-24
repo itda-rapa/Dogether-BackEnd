@@ -40,6 +40,7 @@ app:
   media:
     upload-url-ttl: ${MEDIA_UPLOAD_URL_TTL:15m}
     view-url-ttl: ${MEDIA_VIEW_URL_TTL:10m}
+    delete-grace: ${MEDIA_DELETE_GRACE:5m}
     max-upload-bytes: ${MEDIA_MAX_UPLOAD_BYTES:10485760}
     maintenance-delay: ${MEDIA_MAINTENANCE_DELAY:1m}
   bootstrap-admin:

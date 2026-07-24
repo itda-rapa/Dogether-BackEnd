@@ -12,6 +12,7 @@ import org.hibernate.validator.constraints.time.DurationMin;
 public record MediaProperties(
         @NotNull @DurationMin(seconds = 1) Duration uploadUrlTtl,
         @NotNull @DurationMin(seconds = 1) Duration viewUrlTtl,
+        @NotNull @DurationMin(seconds = 1) Duration deleteGrace,
         @Min(1) long maxUploadBytes
 ) {
 }
