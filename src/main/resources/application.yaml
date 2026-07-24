@@ -18,6 +18,12 @@ spring:
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
 
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+
 app:
   jwt:
     issuer: ${JWT_ISSUER:dogether}
