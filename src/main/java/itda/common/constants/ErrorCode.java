@@ -1,0 +1,58 @@
+package itda.common.constants;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+@Getter
+@RequiredArgsConstructor
+public enum ErrorCode {
+
+    VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "검증에 실패했습니다."),
+    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류입니다."),
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증에 실패했습니다."),
+    FORBIDDEN(HttpStatus.FORBIDDEN, "현재 계정에 권한이 없습니다."),
+    CONCURRENT_UPDATE_CONFLICT(
+            HttpStatus.CONFLICT,
+            "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
+    ),
+
+    USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
+    PUBLIC_TAG_GENERATION_FAILED(HttpStatus.CONFLICT, "공개 사용자 태그를 생성하지 못했습니다."),
+    LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "잘못된 비밀번호 또는 존재하지 않는 이메일입니다."),
+    REFRESH_TOKEN_EXPIRED(HttpStatus.UNAUTHORIZED, "해당 Refresh Token은 만료되었습니다."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 계정을 찾을 수 없습니다."),
+    NEIGHBORHOOD_NOT_FOUND(HttpStatus.UNPROCESSABLE_CONTENT, "선택할 수 없는 동네입니다."),
+    ACCOUNT_NOT_ACTIVE(HttpStatus.FORBIDDEN, "현재 이용할 수 없는 계정입니다."),
+
+    MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어 자산을 찾을 수 없습니다."),
+    MEDIA_NOT_UPLOADED(HttpStatus.UNPROCESSABLE_CONTENT, "업로드된 객체를 확인할 수 없습니다."),
+    MEDIA_EXPIRED(HttpStatus.GONE, "미디어 업로드 요청이 만료되었습니다."),
+    MEDIA_NOT_OWNED(HttpStatus.FORBIDDEN, "해당 미디어 자산의 소유자가 아닙니다."),
+    INVALID_MEDIA_TYPE(HttpStatus.UNPROCESSABLE_CONTENT, "허용되지 않는 미디어 형식입니다."),
+    MEDIA_SIZE_INVALID(HttpStatus.UNPROCESSABLE_CONTENT, "허용된 미디어 크기를 초과했습니다."),
+    MEDIA_STATE_CONFLICT(HttpStatus.CONFLICT, "현재 미디어 상태에서는 요청을 처리할 수 없습니다."),
+    MEDIA_PURPOSE_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 마일스톤에서 해당 미디어를 업로드할 수 없습니다."),
+
+    PET_REQUIRED(HttpStatus.FORBIDDEN, "반려견 등록이 필요한 기능입니다."),
+    ACTIVE_PET_REQUIRED(HttpStatus.FORBIDDEN, "활동할 반려견을 먼저 선택해주세요."),
+    PET_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "반려견은 최대 5마리까지 등록할 수 있습니다."),
+    ACTIVE_PET_DELETE_FORBIDDEN(HttpStatus.CONFLICT, "활동 중인 반려견은 삭제할 수 없습니다."),
+    SAME_OWNER_INTERACTION_FORBIDDEN(HttpStatus.BAD_REQUEST, "같은 사용자가 소유한 반려견끼리는 상호작용할 수 없습니다."),
+
+    GREETING_ALREADY_USED(HttpStatus.CONFLICT, "이미 인사한 상대에게 다시 인사할 수 없습니다."),
+    GREETING_DAILY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "하루 인사 가능 인원을 초과했습니다."),
+    GREETING_REPLY_REQUIRED(HttpStatus.CONFLICT, "상대가 답변한 뒤 추가 메시지를 보낼 수 있습니다."),
+    FRIEND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "친구는 반려견당 최대 50명까지 등록할 수 있습니다."),
+    FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
+    BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
+
+    SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.BAD_REQUEST, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),
+    MEETING_CARD_NOT_EDITABLE(HttpStatus.CONFLICT, "M1에서는 약속 카드를 수정할 수 없습니다."),
+    MEETING_CARD_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "약속 참여 반려견만 카드를 취소할 수 있습니다."),
+    REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다.");
+
+    private final HttpStatus status;
+    private final String description;
+}
