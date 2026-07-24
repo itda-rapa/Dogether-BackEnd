@@ -45,11 +45,14 @@ Google OAuth2 의존성은 M2 소셜 로그인 작업에서 추가한다.
 
 ## Product contract
 
-- 최신 M1/M2 정책: `docs/spec/00_최신_제품정책.md`
 - [기본설정 구조와 설계 이유](docs/프로젝트_기본설정_온보딩.md)
-- 기존 v13 문서와 충돌하면 위 정책 문서를 우선한다.
 - M1의 `SETLOG` 업로드는 시드 콘텐츠를 적재하는 관리자만 가능하다.
 - 일반 사용자의 셋로그 업로드는 M2 범위다.
+
+## Collaboration
+
+- [Git·브랜치·PR 규칙](docs/convention/01_Git_브랜치_PR_규칙.md)
+- [백엔드 코딩 컨벤션](docs/convention/02_코딩_컨벤션.md)
 
 ## Database migration
 
