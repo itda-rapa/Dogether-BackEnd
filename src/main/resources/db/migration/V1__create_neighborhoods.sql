@@ -1,0 +1,9 @@
+CREATE TABLE neighborhoods (
+    code VARCHAR(20) PRIMARY KEY,
+    sido_name VARCHAR(50) NOT NULL,
+    sigungu_name VARCHAR(50),
+    eupmyeondong_name VARCHAR(50),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

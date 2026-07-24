@@ -1,0 +1,90 @@
+package itda.auth.service;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
+
+import itda.auth.dto.LoginRequest;
+import itda.auth.dto.SignupRequest;
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
+import itda.common.security.dto.IssuedTokens;
+import itda.common.security.service.TokenProvider;
+import itda.neighborhood.repository.NeighborhoodRepository;
+import itda.user.domain.User;
+import itda.user.repository.UserRepository;
+import java.time.Instant;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@ExtendWith(MockitoExtension.class)
+class AuthServiceTest {
+
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private NeighborhoodRepository neighborhoodRepository;
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    @Mock
+    private TokenProvider tokenProvider;
+
+    private AuthService authService;
+
+    @BeforeEach
+    void setUp() {
+        authService = new AuthService(
+                userRepository,
+                neighborhoodRepository,
+                passwordEncoder,
+                tokenProvider
+        );
+    }
+
+    @Test
+    void signupChecksNeighborhoodAndStoresEncodedPassword() {
+        SignupRequest request = new SignupRequest(
+                "USER@example.com",
+                "long-password",
+                "사용자",
+                "1168010100"
+        );
+        given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                .willReturn(Optional.empty());
+        given(neighborhoodRepository.existsByCodeAndActiveTrue("1168010100"))
+                .willReturn(true);
+        given(passwordEncoder.encode("long-password")).willReturn("encoded");
+        given(userRepository.saveAndFlush(any(User.class)))
+                .willAnswer(invocation -> invocation.getArgument(0));
+        given(tokenProvider.issueTokens(any(User.class)))
+                .willReturn(new IssuedTokens(
+                        "access",
+                        "refresh",
+                        Instant.parse("2026-07-24T00:30:00Z")
+                ));
+
+        authService.signup(request);
+
+        verify(passwordEncoder).encode("long-password");
+        verify(userRepository).saveAndFlush(any(User.class));
+    }
+
+    @Test
+    void loginDoesNotRevealWhetherEmailOrPasswordWasWrong() {
+        given(userRepository.findByEmailIgnoreCase("missing@example.com"))
+                .willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> authService.login(
+                new LoginRequest("missing@example.com", "wrong-password")
+        ))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.LOGIN_FAILED);
+    }
+}
