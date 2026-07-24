@@ -8,9 +8,9 @@ import static org.mockito.Mockito.verify;
 
 import itda.auth.dto.LoginRequest;
 import itda.auth.dto.SignupRequest;
+import itda.auth.dto.AuthTokensResponse;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
-import itda.common.security.dto.IssuedTokens;
 import itda.common.security.service.TokenProvider;
 import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.user.domain.User;
@@ -70,10 +70,8 @@ class AuthServiceTest {
                 .willReturn(true);
         given(passwordEncoder.encode("long-password")).willReturn("encoded");
         given(publicTagGenerator.generate("사용자")).willReturn("사용자#A7K2");
-        given(userRegistrationService.save(any(User.class)))
-                .willAnswer(invocation -> invocation.getArgument(0));
-        given(tokenProvider.issueTokens(any(User.class)))
-                .willReturn(new IssuedTokens(
+        given(userRegistrationService.registerAndIssue(any(User.class)))
+                .willReturn(new AuthTokensResponse(
                         "access",
                         "refresh",
                         Instant.parse("2026-07-24T00:30:00Z")
@@ -82,7 +80,7 @@ class AuthServiceTest {
         authService.signup(request);
 
         verify(passwordEncoder).encode("long-password");
-        verify(userRegistrationService).save(any(User.class));
+        verify(userRegistrationService).registerAndIssue(any(User.class));
     }
 
     @Test
@@ -113,13 +111,11 @@ class AuthServiceTest {
         given(passwordEncoder.encode("long-password")).willReturn("encoded");
         given(publicTagGenerator.generate("사용자"))
                 .willReturn("사용자#AAAA", "사용자#BBBB");
-        given(userRegistrationService.save(any(User.class)))
+        given(userRegistrationService.registerAndIssue(any(User.class)))
                 .willThrow(new DataIntegrityViolationException(
                         "duplicate key violates uk_users_public_tag"
                 ))
-                .willAnswer(invocation -> invocation.getArgument(0));
-        given(tokenProvider.issueTokens(any(User.class)))
-                .willReturn(new IssuedTokens(
+                .willReturn(new AuthTokensResponse(
                         "access",
                         "refresh",
                         Instant.parse("2026-07-24T00:30:00Z")
@@ -127,7 +123,8 @@ class AuthServiceTest {
 
         authService.signup(request);
 
-        verify(userRegistrationService, times(2)).save(any(User.class));
+        verify(userRegistrationService, times(2))
+                .registerAndIssue(any(User.class));
         verify(publicTagGenerator, times(2)).generate("사용자");
     }
 }

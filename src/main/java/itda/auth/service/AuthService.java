@@ -67,10 +67,7 @@ public class AuthService {
             );
 
             try {
-                User registeredUser = userRegistrationService.save(user);
-                return AuthTokensResponse.from(
-                        tokenProvider.issueTokens(registeredUser)
-                );
+                return userRegistrationService.registerAndIssue(user);
             } catch (DataIntegrityViolationException exception) {
                 if (isConstraintViolation(exception, EMAIL_UNIQUE_CONSTRAINT)) {
                     throw new BusinessException(ErrorCode.USER_EMAIL_DUPLICATED);
@@ -102,7 +99,6 @@ public class AuthService {
         return AuthTokensResponse.from(tokenProvider.issueTokens(user));
     }
 
-    @Transactional
     public AuthTokensResponse refresh(String rawRefreshToken) {
         return AuthTokensResponse.from(
                 tokenProvider.rotateRefreshToken(rawRefreshToken)
