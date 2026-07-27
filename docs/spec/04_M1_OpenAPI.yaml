@@ -155,6 +155,11 @@ paths:
       description: |
         Active Pet이 없는 L1 사용자도 호출할 수 있으며 ACTIVE_PET_REQUIRED를 선행 적용하지 않는다.
         대상은 요청 User가 소유하고 status=ACTIVE, deletedAt=null인 Pet이어야 한다.
+        Pet이 없으면 404 PET_NOT_FOUND, 타인 소유면 403 PET_NOT_OWNED,
+        ACTIVE·미삭제 조건을 충족하지 않으면 403 PET_NOT_ACTIVE를 반환한다.
+        동시 선택·잠금 충돌 등으로 요청 상태가 변경되면
+        409 CONCURRENT_UPDATE_CONFLICT를 반환한다. 이 409는 POST /pets 후속 자동
+        지정의 201 RETRY_REQUIRED와 다른 수동 선택 API 오류 흐름이다.
       requestBody:
         required: true
         content:
@@ -178,9 +183,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/MeEnvelope'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: PET_NOT_OWNED 또는 PET_NOT_ACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: PET_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /pets:
     post:
@@ -189,13 +204,19 @@ paths:
       operationId: createPet
       description: |
         owner User를 직렬화한 생성 트랜잭션에서 deleted_at IS NULL Pet 수를 조회한다.
+        이 생성 트랜잭션에서 owner User 잠금·동시 수정 충돌이 발생하면 Pet을
+        Commit하지 않고 409 CONCURRENT_UPDATE_CONFLICT를 반환한다.
         생성 전 수가 0이면 내부 firstPetCandidate=true로 확정하고 Pet을 Commit한다.
         생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.
         lock timeout·deadlock처럼 예상 가능한 일시적 Active 지정 실패에는 생성된
         Pet을 유지하고 201과 RETRY_REQUIRED를 반환한다. DB 연결 장애·무결성 오류·
-        코딩 오류는 RETRY_REQUIRED로 숨기지 않는다.
+        코딩 오류·불변조건 위반은 RETRY_REQUIRED 또는 NOT_APPLICABLE로 숨기지 않고
+        원인에 맞는 오류 흐름으로 처리한다. 선행 Pet 생성이 이미 Commit됐다면 후속
+        자동 Active 지정이 오류로 실패해도 생성 Pet은 유지된다.
         같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시
         409 PET_LIMIT_EXCEEDED를 반환한다.
+        Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면
+        409 PET_PUBLIC_TAG_GENERATION_FAILED를 반환한다.
         M1은 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는 GET /pets/me로
         생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.
       requestBody:
@@ -216,7 +237,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PetCreateEnvelope'
         '409':
-          description: 미삭제 Pet 5마리 한도 초과 또는 생성 상태 충돌
+          description: PET_LIMIT_EXCEEDED, PET_PUBLIC_TAG_GENERATION_FAILED 또는 CONCURRENT_UPDATE_CONFLICT
           content:
             application/json:
               schema:
@@ -271,7 +292,16 @@ paths:
       tags: [Pet]
       summary: Pet 상세 조회
       operationId: getMyPet
-      description: 본인 소유 Pet의 전체 정보를 조회한다.
+      description: |
+        본인 소유의 미삭제 Pet 전체 정보를 조회한다.
+        Pet 행 존재 여부, 삭제 여부, 미삭제 Pet의 소유권 순서로 확인한다.
+        Pet 행이 없거나 삭제된 Pet이면 소유권 검사보다 먼저
+        404 PET_NOT_FOUND를 반환한다.
+        삭제되지 않은 Pet이 존재하지만 다른 User 소유인 경우에만
+        403 PET_NOT_OWNED를 반환한다.
+        따라서 다른 User 소유이면서 삭제된 Pet도 404 PET_NOT_FOUND로 처리한다.
+        과거 Chat 이력 표시용 내부 Pet 조회는 이 REST endpoint와 별도이며
+        삭제된 Pet도 조회할 수 있다.
       responses:
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -282,9 +312,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/PetEnvelope'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Pet 행 없음 또는 삭제. 소유권 검사보다 우선한다. (PET_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: 삭제되지 않은 다른 User 소유 Pet (PET_NOT_OWNED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
     patch:
       tags: [Pet]
       summary: Pet 수정
@@ -1321,8 +1359,10 @@ components:
           maxLength: 30
         breedCode:
           type: [string, 'null']
+          maxLength: 30
         breedName:
           type: [string, 'null']
+          maxLength: 100
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -1333,6 +1373,8 @@ components:
         weightKg:
           type: [number, 'null']
           minimum: 0
+          maximum: 999.99
+          multipleOf: 0.01
         sizeCode:
           type: [string, 'null']
           enum: [SMALL, MEDIUM, LARGE, null]
@@ -1357,8 +1399,10 @@ components:
           maxLength: 30
         breedCode:
           type: [string, 'null']
+          maxLength: 30
         breedName:
           type: [string, 'null']
+          maxLength: 100
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -1369,6 +1413,8 @@ components:
         weightKg:
           type: [number, 'null']
           minimum: 0
+          maximum: 999.99
+          multipleOf: 0.01
         sizeCode:
           type: [string, 'null']
           enum: [SMALL, MEDIUM, LARGE, null]
