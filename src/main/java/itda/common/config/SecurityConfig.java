@@ -82,6 +82,10 @@ public class SecurityConfig {
                                 "/auth/login",
                                 "/auth/refresh"
                         ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/neighborhoods"
+                        ).permitAll()
                         .requestMatchers("/admin/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")
                         .anyRequest().authenticated())
