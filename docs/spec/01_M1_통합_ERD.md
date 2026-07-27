@@ -20,7 +20,7 @@
 ```mermaid
 erDiagram
     NEIGHBORHOODS ||--o{ USERS : selected_by
-    USERS ||--o{ PETS : owns
+    USERS ||..o{ PETS : owns
     USERS ||--o{ REFRESH_TOKENS : has
     USERS ||--o{ MEDIA_ASSETS : owns
     USERS ||--o{ USER_BLOCKS : blocks
@@ -59,7 +59,11 @@ erDiagram
 
 ### PETS
 
-- `public_tag`는 `<nickname>#XXXX` 형식의 필수·Unique 공개 검색 식별자다.
+- `public_tag`는 trim한 nickname 앞 25개 Unicode code point와 `#XXXX`로 만든
+  필수·Unique 공개 검색 식별자다.
+- User와 Pet PublicTag는 별도 Namespace이며 Pet 충돌은 새 트랜잭션에서 최대
+  5회 재시도한다.
+- nickname은 trim 후 1자 이상이다.
 - 같은 owner의 `deleted_at IS NULL` Pet은 최대 5마리다.
 - `SUSPENDED`는 한도에 포함하고 `DELETED`·`deleted_at IS NOT NULL`은 제외한다.
 - `status = DELETED ↔ deleted_at IS NOT NULL`을 DB CHECK와 서비스 전이에서 함께 보장한다.
@@ -69,13 +73,16 @@ erDiagram
 - Pet 생성 트랜잭션에서 owner를 직렬화하고 생성 전 미삭제 Pet 수로
   내부 `firstPetCandidate`를 확정한다.
 - 생성 Commit 뒤 후보인 경우에만 Active 지정을 별도 트랜잭션으로 실행한다.
-- Active 지정 실패는 Pet 생성을 되돌리지 않으며 L1 사용자는 기존 Active 선택 API로 복구한다.
+- 예상 가능한 일시적 Active 지정 실패는 Pet 생성을 되돌리지 않으며 L1 사용자는 기존 Active 선택 API로 복구한다.
+- `GET /pets/me`는 Active Pet 우선, 나머지는 `created_at ASC, id ASC`다.
+- M1 `profile_url`은 null이며 클라이언트가 기본 이미지를 표시한다.
 
 ## 4. 등록정보 조회
 
 - 식별자는 `REGISTRATION_NUMBER`, `RFID`를 허용한다.
 - 보호자 이름·생년월일은 Provider 요청에만 사용하고 저장하지 않는다.
 - M1 Provider 호출은 동기 처리한다.
+- Provider 완료 후 최종 상태만 저장하고 `PENDING` 상태는 DB에 저장하지 않는다.
 - canonical 등록번호가 없으면 Attempt를 `REJECTED`로 종결하고 배지를 발급하지 않는다.
 - Attempt에 `consumed_pet_id`, `updated_at`을 둔다.
 - 활성 `token_hash`는 Partial Unique다.
@@ -170,7 +177,10 @@ erDiagram
 
 ## 11. 실제 PostgreSQL 제약
 
-상세 DDL은 같은 폴더의 `01_M1_통합_ERD.sql`을 정본으로 한다.
+`01_M1_통합_ERD.sql`은 M1 전체 목표 구조를 한 번에 이해하기 위한 참고 DDL이다.
+실제 적용된 물리 스키마의 정본은 Flyway Migration이다. 신규 도메인은 참고 SQL을
+직접 실행하지 않고 기존 Migration과 충돌하지 않는 다음 버전 Migration으로
+분할해 반영한다.
 
 - Lowercase email Unique
 - User public tag Unique

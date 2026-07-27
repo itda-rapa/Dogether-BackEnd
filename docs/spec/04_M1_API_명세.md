@@ -1,6 +1,6 @@
 # 같이놀개 M1 API
 
-> 버전: `1.3.0-m1`
+> 버전: `1.3.1-m1`
 > 형식: 정적 OpenAPI를 사람이 읽도록 풀어쓴 상세 설명
 > REST 계약 정본: `04_M1_OpenAPI.yaml`
 
@@ -9,6 +9,8 @@
 M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭제,<br>
 사용자 셋로그 업로드, 회원탈퇴, 욕설 자동 차단 및 AI 대화 검열을 제공하지 않는다.<br>
 최상위 bearerAuth가 적용되는 모든 operation은 인증 실패 시 401 ErrorEnvelope를 반환한다.<br>
+각 오류 표는 HTTP Status별 대표 ErrorCode 하나를 보여준다. 실제 가능한 전체
+오류는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.<br>
 
 ## 1. 공통 규칙
 
@@ -87,10 +89,10 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
   "message": "처리 내용입니다.",
   "data": [
     {
-      "code": "VALIDATION_FAILED",
-      "sidoName": "string",
-      "sigunguName": "string",
-      "eupmyeondongName": "string"
+      "code": "4113111500",
+      "sidoName": "경기도",
+      "sigunguName": "성남시 수정구",
+      "eupmyeondongName": "시흥동"
     }
   ],
   "error": null
@@ -107,7 +109,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`SignupRequest`](#schema-signuprequest)
 
 **Request JSON**
@@ -144,19 +146,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `409` | `USER_EMAIL_DUPLICATED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /auth/login`
 
@@ -165,7 +162,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`LoginRequest`](#schema-loginrequest)
 
 **Request JSON**
@@ -201,19 +198,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /auth/refresh`
 
@@ -222,7 +215,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`RefreshRequest`](#schema-refreshrequest)
 
 **Request JSON**
@@ -256,19 +249,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /auth/logout`
 
@@ -283,19 +271,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `204` | 로그아웃 완료 | object |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
-**Error Response JSON — 401**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.3. Me
 
@@ -332,19 +314,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `PUT /me/active-pet`
 
@@ -354,7 +330,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: object
 
 **Request JSON**
@@ -396,19 +372,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.4. Pet
 
@@ -416,11 +389,11 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `createPet`
 - 인증: Bearer Token 필요
-- 설명: owner User를 직렬화한 생성 트랜잭션에서 `deleted_at IS NULL` Pet 수를 조회한다.<br>생성 전 수가 0이면 내부 `firstPetCandidate=true`로 확정하고 Pet을 Commit한다.<br>생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.<br>Active 지정 실패에도 생성된 Pet은 유지되며 `201 + RETRY_REQUIRED`를 반환한다.<br>같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시 `409 PET_LIMIT_EXCEEDED`다.<br>
+- 설명: owner User를 직렬화한 생성 트랜잭션에서 `deleted_at IS NULL` Pet 수를 조회한다.<br>생성 전 수가 0이면 내부 `firstPetCandidate=true`로 확정하고 Pet을 Commit한다.<br>생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.<br>lock timeout·deadlock처럼 예상 가능한 일시 실패에는 생성된 Pet을 유지하고 `201 + RETRY_REQUIRED`를 반환한다.<br>DB 연결 장애·무결성 오류·코딩 오류는 `RETRY_REQUIRED`로 숨기지 않는다.<br>같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시 `409 PET_LIMIT_EXCEEDED`다.<br>M1은 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는 `GET /pets/me`로 생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.<br>
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`PetCreateRequest`](#schema-petcreaterequest)
 
 **Request JSON**
@@ -471,16 +444,17 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "neutered": true,
       "birthDate": "2026-07-24",
       "weightKg": 1,
-      "sizeCode": "string",
+      "sizeCode": "SMALL",
       "bio": "string",
       "personalityTags": [
         "string"
       ],
       "careNote": "string",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "status": "ACTIVE",
-      "verified": true,
-      "verifiedAt": "2026-07-24T09:00:00Z",
+      "deletedAt": null,
+      "verified": false,
+      "verifiedAt": null,
       "active": true
     },
     "activeAssignmentStatus": "ASSIGNED"
@@ -489,24 +463,21 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "PET_LIMIT_EXCEEDED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `409` | `PET_LIMIT_EXCEEDED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /pets/me`
 
 - operationId: `listMyPets`
 - 인증: Bearer Token 필요
+- 설명: Active Pet을 먼저, 나머지는 `createdAt ASC, petId ASC`로 반환한다.
 
 **응답**
 
@@ -534,14 +505,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "neutered": true,
       "birthDate": "2026-07-24",
       "weightKg": 1,
-      "sizeCode": "string",
+      "sizeCode": "SMALL",
       "bio": "string",
       "personalityTags": [
         "string"
       ],
       "careNote": "string",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "status": "ACTIVE",
+      "deletedAt": null,
       "verified": true,
       "verifiedAt": "2026-07-24T09:00:00Z",
       "active": true
@@ -551,19 +523,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /pets/search`
 
@@ -595,7 +561,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "petId": 1,
     "publicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "profileUrl": "https://example.com/resource",
+    "profileUrl": null,
     "verified": true,
     "relationship": "NONE"
   },
@@ -603,19 +569,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `DELETE /pets/{petId}`
 
@@ -639,19 +600,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `409` | 상태 또는 중복 충돌 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
-**Error Response JSON — 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `ACTIVE_PET_DELETE_FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /pets/{petId}`
 
@@ -692,14 +650,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "neutered": true,
     "birthDate": "2026-07-24",
     "weightKg": 1,
-    "sizeCode": "string",
+    "sizeCode": "SMALL",
     "bio": "string",
     "personalityTags": [
       "string"
     ],
     "careNote": "string",
-    "profileUrl": "https://example.com/resource",
+    "profileUrl": null,
     "status": "ACTIVE",
+    "deletedAt": null,
     "verified": true,
     "verifiedAt": "2026-07-24T09:00:00Z",
     "active": true
@@ -708,19 +667,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `PATCH /pets/{petId}`
 
@@ -736,7 +691,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`PetUpdateRequest`](#schema-petupdaterequest)
 
 **Request JSON**
@@ -787,14 +742,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "neutered": true,
     "birthDate": "2026-07-24",
     "weightKg": 1,
-    "sizeCode": "string",
+    "sizeCode": "SMALL",
     "bio": "string",
     "personalityTags": [
       "string"
     ],
     "careNote": "string",
-    "profileUrl": "https://example.com/resource",
+    "profileUrl": null,
     "status": "ACTIVE",
+    "deletedAt": null,
     "verified": true,
     "verifiedAt": "2026-07-24T09:00:00Z",
     "active": true
@@ -803,19 +759,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.5. PetVerification
 
@@ -823,11 +776,11 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `lookupPetRegistration`
 - 인증: Bearer Token 필요
-- 설명: M1 Provider는 동기 처리한다.<br>보호자 이름과 생년월일은 Provider 요청에만 사용하고 저장하거나 로그에 남기지 않는다.<br>canonical 등록번호가 없으면 `REJECTED`로 응답하고 배지를 발급하지 않되 직접 Pet 등록은 허용한다.<br>
+- 설명: M1 Provider는 동기 처리한다.<br>보호자 이름과 생년월일은 Provider 요청에만 사용하고 저장하거나 로그에 남기지 않는다.<br>Provider 완료 후 최종 상태만 저장하며 `PENDING`은 DB에 저장하지 않는다.<br>canonical 등록번호가 없으면 `REJECTED`로 응답하고 배지를 발급하지 않되 직접 Pet 등록은 허용한다.<br>
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`PetVerificationAttemptRequest`](#schema-petverificationattemptrequest)
 
 **Request JSON**
@@ -883,19 +836,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `409` | `CONCURRENT_UPDATE_CONFLICT` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /pet-registration/attempts/{attemptId}/consume`
 
@@ -911,7 +860,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: object
 
 **Request JSON**
@@ -951,14 +900,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "neutered": true,
     "birthDate": "2026-07-24",
     "weightKg": 1,
-    "sizeCode": "string",
+    "sizeCode": "SMALL",
     "bio": "string",
     "personalityTags": [
       "string"
     ],
     "careNote": "string",
-    "profileUrl": "https://example.com/resource",
+    "profileUrl": null,
     "status": "ACTIVE",
+    "deletedAt": null,
     "verified": true,
     "verifiedAt": "2026-07-24T09:00:00Z",
     "active": true
@@ -967,19 +917,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `CONCURRENT_UPDATE_CONFLICT` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.6. Setlog
 
@@ -1009,7 +956,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
         "petId": 1,
         "publicTag": "몽이#A7K2",
         "nickname": "몽이",
-        "profileUrl": "https://example.com/resource",
+        "profileUrl": null,
         "verified": true,
         "relationship": "NONE"
       },
@@ -1029,19 +976,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `DELETE /setlogs/{setlogId}/reactions/{type}`
 
@@ -1082,19 +1023,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `PUT /setlogs/{setlogId}/reactions/{type}`
 
@@ -1135,19 +1072,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.7. Greeting
 
@@ -1192,19 +1125,17 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404, 409, 429**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `CONCURRENT_UPDATE_CONFLICT` |
+| `429` | `GREETING_DAILY_LIMIT_EXCEEDED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.8. Friend
 
@@ -1216,7 +1147,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: object
 
 **Request JSON**
@@ -1251,7 +1182,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1259,7 +1190,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1273,19 +1204,17 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `SAME_OWNER_INTERACTION_FORBIDDEN` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `BLOCKED_USER` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `FRIEND_LIMIT_EXCEEDED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /friend-requests/received`
 
@@ -1322,7 +1251,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
           "petId": 1,
           "publicTag": "몽이#A7K2",
           "nickname": "몽이",
-          "profileUrl": "https://example.com/resource",
+          "profileUrl": null,
           "verified": true,
           "relationship": "NONE"
         },
@@ -1330,7 +1259,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
           "petId": 1,
           "publicTag": "몽이#A7K2",
           "nickname": "몽이",
-          "profileUrl": "https://example.com/resource",
+          "profileUrl": null,
           "verified": true,
           "relationship": "NONE"
         },
@@ -1350,19 +1279,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /friend-requests/sent`
 
@@ -1399,7 +1323,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
           "petId": 1,
           "publicTag": "몽이#A7K2",
           "nickname": "몽이",
-          "profileUrl": "https://example.com/resource",
+          "profileUrl": null,
           "verified": true,
           "relationship": "NONE"
         },
@@ -1407,7 +1331,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
           "petId": 1,
           "publicTag": "몽이#A7K2",
           "nickname": "몽이",
-          "profileUrl": "https://example.com/resource",
+          "profileUrl": null,
           "verified": true,
           "relationship": "NONE"
         },
@@ -1427,19 +1351,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /friend-requests/{requestId}/accept`
 
@@ -1474,7 +1393,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1482,7 +1401,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1496,19 +1415,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `FRIEND_REQUEST_NOT_PENDING` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /friend-requests/{requestId}/reject`
 
@@ -1543,7 +1459,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1551,7 +1467,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1565,19 +1481,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `FRIEND_REQUEST_NOT_PENDING` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `DELETE /friend-requests/{requestId}`
 
@@ -1600,19 +1513,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `409` | 상태 또는 중복 충돌 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
-**Error Response JSON — 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `FRIEND_REQUEST_NOT_PENDING` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /pets/{petId}/friends`
 
@@ -1648,7 +1558,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
         "petId": 1,
         "publicTag": "몽이#A7K2",
         "nickname": "몽이",
-        "profileUrl": "https://example.com/resource",
+        "profileUrl": null,
         "verified": true,
         "relationship": "NONE"
       }
@@ -1662,19 +1572,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `DELETE /pets/{petId}/friends/{friendPetId}`
 
@@ -1698,19 +1604,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.9. Chat
 
@@ -1751,7 +1653,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
           "petId": 1,
           "publicTag": "몽이#A7K2",
           "nickname": "몽이",
-          "profileUrl": "https://example.com/resource",
+          "profileUrl": null,
           "verified": true,
           "relationship": "NONE"
         },
@@ -1781,19 +1683,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /chat/rooms/{roomId}`
 
@@ -1829,7 +1726,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "petId": 1,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "profileUrl": "https://example.com/resource",
+      "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
@@ -1853,19 +1750,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /chat/rooms/{roomId}/messages`
 
@@ -1917,19 +1810,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /chat/rooms/{roomId}/messages`
 
@@ -1945,7 +1834,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`ChatMessageCreateRequest`](#schema-chatmessagecreaterequest)
 
 **Request JSON**
@@ -1990,19 +1879,17 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `BLOCKED_USER` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `GREETING_REPLY_REQUIRED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.10. MeetingCard
 
@@ -2047,19 +1934,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /meeting-cards`
 
@@ -2068,7 +1951,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`MeetingCardCreateRequest`](#schema-meetingcardcreaterequest)
 
 **Request JSON**
@@ -2119,19 +2002,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /meeting-cards/{cardId}`
 
@@ -2179,19 +2059,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /meeting-cards/{cardId}/cancel`
 
@@ -2241,19 +2117,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `MEETING_CARD_CANCEL_FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `MEETING_CARD_NOT_EDITABLE` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.11. Block
 
@@ -2300,19 +2173,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /me/blocks`
 
@@ -2322,7 +2189,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`BlockCreateRequest`](#schema-blockcreaterequest)
 
 **Request JSON**
@@ -2360,19 +2227,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.12. Report
 
@@ -2384,7 +2248,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`ReportCreateRequest`](#schema-reportcreaterequest)
 
 **Request JSON**
@@ -2431,19 +2295,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `REPORT_ROOM_REQUIRED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ### 3.13. Admin
 
@@ -2501,19 +2362,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `GET /admin/reports/{reportId}`
 
@@ -2596,19 +2452,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 401, 403, 404**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 #### `POST /admin/reports/{reportId}/actions`
 
@@ -2624,7 +2476,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 **요청 본문**
 
-- 필수: ㅇ
+- 요청 본문: 필수
 - 스키마: [`AdminReportActionRequest`](#schema-adminreportactionrequest)
 
 **Request JSON**
@@ -2670,19 +2522,17 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 }
 ```
 
-**Error Response JSON — 400, 401, 403, 404, 409**
+**대표 오류 코드**
 
-```json
-{
-  "success": false,
-  "message": "처리 내용입니다.",
-  "data": null,
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "처리 내용입니다."
-  }
-}
-```
+| HTTP | 대표 ErrorCode |
+|---:|---|
+| `400` | `VALIDATION_FAILED` |
+| `401` | `UNAUTHORIZED` |
+| `403` | `FORBIDDEN` |
+| `404` | `RESOURCE_NOT_FOUND` |
+| `409` | `CONCURRENT_UPDATE_CONFLICT` |
+
+실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
 ## 4. 스키마
 
@@ -2752,7 +2602,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---|---:|---|---|---|
 | `userId` | ㅇ | integer | format: int64 | - |
 | `email` | ㅇ | string | format: email | - |
-| `nickname` | ㅇ | string | - | - |
+| `nickname` | ㅇ | string | minLength: 1 | trim 후 1자 이상 |
 | `publicTag` | ㅇ | string | - | - |
 | `role` | ㅇ | string | enum: USER, ADMIN, SUPER_ADMIN | - |
 | `accountStatus` | ㅇ | string | enum: ACTIVE, SUSPENDED, WITHDRAWN | - |
@@ -2765,7 +2615,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㅇ | string | maxLength: 30 | - |
+| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
 | `breedCode` | ㄴ | string / null | - | - |
 | `breedName` | ㄴ | string / null | - | - |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
@@ -2782,7 +2632,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㄴ | string | maxLength: 30 | - |
+| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
 | `breedCode` | ㄴ | string / null | - | - |
 | `breedName` | ㄴ | string / null | - | - |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
@@ -2807,20 +2657,20 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---|---:|---|---|---|
 | `petId` | ㅇ | integer | format: int64 | - |
 | `ownerUserId` | ㅇ | integer | format: int64 | - |
-| `publicTag` | ㅇ | string | - | 서버가 생성한 Pet 공개 검색 태그 |
+| `publicTag` | ㅇ | string | maxLength: 30, pattern: `<1~25자>#XXXX` | User와 별도 Namespace. nickname 앞 25개 Unicode code point로 생성 |
 | `ownerPublicTag` | ㄴ | string | - | - |
-| `nickname` | ㅇ | string | - | - |
+| `nickname` | ㅇ | string | minLength: 1 | trim 후 1자 이상 |
 | `breedCode` | ㄴ | string / null | - | - |
 | `breedName` | ㄴ | string / null | - | - |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
 | `weightKg` | ㄴ | number / null | - | - |
-| `sizeCode` | ㄴ | string / null | - | - |
+| `sizeCode` | ㄴ | string / null | enum: SMALL, MEDIUM, LARGE, null | - |
 | `bio` | ㄴ | string / null | - | - |
 | `personalityTags` | ㄴ | array<string> | - | - |
 | `careNote` | ㄴ | string / null | - | - |
-| `profileUrl` | ㄴ | string / null | format: uri | M1은 업로드 API를 제공하지 않으며 서버 기본 이미지 URL을 반환할 수 있다. |
+| `profileUrl` | ㄴ | string / null | format: uri | M1은 null이며 클라이언트가 기본 이미지를 표시한다. |
 | `status` | ㅇ | string | enum: ACTIVE, SUSPENDED, DELETED | DELETED이면 deletedAt 필수, ACTIVE/SUSPENDED이면 deletedAt은 null |
 | `deletedAt` | ㅇ | string / null | format: date-time | 삭제 시각. ACTIVE/SUSPENDED이면 null, DELETED이면 필수 값 |
 | `verified` | ㅇ | boolean | - | - |
@@ -2833,9 +2683,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
 | `petId` | ㅇ | integer | format: int64 | - |
-| `publicTag` | ㅇ | string | - | Pet 공개 태그 |
-| `nickname` | ㅇ | string | - | - |
-| `profileUrl` | ㄴ | string / null | format: uri | - |
+| `publicTag` | ㅇ | string | maxLength: 30, pattern: `<1~25자>#XXXX` | Pet 공개 태그 |
+| `nickname` | ㅇ | string | minLength: 1 | trim 후 1자 이상 |
+| `profileUrl` | ㄴ | string / null | format: uri | M1은 null이며 클라이언트가 기본 이미지를 표시한다. |
 | `verified` | ㅇ | boolean | - | - |
 | `relationship` | ㅇ | string / null | enum: NONE, REQUEST_SENT, REQUEST_RECEIVED, FRIEND, null | Active Pet이 없는 L1은 null |
 
@@ -2856,7 +2706,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
 | `attemptId` | ㅇ | integer | format: int64 | - |
-| `status` | ㅇ | string | enum: SUCCEEDED, REJECTED, FAILED | canonical 등록번호가 없거나 정보가 불일치하면 REJECTED |
+| `status` | ㅇ | string | enum: SUCCEEDED, REJECTED, FAILED | M1은 PENDING을 저장하지 않는다. canonical 등록번호가 없거나 정보가 불일치하면 REJECTED |
 | `resultCode` | ㅇ | string | - | - |
 | `verificationToken` | ㄴ | string / null | - | - |
 | `expiresAt` | ㄴ | string / null | format: date-time | - |
@@ -3127,7 +2977,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | array<[`Neighborhood`](#schema-neighborhood)> | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-envelopeauthtokens"></a>
 ### `EnvelopeAuthTokens`
@@ -3137,7 +2987,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`AuthTokens`](#schema-authtokens) | - | [`AuthTokens`](#schema-authtokens) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-meenvelope"></a>
 ### `MeEnvelope`
@@ -3147,7 +2997,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`Me`](#schema-me) | - | [`Me`](#schema-me) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-petenvelope"></a>
 ### `PetEnvelope`
@@ -3157,7 +3007,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`Pet`](#schema-pet) | - | [`Pet`](#schema-pet) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-petcreateresult"></a>
 ### `PetCreateResult`
@@ -3165,7 +3015,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
 | `pet` | ㅇ | [`Pet`](#schema-pet) | - | [`Pet`](#schema-pet) |
-| `activeAssignmentStatus` | ㅇ | string | enum: ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE | firstPetCandidate=true이고 자동 지정 성공이면 ASSIGNED, 후보지만 별도 지정 트랜잭션 실패면 RETRY_REQUIRED,<br>후보가 아니거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다. firstPetCandidate는 외부에 노출하지 않는다.<br> |
+| `activeAssignmentStatus` | ㅇ | string | enum: ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE | 자동 지정 성공이면 ASSIGNED, lock timeout·deadlock 등 예상 가능한 일시 실패면 RETRY_REQUIRED,<br>후보가 아니거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다. DB 장애·무결성 오류·코딩 오류는 숨기지 않는다.<br> |
 
 <a id="schema-petcreateenvelope"></a>
 ### `PetCreateEnvelope`
@@ -3175,7 +3025,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`PetCreateResult`](#schema-petcreateresult) | - | [`PetCreateResult`](#schema-petcreateresult) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-petlistenvelope"></a>
 ### `PetListEnvelope`
@@ -3185,7 +3035,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | array<[`Pet`](#schema-pet)> | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-petsearchenvelope"></a>
 ### `PetSearchEnvelope`
@@ -3195,7 +3045,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`PetSearchItem`](#schema-petsearchitem) / null | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-petsearchlistenvelope"></a>
 ### `PetSearchListEnvelope`
@@ -3205,7 +3055,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | object | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-petverificationattemptenvelope"></a>
 ### `PetVerificationAttemptEnvelope`
@@ -3215,7 +3065,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`PetVerificationAttempt`](#schema-petverificationattempt) | - | [`PetVerificationAttempt`](#schema-petverificationattempt) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-setloglistenvelope"></a>
 ### `SetlogListEnvelope`
@@ -3225,7 +3075,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | array<[`Setlog`](#schema-setlog)> | minItems: 0<br>maxItems: 3 | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-setlogreactionenvelope"></a>
 ### `SetlogReactionEnvelope`
@@ -3235,7 +3085,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`SetlogReaction`](#schema-setlogreaction) | - | [`SetlogReaction`](#schema-setlogreaction) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-greetingenvelope"></a>
 ### `GreetingEnvelope`
@@ -3245,7 +3095,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`Greeting`](#schema-greeting) | - | [`Greeting`](#schema-greeting) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-friendrequestenvelope"></a>
 ### `FriendRequestEnvelope`
@@ -3255,7 +3105,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`FriendRequest`](#schema-friendrequest) | - | [`FriendRequest`](#schema-friendrequest) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-friendrequestlistenvelope"></a>
 ### `FriendRequestListEnvelope`
@@ -3265,7 +3115,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | object | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-chatroomenvelope"></a>
 ### `ChatRoomEnvelope`
@@ -3275,7 +3125,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`ChatRoom`](#schema-chatroom) | - | [`ChatRoom`](#schema-chatroom) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-chatroomlistenvelope"></a>
 ### `ChatRoomListEnvelope`
@@ -3285,7 +3135,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | object | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-chatmessageenvelope"></a>
 ### `ChatMessageEnvelope`
@@ -3295,7 +3145,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`ChatMessage`](#schema-chatmessage) | - | [`ChatMessage`](#schema-chatmessage) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-chatmessagelistenvelope"></a>
 ### `ChatMessageListEnvelope`
@@ -3305,7 +3155,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | object | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-carddraftenvelope"></a>
 ### `CardDraftEnvelope`
@@ -3315,7 +3165,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`CardDraft`](#schema-carddraft) | - | [`CardDraft`](#schema-carddraft) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-meetingcardenvelope"></a>
 ### `MeetingCardEnvelope`
@@ -3325,7 +3175,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`MeetingCard`](#schema-meetingcard) | - | [`MeetingCard`](#schema-meetingcard) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-blockenvelope"></a>
 ### `BlockEnvelope`
@@ -3335,7 +3185,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`Block`](#schema-block) | - | [`Block`](#schema-block) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-blocklistenvelope"></a>
 ### `BlockListEnvelope`
@@ -3345,7 +3195,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | object | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-reportenvelope"></a>
 ### `ReportEnvelope`
@@ -3355,7 +3205,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`Report`](#schema-report) | - | [`Report`](#schema-report) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-adminreportpageenvelope"></a>
 ### `AdminReportPageEnvelope`
@@ -3365,7 +3215,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | object | - | - |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-adminreportdetailenvelope"></a>
 ### `AdminReportDetailEnvelope`
@@ -3375,7 +3225,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
 | `data` | ㅇ | [`AdminReportDetail`](#schema-adminreportdetail) | - | [`AdminReportDetail`](#schema-adminreportdetail) |
-| `error` | ㄴ | null | - | - |
+| `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 ## 5. M1 제외 범위
 

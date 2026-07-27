@@ -23,7 +23,7 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 | Method | Path | 설명 |
 |---|---|---|
 | POST | `/pets` | 직접 입력 Pet 등록 |
-| GET | `/pets/me` | 내 Pet 목록 |
+| GET | `/pets/me` | Active Pet 우선, 나머지 생성순 내 Pet 목록 |
 | GET | `/pets/{petId}` | Pet 상세 |
 | PATCH | `/pets/{petId}` | Pet 수정, 인증 근거 변경 시 배지 해제 |
 | DELETE | `/pets/{petId}` | Active Pet 삭제 금지 |
@@ -36,10 +36,17 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 - `status = DELETED ↔ deleted_at IS NOT NULL`을 보장한다.
 - Pet 생성 트랜잭션에서 내부 `firstPetCandidate`를 확정하고 Commit한다.
 - 생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.
-- Active 지정 실패에도 `201 Created`와 생성된 Pet, `RETRY_REQUIRED`를 반환한다.
+- 예상 가능한 일시적 Active 지정 실패에는 `201 Created`와 생성된 Pet,
+  `RETRY_REQUIRED`를 반환한다. DB 장애·무결성 오류·코딩 오류는 정상 오류로 처리한다.
 - L1 사용자는 `PUT /me/active-pet`으로 본인 소유의 `ACTIVE`·미삭제 Pet을 선택할 수 있다.
 - 등록정보 Provider는 M1에서 동기 처리하며 canonical 등록번호가 없으면 `REJECTED`로 종결한다.
+- Attempt는 Provider 완료 후 최종 상태만 저장하고 DB에 `PENDING`을 저장하지 않는다.
 - consume은 `SUCCEEDED` Attempt에서만 허용하고 중복 consume은 `409`다.
+- PublicTag는 User와 별도 Namespace이며 nickname 앞 25개 Unicode code point와
+  `#XXXX`로 생성한다. 충돌 시 새 트랜잭션에서 최대 5회 재시도한다.
+- nickname은 trim 후 1자 이상, M1 `profileUrl`은 null이다.
+- M1은 Pet 생성 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는
+  `GET /pets/me`로 생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.
 
 ## 시드 셋로그·반응·인사
 
@@ -119,6 +126,7 @@ M1 차단 해제 API는 없다. 신고는 차단을 자동 수행하지 않는�
 기본 HTTP Status는 `400` 형식·검증 오류, `403` 권한·행위 금지,
 `404` 조회 불가, `409` 중복·한도·상태 충돌로 단순화한다.
 다른 Status가 필요한 endpoint만 계약에 명시적으로 추가한다.
+별도 Status는 정적 OpenAPI → ErrorCode → 구현 → 테스트 순으로 같은 PR에서 변경한다.
 
 - `PET_REQUIRED`
 - `ACTIVE_PET_REQUIRED`

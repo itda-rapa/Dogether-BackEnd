@@ -95,8 +95,8 @@
 | 작업 ID | 권장 기간 | 분류 | 주담당 | 협업·검토 | 선행 | 산출물·완료 기준 | 우선순위 | 현재 상태 |
 |---|---|---|---|---|---|---|---|---|
 | M1-001 | 7/24 | 설계 | BE-3 | 전원 | 없음 | 최신 제품정책·API·ERD·상태전이와 본 WBS 승인 | P0 | 완료 |
-| M1-002 | 7/24 | 설계 | BE-3 | BE-1, BE-2 | M1-001 | M1 ERD와 SQL 정합, 핵심 제약 검토 | P0 | 완료(문서) |
-| M1-003 | 7/24 | 설계 | BE-2 | BE-1, BE-3 | M1-001 | M1 API 명세와 OpenAPI 소비자 검토 | P0 | 완료(문서) |
+| M1-002 | 7/24~7/27 | 설계 | BE-3 | BE-1, BE-2 | M1-001 | Flyway 정본 관계·M1 ERD·참고 SQL·핵심 제약 검토 | P0 | 부분완료 |
+| M1-003 | 7/24~7/27 | 설계 | BE-2 | BE-1, BE-3 | M1-001 | M1 API·OpenAPI·Example·오류 매트릭스 소비자 검토 | P0 | 부분완료 |
 | M1-004 | 7/24~7/25 | Web | BE-2 | BE-1, BE-3 | M1-001 | React 반응형 웹 셸, 라우팅, 인증 상태, 공통 API client | P0 | 미착수 |
 | M1-005 | 7/24~7/25 | 인프라 | BE-1 | BE-3 | M1-001 | 로컬 PostgreSQL·API 실행, profile·환경변수 기준 확정 | P0 | 부분완료 |
 | M1-006 | 7/24~7/29 | DB | 도메인별 담당 | BE-3 검토 | M1-002 | 전체 도메인 migration, Flyway clean-migrate 및 PostgreSQL 제약 테스트 | P0 | 부분완료 |
@@ -106,9 +106,9 @@
 | M1-010 | — | 촬영 UI | BE-2 | — | — | 기존 정면·측면 촬영 UI | — | CANCELED |
 | M1-011 | — | 사진 판별 | AI-1 | — | — | 기존 사진 판별 모델 | — | CANCELED |
 | M1-012 | — | 검증 사진 처리 | BE-1 | — | — | 기존 검증 사진 승격·삭제 | — | CANCELED |
-| M1-013 | 7/24~7/26 | Pet Core | BE-3 | BE-2 | M1-006 | 미삭제 Pet 최대 5마리·owner 동시성 제어, 삭제 상태 CHECK, 생성 전 후보 확정, 생성·Active 지정 독립 Commit, L1 수동 복구 | P0 | 미착수 |
-| M1-013A | 7/25~7/27 | 등록 인증 | BE-3 | BE-2 | M1-013 | 동기 Provider, canonical 부재 REJECTED, consume·배지·스냅샷·fingerprint·PII 미저장 | P1 | 미착수 |
-| M1-014 | 7/24~7/26 | 채팅 Core | BE-2 | BE-3 검토 | M1-002, M1-003 | DIRECT room·participant·message schema/service, Pet pair 정합 | P0 | 미착수 |
+| M1-013 | 7/27~7/28 | Pet Core | BE-3 | BE-2 | M1-006 | 미삭제 Pet 최대 5마리·owner 동시성 제어, 삭제 상태 CHECK, 생성 전 후보 확정, 생성·Active 지정 독립 Commit, L1 수동 복구 | P0 병목 | 미착수 |
+| M1-013A | 7/28~7/29 | 등록 인증 | BE-3 | BE-2 | M1-013 | 동기 Provider 최종 상태 저장, canonical 부재 REJECTED, consume·배지·스냅샷·fingerprint·PII 미저장 | P1 | 미착수 |
+| M1-014 | 7/27~7/28 | 채팅 Core | BE-2 | BE-3 검토 | M1-002, M1-003, M1-013 인터페이스 | DIRECT room·participant·message schema/service, Pet pair 정합. Fixture 병렬 개발 가능, 최종 통합은 M1-013 병합 후 | P0 | 미착수 |
 | M1-015 | 7/25~7/27 | 채팅 API | BE-2 | — | M1-014 | 방 목록·메시지 이력·TEXT 전송 polling API | P0 | 미착수 |
 | M1-017 | 7/26~7/28 | 채팅 Web | BE-2 | — | M1-004, M1-015 | 방 목록·대화·전송 UI, polling, 오류별 입력 제한 | P0 | 미착수 |
 | M1-019 | — | Mobile | BE-2 | — | — | React Native 앱 | — | MOVED(POST-M1) |
@@ -127,13 +127,13 @@
 | M1-032 | — | 검열 UI | BE-2 | — | — | 위험 메시지·case 검열 화면 | — | CANCELED |
 | M1-033 | 7/24~7/26 | AI 계약 | AI-1 | BE-2 | M1-003 | 최근 30개·24시간 이내 입력, 5초 제한, EMPTY_FORM fixture | P0 의존 | 미착수 |
 | M1-034 | — | 검열 AI | AI-1 | — | — | moderate-batch 계약 | — | CANCELED |
-| M1-035 | 7/24~7/27 | 시드 셋로그 | BE-1 | BE-3 검토 | M1-005, M1-006 | S3 시드 영상 3개, Presigned GET, L1 홈 조회 API와 화면 | P0 | 미착수 |
+| M1-035 | 7/27~7/28 | 시드 셋로그 | BE-1 | BE-3 검토 | M1-005, M1-006, M1-013 또는 Pet Fixture | S3 시드 영상 3개, Presigned GET, L1 홈 조회 API와 화면 | P0 | 미착수 |
 | M1-036 | 7/26~7/28 | 셋로그 반응 | BE-1 | BE-2 | M1-035, M1-013 | CUTE·LIKE 독립 추가/취소, 자기 Pet 금지, 카운트 API와 화면 | P1 | 미착수 |
 | M1-037 | 7/25~7/27 | 인사 | BE-2 | BE-3 검토 | M1-014, M1-035 | 인사→DIRECT·최초 고정 메시지, Pet당 일 10명, 재인사 영구 금지 | P0 | 미착수 |
 | M1-038 | 7/26~7/28 | 방 수명주기 | BE-2 | BE-3 검토 | M1-037 | 답변 전 추가 전송 금지, 24시간 무답 정리, 신고 방 보존, 30일 보관·복구 | P0 | 미착수 |
 | M1-039 | 7/26~7/28 | 차단 | BE-2 | BE-3 검토 | M1-006, M1-028 | User 단위 차단 API·검사·UI, 관계 정리, 콘텐츠 숨김, 해제 없음 | P0 | 미착수 |
 | M1-040 | 7/27~7/29 | 신고·관리자 신고 | BE-2 | BE-3(RBAC) | M1-015, M1-025 | DIRECT 신고, 관리자 큐·전체 방 이력·처리 API와 화면 | P0 | 미착수 |
-| M1-041 | 7/24~7/27 | 시드 데이터 | BE-1 | BE-3 검토 | M1-006, M1-035 | 시드 User·Pet·Setlog와 영상 3개, local·dev·demo 재현 절차 | P0 | 미착수 |
+| M1-041 | 7/27~7/28 | 시드 데이터 | BE-1 | BE-3 검토 | M1-006, M1-013 또는 Pet Fixture, M1-035 | 시드 User·Pet·Setlog와 영상 3개, local·dev·demo 재현 절차 | P0 | 미착수 |
 | M1-042 | 7/27~7/29 | Web 통합 | BE-2 | BE-1, BE-3 | M1-004, 각 Web 작업 | 공통 라우팅·인증 상태·API client·화면 merge, 반응형 확인 | P0 | 미착수 |
 
 ## 5. 담당자별 실행 순서
@@ -172,7 +172,7 @@ BE-3는 모든 migration을 대신 작성하지 않는다. 도메인 담당자�
 
 | 제공자 → 소비자 | 제공물 | 필요 시점 | 차단되는 작업 |
 |---|---|---|---|
-| BE-3 → 전원 | User·Pet·Active Pet·권한 인터페이스 | 7/25 | 반응·인사·친구·차단·카드 |
+| BE-3 → 전원 | User·Pet ID·ActivePetContext·Pet Summary·권한 인터페이스 | 즉시 | 채팅·반응·인사·친구·차단·카드·시드 셋로그 |
 | BE-3 → BE-2 | ADMIN 접근 검사와 DB 재검증 | 7/26 | 관리자 신고 큐·전체 대화 조회 |
 | BE-1 → BE-2 | 시드 Setlog·Pet 식별자와 조회 계약 | 7/26 | 셋로그 인사 화면 |
 | BE-2 → AI-1 | 카드 입력·출력 계약 | 7/24 | 카드 fixture |
@@ -182,12 +182,26 @@ BE-3는 모든 migration을 대신 작성하지 않는다. 도메인 담당자�
 
 카드 AI가 지연되어도 M1을 막지 않는다. BE-2는 timeout·오류 시 빈 폼으로 카드 작성이 가능한 경로를 먼저 완성한다.
 
+### 6.1 7/27 기준 Pet Core 긴급 실행 순서
+
+1. `GET /me`
+2. Pet Entity·다음 버전 Flyway Migration
+3. `POST /pets`
+4. `PUT /me/active-pet`
+5. 채팅용 ActivePetQuery·Pet Summary 계약
+6. `GET /pets/me`
+7. `GET /pets/{petId}`
+8. 등록정보 인증
+9. Pet 수정·삭제
+
+`M1-013A`는 v12·v13에서 보존한 기존 작업 ID이며 신규 번호가 아니다.
+
 ## 7. M1 Gate
 
 아래 시나리오를 dev 환경에서 3회 연속 통과해야 M1 완료로 본다.
 
 1. 이메일 회원가입에서 시흥동·금토동·사송동 중 동네를 직접 선택하고 로그인·Refresh·Logout한다.
-2. Pet을 직접 등록해 첫 Pet 후보와 Active 지정 결과를 확인한다. Active 지정 실패 시 Pet은 유지되고 L1 사용자가 수동 선택한다. 미삭제 Pet 5마리 한도와 삭제 상태 CHECK를 PostgreSQL에서 검증한다.
+2. Pet을 직접 등록해 첫 Pet 후보와 Active 지정 결과를 확인한다. 예상 가능한 일시적 Active 지정 실패 시 Pet은 유지되고 L1 사용자가 수동 선택한다. 예상 밖 오류가 `RETRY_REQUIRED`로 숨겨지지 않는지 확인한다. 미삭제 Pet 5마리 한도와 삭제 상태 CHECK를 PostgreSQL에서 검증한다.
 3. L1 사용자는 시드 셋로그 3개를 보고, L2 사용자는 CUTE·LIKE를 독립적으로 누른다.
 4. 셋로그에서 인사하면 DIRECT 방과 최초 메시지가 생성되고, 상대 답변 전 추가 전송은 거절된다.
 5. 상대 답변 뒤 polling으로 양방향 TEXT 대화를 확인한다.
