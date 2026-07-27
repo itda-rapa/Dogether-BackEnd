@@ -326,6 +326,16 @@ CREATE TABLE chat_messages (
         OR (sender_type = 'SYSTEM' AND sender_pet_id IS NULL)
     ),
     CONSTRAINT ck_chat_message_type CHECK (type IN ('TEXT', 'CARD', 'SYSTEM')),
+    CONSTRAINT ck_chat_message_payload CHECK (
+        (type = 'TEXT' AND sender_type = 'PET'
+            AND body IS NOT NULL AND BTRIM(body) <> '' AND meeting_card_id IS NULL)
+        OR
+        (type = 'CARD' AND sender_type = 'PET'
+            AND body IS NULL AND meeting_card_id IS NOT NULL)
+        OR
+        (type = 'SYSTEM' AND sender_type = 'SYSTEM'
+            AND body IS NOT NULL AND BTRIM(body) <> '' AND meeting_card_id IS NULL)
+    ),
     CONSTRAINT uk_chat_message_client UNIQUE (room_id, client_message_id),
     CONSTRAINT uk_chat_message_card UNIQUE (meeting_card_id)
 );
