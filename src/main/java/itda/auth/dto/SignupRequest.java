@@ -22,4 +22,12 @@ public record SignupRequest(
         @Size(max = 20)
         String neighborhoodCode
 ) {
+
+    public SignupRequest {
+        email = email == null ? null : email.trim();
+        nickname = nickname == null ? null : nickname.trim();
+        neighborhoodCode = neighborhoodCode == null
+                ? null
+                : neighborhoodCode.trim();
+    }
 }

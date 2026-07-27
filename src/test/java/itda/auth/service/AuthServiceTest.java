@@ -3,6 +3,8 @@ package itda.auth.service;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -19,6 +21,8 @@ import itda.user.service.PublicTagGenerator;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -126,5 +130,145 @@ class AuthServiceTest {
         verify(userRegistrationService, times(2))
                 .registerAndIssue(any(User.class));
         verify(publicTagGenerator, times(2)).generate("사용자");
+    }
+
+    @Nested
+    @DisplayName("Describe: login")
+    class DescribeLogin {
+
+        @Nested
+        @DisplayName("Context: password가 일치하지 않으면")
+        class WithIncorrectPassword {
+
+            @Test
+            @DisplayName("It: LOGIN_FAILED로 거부한다")
+            void itRejectsAsLoginFailed() {
+                // given
+                User user = mock(User.class);
+                given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                        .willReturn(Optional.of(user));
+                given(user.getPasswordHash()).willReturn("encoded-password");
+                given(passwordEncoder.matches("wrong-password", "encoded-password"))
+                        .willReturn(false);
+
+                // when & then
+                assertThatThrownBy(() -> authService.login(
+                        new LoginRequest("user@example.com", "wrong-password")
+                ))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception ->
+                                ((BusinessException) exception).getErrorCode()
+                        )
+                        .isEqualTo(ErrorCode.LOGIN_FAILED);
+                then(tokenProvider).shouldHaveNoInteractions();
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: User가 비활성이면")
+        class WithInactiveUser {
+
+            @Test
+            @DisplayName("It: ACCOUNT_NOT_ACTIVE로 거부한다")
+            void itRejectsAsAccountNotActive() {
+                // given
+                User user = mock(User.class);
+                given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                        .willReturn(Optional.of(user));
+                given(user.getPasswordHash()).willReturn("encoded-password");
+                given(passwordEncoder.matches("correct-password", "encoded-password"))
+                        .willReturn(true);
+                given(user.isActive()).willReturn(false);
+
+                // when & then
+                assertThatThrownBy(() -> authService.login(
+                        new LoginRequest("user@example.com", "correct-password")
+                ))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception ->
+                                ((BusinessException) exception).getErrorCode()
+                        )
+                        .isEqualTo(ErrorCode.ACCOUNT_NOT_ACTIVE);
+                then(tokenProvider).shouldHaveNoInteractions();
+            }
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: signup")
+    class DescribeSignup {
+
+        @Nested
+        @DisplayName("Context: 가입 가능한 동네가 아니면")
+        class WithUnavailableNeighborhood {
+
+            @Test
+            @DisplayName("It: NEIGHBORHOOD_NOT_FOUND로 거부하고 가입 처리를 진행하지 않는다")
+            void itRejectsWithoutRegisteringUser() {
+                // given
+                SignupRequest request = new SignupRequest(
+                        "user@example.com",
+                        "long-password",
+                        "사용자",
+                        "4113111500"
+                );
+                given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                        .willReturn(Optional.empty());
+                given(neighborhoodRepository.existsByCodeAndActiveTrue("4113111500"))
+                        .willReturn(false);
+
+                // when & then
+                assertThatThrownBy(() -> authService.signup(request))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception ->
+                                ((BusinessException) exception).getErrorCode()
+                        )
+                        .isEqualTo(ErrorCode.NEIGHBORHOOD_NOT_FOUND);
+                then(neighborhoodRepository)
+                        .should()
+                        .existsByCodeAndActiveTrue("4113111500");
+                then(passwordEncoder).shouldHaveNoInteractions();
+                then(publicTagGenerator).shouldHaveNoInteractions();
+                then(userRegistrationService).shouldHaveNoInteractions();
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: PublicTag 충돌 재시도를 모두 소진하면")
+        class WithExhaustedPublicTagRetries {
+
+            @Test
+            @DisplayName("It: PUBLIC_TAG_GENERATION_FAILED로 거부한다")
+            void itRejectsAsPublicTagGenerationFailed() {
+                // given
+                SignupRequest request = new SignupRequest(
+                        "user@example.com",
+                        "long-password",
+                        "사용자",
+                        "4113111500"
+                );
+                given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                        .willReturn(Optional.empty());
+                given(neighborhoodRepository.existsByCodeAndActiveTrue("4113111500"))
+                        .willReturn(true);
+                given(passwordEncoder.encode("long-password")).willReturn("encoded");
+                given(publicTagGenerator.generate("사용자"))
+                        .willReturn("사용자#AAAA");
+                given(userRegistrationService.registerAndIssue(any(User.class)))
+                        .willThrow(new DataIntegrityViolationException(
+                                "duplicate key violates uk_users_public_tag"
+                        ));
+
+                // when & then
+                assertThatThrownBy(() -> authService.signup(request))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception ->
+                                ((BusinessException) exception).getErrorCode()
+                        )
+                        .isEqualTo(ErrorCode.PUBLIC_TAG_GENERATION_FAILED);
+                then(userRegistrationService).should(times(5))
+                        .registerAndIssue(any(User.class));
+            }
+        }
     }
 }
