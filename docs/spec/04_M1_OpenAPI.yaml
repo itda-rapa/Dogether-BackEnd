@@ -1,0 +1,2215 @@
+openapi: 3.1.0
+info:
+  title: 같이놀개 M1 API
+  version: 1.3.0-m1
+  description: |
+    최신 제품 정책과 M1 통합 ERD를 기준으로 작성한 정적 REST 계약 정본이다.
+    런타임 /v3/api-docs는 현재 구현 관찰용이며 계약 정본이나 필수 CI Gate가 아니다.
+    M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭제,
+    사용자 셋로그 업로드, 회원탈퇴, 욕설 자동 차단 및 AI 대화 검열을 제공하지 않는다.
+    최상위 bearerAuth가 적용되는 모든 operation은 인증 실패 시
+    401 ErrorEnvelope를 반환한다.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: Neighborhood
+  - name: Auth
+  - name: Me
+  - name: Pet
+  - name: PetVerification
+  - name: Setlog
+  - name: Greeting
+  - name: Friend
+  - name: Chat
+  - name: MeetingCard
+  - name: Block
+  - name: Report
+  - name: Admin
+
+paths:
+  /neighborhoods:
+    get:
+      tags: [Neighborhood]
+      summary: 가입 가능한 동네 목록
+      operationId: listNeighborhoods
+      security: []
+      responses:
+        '200':
+          description: 활성 동네 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NeighborhoodListEnvelope'
+
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: 이메일 회원가입
+      operationId: signup
+      description: 이메일 인증 없이 가입하며 동네를 직접 선택한다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+      responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '201':
+          description: 가입 및 토큰 발급 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokensEnvelope'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 이메일 로그인
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '200':
+          description: 로그인 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokensEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh Token 회전
+      operationId: refreshTokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '200':
+          description: 토큰 회전 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokensEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 로그아웃
+      operationId: logout
+      description: 현재 사용자의 활성 Refresh Token을 모두 폐기한다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '204':
+          description: 로그아웃 완료
+
+  /me:
+    get:
+      tags: [Me]
+      summary: 내 정보 조회
+      operationId: getMe
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 내 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeEnvelope'
+  /me/active-pet:
+    put:
+      tags: [Me]
+      summary: Active Pet 변경
+      operationId: selectActivePet
+      description: |
+        Active Pet이 없는 L1 사용자도 호출할 수 있으며 ACTIVE_PET_REQUIRED를 선행 적용하지 않는다.
+        대상은 요청 User가 소유하고 status=ACTIVE, deletedAt=null인 Pet이어야 한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [petId]
+              properties:
+                petId:
+                  type: integer
+                  format: int64
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '200':
+          description: Active Pet 변경 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /pets:
+    post:
+      tags: [Pet]
+      summary: Pet 직접 등록
+      operationId: createPet
+      description: |
+        owner User를 직렬화한 생성 트랜잭션에서 deleted_at IS NULL Pet 수를 조회한다.
+        생성 전 수가 0이면 내부 firstPetCandidate=true로 확정하고 Pet을 Commit한다.
+        생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.
+        Active 지정 실패에도 생성된 Pet은 유지되며 201과 RETRY_REQUIRED를 반환한다.
+        같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시
+        409 PET_LIMIT_EXCEEDED를 반환한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PetCreateRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '201':
+          description: Pet 등록 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetCreateEnvelope'
+        '409':
+          description: 미삭제 Pet 5마리 한도 초과 또는 생성 상태 충돌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /pets/me:
+    get:
+      tags: [Pet]
+      summary: 내 Pet 목록
+      operationId: listMyPets
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 내 Pet 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetListEnvelope'
+
+  /pets/search:
+    get:
+      tags: [Pet, Friend]
+      summary: Pet 공개 태그 검색
+      operationId: searchPetByPublicTag
+      description: 친구 요청 진입점이다. 차단 관계와 자기 소유 Pet은 결과에서 제외한다.
+      parameters:
+        - name: publicTag
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 30
+          example: 몽이#A7K2
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 검색 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetSearchEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /pets/{petId}:
+    parameters:
+      - $ref: '#/components/parameters/PetId'
+    get:
+      tags: [Pet]
+      summary: Pet 상세 조회
+      operationId: getMyPet
+      description: 본인 소유 Pet의 전체 정보를 조회한다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Pet 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Pet]
+      summary: Pet 수정
+      operationId: updatePet
+      description: |
+        nickname, breedCode, breedName, sex, neutered, birthDate 중
+        인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PetUpdateRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '200':
+          description: 수정 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Pet]
+      summary: Pet 삭제
+      operationId: deletePet
+      description: Active Pet은 삭제할 수 없다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '204':
+          description: 삭제 완료
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /pet-registration/attempts:
+    post:
+      tags: [PetVerification]
+      summary: 동물 등록정보 조회
+      operationId: lookupPetRegistration
+      description: |
+        M1 Provider는 동기 처리한다. 보호자 이름과 생년월일은 Provider 요청에만
+        사용하고 저장하거나 로그에 남기지 않는다. canonical 등록번호가 없으면
+        status=REJECTED로 응답하며 배지는 발급하지 않지만 직접 Pet 등록은 허용한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PetVerificationAttemptRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '200':
+          description: 조회 결과 및 일회용 적용 토큰
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetVerificationAttemptEnvelope'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /pet-registration/attempts/{attemptId}/consume:
+    post:
+      tags: [PetVerification]
+      summary: 조회 결과를 Pet에 적용
+      operationId: consumePetRegistrationAttempt
+      description: SUCCEEDED Attempt에서만 허용하며 이미 CONSUMED된 Attempt는 409를 반환한다.
+      parameters:
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [petId, verificationToken]
+              properties:
+                petId:
+                  type: integer
+                  format: int64
+                verificationToken:
+                  type: string
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '200':
+          description: 인증 배지 적용 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetEnvelope'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /setlogs:
+    get:
+      tags: [Setlog]
+      summary: M1 공통 시드 셋로그 3개 조회
+      operationId: listSeedSetlogs
+      description: L1 이상 모든 사용자에게 동일한 시드 영상 3개를 반환한다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 시드 셋로그
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetlogListEnvelope'
+
+  /setlogs/{setlogId}/reactions/{type}:
+    parameters:
+      - name: setlogId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      - name: type
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/ReactionType'
+    put:
+      tags: [Setlog]
+      summary: 셋로그 반응 추가
+      operationId: addSetlogReaction
+      description: 동일 반응 추가는 멱등 처리한다. CUTE와 LIKE는 동시에 존재할 수 있다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 반응 상태
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetlogReactionEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Setlog]
+      summary: 셋로그 반응 취소
+      operationId: removeSetlogReaction
+      description: |
+        같은 버튼을 다시 누르면 클라이언트가 이 API를 호출한다.
+        반응이 이미 없어도 200과 reacted=false를 반환하는 멱등 API다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 반응 상태
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetlogReactionEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /setlogs/{setlogId}/greetings:
+    post:
+      tags: [Greeting]
+      summary: 고정 인사 전송 및 DIRECT 방 생성
+      operationId: sendGreeting
+      description: |
+        요청 본문은 없다. 서버가 "안녕하세요! 같이 놀아요." TEXT를 저장한다.
+        상대가 답변하기 전에는 추가 메시지를 보낼 수 없다.
+        하루 10명 제한은 Asia/Seoul 날짜 경계로 계산한다.
+      parameters:
+        - name: setlogId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '201':
+          description: 인사 및 방 생성 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GreetingEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /friend-requests:
+    post:
+      tags: [Friend]
+      summary: 친구 요청
+      operationId: createFriendRequest
+      description: Active Pet이 요청한다. 반대 방향 PENDING이 있으면 자동수락한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetPetId]
+              properties:
+                targetPetId:
+                  type: integer
+                  format: int64
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '201':
+          description: PENDING 요청 생성
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestEnvelope'
+        '200':
+          description: 반대 방향 요청 자동수락 및 DIRECT 방 보장
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /friend-requests/received:
+    get:
+      tags: [Friend]
+      summary: 받은 친구 요청 목록
+      operationId: listReceivedFriendRequests
+      description: 현재 Active Pet이 받은 요청만 반환한다.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 받은 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestListEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /friend-requests/sent:
+    get:
+      tags: [Friend]
+      summary: 보낸 친구 요청 목록
+      operationId: listSentFriendRequests
+      description: 현재 Active Pet이 보낸 요청만 반환한다.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 보낸 요청
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestListEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /friend-requests/{requestId}/accept:
+    post:
+      tags: [Friend]
+      summary: 친구 요청 수락
+      operationId: acceptFriendRequest
+      parameters:
+        - $ref: '#/components/parameters/FriendRequestId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 수락, Friendship 생성 및 DIRECT 방 보장
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /friend-requests/{requestId}/reject:
+    post:
+      tags: [Friend]
+      summary: 친구 요청 거절
+      operationId: rejectFriendRequest
+      parameters:
+        - $ref: '#/components/parameters/FriendRequestId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 거절 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /friend-requests/{requestId}:
+    delete:
+      tags: [Friend]
+      summary: 보낸 친구 요청 취소
+      operationId: cancelFriendRequest
+      parameters:
+        - $ref: '#/components/parameters/FriendRequestId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '204':
+          description: 취소 완료
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /pets/{petId}/friends:
+    get:
+      tags: [Friend]
+      summary: Pet 친구 목록
+      operationId: listPetFriends
+      parameters:
+        - $ref: '#/components/parameters/PetId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 친구 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetSearchListEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /pets/{petId}/friends/{friendPetId}:
+    delete:
+      tags: [Friend]
+      summary: 친구 삭제
+      operationId: deletePetFriend
+      description: 기존 DIRECT 방과 메시지는 유지하며 계속 대화할 수 있다.
+      parameters:
+        - $ref: '#/components/parameters/PetId'
+        - name: friendPetId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '204':
+          description: 친구 삭제 완료
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chat/rooms:
+    get:
+      tags: [Chat]
+      summary: DIRECT 방 목록 폴링
+      operationId: listChatRooms
+      description: |
+        현재 Active Pet이 Participant인 방을 lastMessageAt 내림차순으로 반환한다.
+        차단 관계 방은 숨기되 증거 보존을 위해 삭제하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 방 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatRoomListEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /chat/rooms/{roomId}:
+    get:
+      tags: [Chat]
+      summary: DIRECT 방 상세
+      operationId: getChatRoom
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 방 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatRoomEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /chat/rooms/{roomId}/messages:
+    get:
+      tags: [Chat]
+      summary: 새 메시지 폴링
+      operationId: listChatMessages
+      description: afterMessageId보다 큰 메시지를 ID 오름차순으로 반환한다.
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+        - name: afterMessageId
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 메시지 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessageListEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Chat]
+      summary: TEXT 메시지 전송
+      operationId: sendChatMessage
+      description: clientMessageId로 재시도 멱등성을 보장한다.
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatMessageCreateRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '201':
+          description: 메시지 생성
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessageEnvelope'
+        '200':
+          description: 동일 clientMessageId의 기존 메시지 반환
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessageEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /chat/rooms/{roomId}/card-drafts:
+    post:
+      tags: [MeetingCard]
+      summary: AI 약속 카드 초안 생성
+      operationId: createCardDraft
+      description: |
+        프런트는 최근 24시간 내 사용자 TEXT 메시지 2개 이상일 때 버튼을 활성화한다.
+        서버는 직접 호출 또는 경쟁 조건으로 0~1개여도 거절하지 않고
+        200과 fallback=true, fallbackReason=INSUFFICIENT_CONTEXT인 빈 폼을 반환한다.
+        AI에는 최근 24시간 내 사용자 TEXT를 최대 30개만 전달하며 CARD와 SYSTEM은 제외한다.
+        AI 실패·지연도 200 빈 폼으로 처리한다.
+      parameters:
+        - $ref: '#/components/parameters/RoomId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 카드 초안 또는 빈 폼
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CardDraftEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /meeting-cards:
+    post:
+      tags: [MeetingCard]
+      summary: 약속 카드 확정
+      operationId: createMeetingCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingCardCreateRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '201':
+          description: 카드 및 CARD 메시지 생성
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingCardEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /meeting-cards/{cardId}:
+    get:
+      tags: [MeetingCard]
+      summary: 약속 카드 상세
+      operationId: getMeetingCard
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 카드 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingCardEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /meeting-cards/{cardId}/cancel:
+    post:
+      tags: [MeetingCard]
+      summary: 약속 카드 취소
+      operationId: cancelMeetingCard
+      description: 참여 Pet 양쪽 모두 취소할 수 있다.
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 취소 및 SYSTEM 메시지 생성
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingCardEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /me/blocks:
+    post:
+      tags: [Block]
+      summary: User 단위 차단
+      operationId: createBlock
+      description: Friendship 삭제, 양방향 PENDING 요청 취소, 상호작용과 노출을 차단한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockCreateRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '201':
+          description: 차단 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockEnvelope'
+        '200':
+          description: 기존 차단 관계 반환
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Block]
+      summary: 차단 목록
+      operationId: listBlocks
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 차단 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockListEnvelope'
+
+  /reports:
+    post:
+      tags: [Report]
+      summary: DIRECT 방 신고
+      operationId: createReport
+      description: |
+        신고만으로 상대를 자동 차단하지 않는다.
+        동일 reporter·room에 OPEN 신고가 이미 있으면 새 행을 만들지 않고 기존 신고를 반환한다.
+        중복 요청의 reasonCode와 detail은 반영하지 않고 최초 OPEN 신고 내용을 유지한다.
+        reasonCode=OTHER이면 detail은 공백이 아닌 값으로 반드시 입력한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreateRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '201':
+          description: 신규 신고 접수
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportEnvelope'
+        '200':
+          description: 동일 reporter·room의 기존 OPEN 신고 반환
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/reports:
+    get:
+      tags: [Admin]
+      summary: 관리자 신고 큐
+      operationId: listAdminReports
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReportStatus'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 신고 큐
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReportPageEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/reports/{reportId}:
+    get:
+      tags: [Admin]
+      summary: 신고 상세 및 방 전체 대화 조회
+      operationId: getAdminReport
+      description: |
+        조회 자체는 상태를 변경하지 않는다. 사용자용 counterpartPet 관점 DTO를 재사용하지 않고
+        신고자·피신고자 User와 양쪽 Pet, 방, 전체 메시지를 관리자 전용 Evidence DTO로 반환한다.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 신고와 증거 전체
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminReportDetailEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/reports/{reportId}/actions:
+    post:
+      tags: [Admin]
+      summary: 관리자 신고 처리
+      operationId: resolveAdminReport
+      description: |
+        M1은 DISMISSED와 WARNING만 제공한다.
+        DISMISSED는 NO_ACTION, WARNING은 ACTIONED로 종결한다.
+        WARNING은 계정 상태를 바꾸지 않고 관리자 경고 이력만 기록한다.
+        종결된 신고에는 추가 WARNING을 포함한 어떤 조치도 다시 적용할 수 없으며 409를 반환한다.
+        WARNING 결과를 사용자에게 노출하는 API·알림·화면은 M1에 없다.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminReportActionRequest'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '200':
+          description: 처리 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportEnvelope'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 보호 API의 인증 실패는 401 ErrorEnvelope로 반환한다.
+
+  parameters:
+    PetId:
+      name: petId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    FriendRequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    CardId:
+      name: cardId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    BadRequest:
+      description: 잘못된 요청
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: 인증 실패
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Forbidden:
+      description: 권한 또는 정책 위반
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: 리소스 없음
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: 상태 또는 중복 충돌
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    TooManyRequests:
+      description: 일일 제한 초과
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        message:
+          type: string
+        data:
+          type: 'null'
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    SignupRequest:
+      type: object
+      required: [email, password, nickname, neighborhoodCode]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 10
+          maxLength: 128
+        nickname:
+          type: string
+          minLength: 2
+          maxLength: 20
+        neighborhoodCode:
+          type: string
+          maxLength: 20
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    AuthTokens:
+      type: object
+      required: [accessToken, refreshToken, accessTokenExpiresAt]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        accessTokenExpiresAt:
+          type: string
+          format: date-time
+    AuthTokensEnvelope:
+      $ref: '#/components/schemas/EnvelopeAuthTokens'
+
+    Neighborhood:
+      type: object
+      required: [code, sidoName, sigunguName, eupmyeondongName]
+      properties:
+        code:
+          type: string
+        sidoName:
+          type: string
+        sigunguName:
+          type: [string, 'null']
+        eupmyeondongName:
+          type: [string, 'null']
+
+    Me:
+      type: object
+      required: [userId, email, nickname, publicTag, role, accountStatus, accessLevel, neighborhoodCode, activePetId]
+      properties:
+        userId:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        nickname:
+          type: string
+        publicTag:
+          type: string
+        role:
+          type: string
+          enum: [USER, ADMIN, SUPER_ADMIN]
+        accountStatus:
+          type: string
+          enum: [ACTIVE, SUSPENDED, WITHDRAWN]
+        accessLevel:
+          type: string
+          enum: [L1, L2]
+        neighborhoodCode:
+          type: string
+        activePetId:
+          type: [integer, 'null']
+          format: int64
+
+    PetCreateRequest:
+      type: object
+      required: [nickname]
+      properties:
+        nickname:
+          type: string
+          maxLength: 30
+        breedCode:
+          type: [string, 'null']
+        breedName:
+          type: [string, 'null']
+        sex:
+          $ref: '#/components/schemas/NullablePetSex'
+        neutered:
+          type: [boolean, 'null']
+        birthDate:
+          type: [string, 'null']
+          format: date
+        weightKg:
+          type: [number, 'null']
+          minimum: 0
+        sizeCode:
+          type: [string, 'null']
+          enum: [SMALL, MEDIUM, LARGE, null]
+        bio:
+          type: [string, 'null']
+          maxLength: 500
+        personalityTags:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+        careNote:
+          type: [string, 'null']
+          maxLength: 500
+    PetUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        nickname:
+          type: string
+          maxLength: 30
+        breedCode:
+          type: [string, 'null']
+        breedName:
+          type: [string, 'null']
+        sex:
+          $ref: '#/components/schemas/NullablePetSex'
+        neutered:
+          type: [boolean, 'null']
+        birthDate:
+          type: [string, 'null']
+          format: date
+        weightKg:
+          type: [number, 'null']
+          minimum: 0
+        sizeCode:
+          type: [string, 'null']
+          enum: [SMALL, MEDIUM, LARGE, null]
+        bio:
+          type: [string, 'null']
+          maxLength: 500
+        personalityTags:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+        careNote:
+          type: [string, 'null']
+          maxLength: 500
+    NullablePetSex:
+      type: [string, 'null']
+      enum: [MALE, FEMALE, UNKNOWN, null]
+    Pet:
+      type: object
+      required: [petId, ownerUserId, publicTag, nickname, status, deletedAt, verified, active]
+      properties:
+        petId:
+          type: integer
+          format: int64
+        ownerUserId:
+          type: integer
+          format: int64
+        publicTag:
+          type: string
+          description: 서버가 생성한 Pet 공개 검색 태그
+        ownerPublicTag:
+          type: string
+        nickname:
+          type: string
+        breedCode:
+          type: [string, 'null']
+        breedName:
+          type: [string, 'null']
+        sex:
+          $ref: '#/components/schemas/NullablePetSex'
+        neutered:
+          type: [boolean, 'null']
+        birthDate:
+          type: [string, 'null']
+          format: date
+        weightKg:
+          type: [number, 'null']
+        sizeCode:
+          type: [string, 'null']
+        bio:
+          type: [string, 'null']
+        personalityTags:
+          type: array
+          items:
+            type: string
+        careNote:
+          type: [string, 'null']
+        profileUrl:
+          type: [string, 'null']
+          format: uri
+          description: M1은 업로드 API를 제공하지 않으며 서버 기본 이미지 URL을 반환할 수 있다.
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, DELETED]
+          description: DELETED이면 deletedAt이 필수이며 ACTIVE/SUSPENDED이면 deletedAt은 null이다.
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+        verified:
+          type: boolean
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+        active:
+          type: boolean
+    PetSearchItem:
+      type: object
+      required: [petId, publicTag, nickname, verified, relationship]
+      properties:
+        petId:
+          type: integer
+          format: int64
+        publicTag:
+          type: string
+          description: Pet 공개 태그
+        nickname:
+          type: string
+        profileUrl:
+          type: [string, 'null']
+          format: uri
+        verified:
+          type: boolean
+        relationship:
+          type: [string, 'null']
+          enum: [NONE, REQUEST_SENT, REQUEST_RECEIVED, FRIEND, null]
+          description: Active Pet이 없는 L1은 null
+
+    PetVerificationAttemptRequest:
+      type: object
+      required: [identifierType, identifier, ownerName, ownerBirthDate, consentVersion]
+      properties:
+        identifierType:
+          type: string
+          enum: [REGISTRATION_NUMBER, RFID]
+        identifier:
+          type: string
+          maxLength: 100
+        ownerName:
+          type: string
+          maxLength: 100
+          writeOnly: true
+        ownerBirthDate:
+          type: string
+          format: date
+          writeOnly: true
+        consentVersion:
+          type: string
+          maxLength: 30
+    PetVerificationAttempt:
+      type: object
+      required: [attemptId, status, resultCode]
+      properties:
+        attemptId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [SUCCEEDED, REJECTED, FAILED]
+          description: canonical 등록번호가 없거나 정보가 불일치하면 REJECTED다.
+        resultCode:
+          type: string
+        verificationToken:
+          type: [string, 'null']
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        petPrefill:
+          oneOf:
+            - $ref: '#/components/schemas/PetCreateRequest'
+            - type: 'null'
+
+    ReactionType:
+      type: string
+      enum: [CUTE, LIKE]
+    Setlog:
+      type: object
+      required: [setlogId, authorPet, mediaUrl, mediaUrlExpiresAt, caption, cuteCount, likeCount, myReactions, createdAt]
+      properties:
+        setlogId:
+          type: integer
+          format: int64
+        authorPet:
+          $ref: '#/components/schemas/PetSearchItem'
+        mediaUrl:
+          type: string
+          format: uri
+          description: 비공개 S3 객체를 재생하기 위한 Presigned GET URL
+        mediaUrlExpiresAt:
+          type: string
+          format: date-time
+          description: 만료 후 GET /setlogs를 다시 호출해 URL을 갱신한다.
+        caption:
+          type: [string, 'null']
+        cuteCount:
+          type: integer
+          minimum: 0
+        likeCount:
+          type: integer
+          minimum: 0
+        myReactions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ReactionType'
+        canInteract:
+          type: boolean
+          description: L2, 자기 소유 아님, 차단 관계 아님일 때 true
+        createdAt:
+          type: string
+          format: date-time
+    SetlogReaction:
+      type: object
+      required: [setlogId, type, reacted, cuteCount, likeCount]
+      properties:
+        setlogId:
+          type: integer
+          format: int64
+        type:
+          $ref: '#/components/schemas/ReactionType'
+        reacted:
+          type: boolean
+        cuteCount:
+          type: integer
+        likeCount:
+          type: integer
+
+    Greeting:
+      type: object
+      required: [greetingId, roomId, status, fixedMessage, expiresAt, createdAt]
+      properties:
+        greetingId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [SENT, RESPONDED, EXPIRED]
+        fixedMessage:
+          type: string
+          const: 안녕하세요! 같이 놀아요.
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    FriendRequest:
+      type: object
+      required: [requestId, requesterPet, targetPet, status, requestedAt, expiresAt]
+      properties:
+        requestId:
+          type: integer
+          format: int64
+        requesterPet:
+          $ref: '#/components/schemas/PetSearchItem'
+        targetPet:
+          $ref: '#/components/schemas/PetSearchItem'
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, REJECTED, CANCELED, EXPIRED]
+        requestedAt:
+          type: string
+          format: date-time
+        respondedAt:
+          type: [string, 'null']
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        directRoomId:
+          type: [integer, 'null']
+          format: int64
+          description: ACCEPTED 상태이면 생성 또는 재사용한 DIRECT 방 ID
+
+    ChatRoom:
+      type: object
+      required: [roomId, status, counterpartPet, canSend, lastMessageAt, updatedAt]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [ACTIVE, ARCHIVED]
+        origin:
+          type: string
+          enum: [GREETING, FRIEND]
+        counterpartPet:
+          $ref: '#/components/schemas/PetSearchItem'
+        canSend:
+          type: boolean
+        sendBlockedReason:
+          type: [string, 'null']
+          enum: [GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null]
+        lastMessage:
+          oneOf:
+            - $ref: '#/components/schemas/ChatMessage'
+            - type: 'null'
+        lastMessageAt:
+          type: [string, 'null']
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ChatMessageCreateRequest:
+      type: object
+      required: [clientMessageId, body]
+      properties:
+        clientMessageId:
+          type: string
+          maxLength: 64
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    ChatMessage:
+      type: object
+      required: [messageId, roomId, senderType, type, createdAt]
+      properties:
+        messageId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+        senderType:
+          type: string
+          enum: [PET, SYSTEM]
+        senderPetId:
+          type: [integer, 'null']
+          format: int64
+        type:
+          type: string
+          enum: [TEXT, CARD, SYSTEM]
+        body:
+          type: [string, 'null']
+        meetingCardId:
+          type: [integer, 'null']
+          format: int64
+        clientMessageId:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    CardDraft:
+      type: object
+      required: [draftId, roomId, fallback, createdAt]
+      properties:
+        draftId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+        cardType:
+          type: [string, 'null']
+          enum: [WALK, PLAY, OTHER, null]
+        placeText:
+          type: [string, 'null']
+          maxLength: 500
+        meetAt:
+          type: [string, 'null']
+          format: date-time
+        fallback:
+          type: boolean
+        fallbackReason:
+          type: [string, 'null']
+          enum: [TIMEOUT, MODEL_ERROR, INSUFFICIENT_CONTEXT, null]
+        createdAt:
+          type: string
+          format: date-time
+    MeetingCardCreateRequest:
+      type: object
+      required: [roomId, cardType, placeText, meetAt]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        draftId:
+          type: [integer, 'null']
+          format: int64
+        cardType:
+          type: string
+          enum: [WALK, PLAY, OTHER]
+          example: WALK
+        placeText:
+          type: string
+          minLength: 1
+          maxLength: 500
+        meetAt:
+          type: string
+          format: date-time
+    MeetingCard:
+      type: object
+      required: [cardId, roomId, creatorPetId, participantPetIds, cardType, placeText, meetAt, status, createdAt]
+      properties:
+        cardId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+        creatorPetId:
+          type: integer
+          format: int64
+        participantPetIds:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: integer
+            format: int64
+        cardType:
+          type: string
+          enum: [WALK, PLAY, OTHER]
+        placeText:
+          type: string
+        meetAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [OPEN, CANCELED]
+        canceledByPetId:
+          type: [integer, 'null']
+          format: int64
+        canceledAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    BlockCreateRequest:
+      type: object
+      required: [targetPetId]
+      properties:
+        targetPetId:
+          type: integer
+          format: int64
+          description: 서버가 소유 User를 찾아 User 단위 차단으로 변환한다.
+    Block:
+      type: object
+      required: [blockId, blockedUserId, createdAt]
+      properties:
+        blockId:
+          type: integer
+          format: int64
+        blockedUserId:
+          type: integer
+          format: int64
+        blockedUserPublicTag:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ReportReason:
+      type: string
+      enum: [HARASSMENT, SPAM, OTHER]
+    ReportStatus:
+      type: string
+      enum: [OPEN, ACTIONED, NO_ACTION]
+    ReportCreateRequest:
+      type: object
+      required: [roomId, reasonCode]
+      allOf:
+        - if:
+            properties:
+              reasonCode:
+                const: OTHER
+            required: [reasonCode]
+          then:
+            required: [detail]
+            properties:
+              detail:
+                type: string
+                minLength: 1
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        reasonCode:
+          $ref: '#/components/schemas/ReportReason'
+        detail:
+          type: [string, 'null']
+          maxLength: 500
+    Report:
+      type: object
+      required: [reportId, roomId, reasonCode, status, createdAt]
+      properties:
+        reportId:
+          type: integer
+          format: int64
+        roomId:
+          type: integer
+          format: int64
+        reporterUserId:
+          type: integer
+          format: int64
+        reportedUserId:
+          type: integer
+          format: int64
+        reasonCode:
+          $ref: '#/components/schemas/ReportReason'
+        detail:
+          type: [string, 'null']
+          maxLength: 500
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        reviewedByAdminId:
+          type: [integer, 'null']
+          format: int64
+        reviewedAt:
+          type: [string, 'null']
+          format: date-time
+        resolutionNote:
+          type: [string, 'null']
+          maxLength: 500
+        createdAt:
+          type: string
+          format: date-time
+    AdminReportActionRequest:
+      type: object
+      required: [actionType, reason]
+      properties:
+        actionType:
+          type: string
+          enum: [DISMISSED, WARNING]
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    AdminReportDetail:
+      type: object
+      required: [report, reporter, reported, room, messages]
+      properties:
+        report:
+          $ref: '#/components/schemas/Report'
+        reporter:
+          $ref: '#/components/schemas/AdminReportPartyEvidence'
+        reported:
+          $ref: '#/components/schemas/AdminReportPartyEvidence'
+        room:
+          $ref: '#/components/schemas/AdminReportRoomEvidence'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+    AdminReportPartyEvidence:
+      type: object
+      required: [userId, userPublicTag, userNickname, petId, petPublicTag, petNickname]
+      properties:
+        userId:
+          type: integer
+          format: int64
+        userPublicTag:
+          type: string
+        userNickname:
+          type: string
+        petId:
+          type: integer
+          format: int64
+        petPublicTag:
+          type: string
+        petNickname:
+          type: string
+    AdminReportRoomEvidence:
+      type: object
+      required: [roomId, status, participantPetIds, createdAt]
+      properties:
+        roomId:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [ACTIVE, ARCHIVED]
+        participantPetIds:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: integer
+            format: int64
+        createdAt:
+          type: string
+          format: date-time
+
+    CursorPage:
+      type: object
+      required: [nextCursor, hasNext]
+      properties:
+        nextCursor:
+          type: [string, 'null']
+        hasNext:
+          type: boolean
+    OffsetPage:
+      type: object
+      required: [page, size, totalElements, totalPages]
+      properties:
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+    NeighborhoodListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Neighborhood' }
+        error: { type: 'null' }
+    EnvelopeAuthTokens:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/AuthTokens' }
+        error: { type: 'null' }
+    MeEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Me' }
+        error: { type: 'null' }
+    PetEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Pet' }
+        error: { type: 'null' }
+    PetCreateResult:
+      type: object
+      required: [pet, activeAssignmentStatus]
+      properties:
+        pet:
+          $ref: '#/components/schemas/Pet'
+        activeAssignmentStatus:
+          type: string
+          enum: [ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE]
+          description: |
+            firstPetCandidate=true이고 자동 지정에 성공하면 ASSIGNED,
+            후보지만 별도 Active 지정 트랜잭션이 실패하면 RETRY_REQUIRED,
+            firstPetCandidate=false이거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다.
+            firstPetCandidate 자체는 외부 응답에 노출하지 않는다.
+    PetCreateEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/PetCreateResult' }
+        error: { type: 'null' }
+    PetListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Pet' }
+        error: { type: 'null' }
+    PetSearchEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/PetSearchItem'
+            - type: 'null'
+        error: { type: 'null' }
+    PetSearchListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, page]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/PetSearchItem' }
+            page: { $ref: '#/components/schemas/CursorPage' }
+        error: { type: 'null' }
+    PetVerificationAttemptEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/PetVerificationAttempt' }
+        error: { type: 'null' }
+    SetlogListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: array
+          minItems: 0
+          maxItems: 3
+          items: { $ref: '#/components/schemas/Setlog' }
+        error: { type: 'null' }
+    SetlogReactionEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/SetlogReaction' }
+        error: { type: 'null' }
+    GreetingEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Greeting' }
+        error: { type: 'null' }
+    FriendRequestEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/FriendRequest' }
+        error: { type: 'null' }
+    FriendRequestListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, page]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/FriendRequest' }
+            page: { $ref: '#/components/schemas/CursorPage' }
+        error: { type: 'null' }
+    ChatRoomEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/ChatRoom' }
+        error: { type: 'null' }
+    ChatRoomListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, page]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/ChatRoom' }
+            page: { $ref: '#/components/schemas/CursorPage' }
+        error: { type: 'null' }
+    ChatMessageEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/ChatMessage' }
+        error: { type: 'null' }
+    ChatMessageListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, nextAfterMessageId, hasMore]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/ChatMessage' }
+            nextAfterMessageId:
+              type: [integer, 'null']
+              format: int64
+            hasMore:
+              type: boolean
+        error: { type: 'null' }
+    CardDraftEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/CardDraft' }
+        error: { type: 'null' }
+    MeetingCardEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/MeetingCard' }
+        error: { type: 'null' }
+    BlockEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Block' }
+        error: { type: 'null' }
+    BlockListEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, page]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Block' }
+            page: { $ref: '#/components/schemas/CursorPage' }
+        error: { type: 'null' }
+    ReportEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Report' }
+        error: { type: 'null' }
+    AdminReportPageEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, page]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Report' }
+            page: { $ref: '#/components/schemas/OffsetPage' }
+        error: { type: 'null' }
+    AdminReportDetailEnvelope:
+      type: object
+      required: [success, message, data]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/AdminReportDetail' }
+        error: { type: 'null' }
