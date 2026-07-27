@@ -7,4 +7,8 @@ public record LoginRequest(
         @NotBlank @Email String email,
         @NotBlank String password
 ) {
+
+    public LoginRequest {
+        email = email == null ? null : email.trim();
+    }
 }
