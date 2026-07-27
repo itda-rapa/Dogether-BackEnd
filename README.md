@@ -10,8 +10,13 @@ docker compose up -d postgres
 ```
 
 3. `local` 프로필로 애플리케이션을 시작한다. `.env.example`에는
-   `SPRING_PROFILES_ACTIVE=local`이 포함되어 있다. local 프로필은 Flyway 실행 후
-   시흥동·금토동·사송동 개발 seed를 자동 적용한다.
+   `SPRING_PROFILES_ACTIVE=local`이 포함되어 있다. 현재 팀 기본
+   `.env.example`은 배포 전까지 Flyway를 임시 비활성화한다.
+
+새로운 로컬 DB를 처음 구성하거나 Migration·Seed 적용이 필요하면 `.env`에서
+`FLYWAY_ENABLED=true`로 변경한 뒤 실행한다. `application.yaml`의 기본값은
+`true`이며, Flyway가 활성화된 local 프로필은 `db/migration`과 `db/seed`를
+모두 적용한다.
 
 개발 seed는 운영 migration 경로에 포함되지 않으며 `prod` 프로필에서는 실행되지 않는다.
 
@@ -37,6 +42,7 @@ properties 형식으로 선택적으로 읽는다.
 
 - Swagger UI: `/swagger-ui/index.html` (로컬·개발 환경)
 - Health: `/actuator/health`
+- Neighborhood: `GET /neighborhoods` (공개)
 - Auth: `/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`
 - Media: `/media/uploads`, `/media/{id}/complete`, `/media/{id}`
 
@@ -45,11 +51,18 @@ Google OAuth2 의존성은 M2 소셜 로그인 작업에서 추가한다.
 
 ## Product contract
 
-- 최신 M1/M2 정책: `docs/spec/00_최신_제품정책.md`
+- [M1 계약 문서 안내](docs/spec/README.md)
+- [최신 제품 정책](docs/spec/00_최신_제품정책.md)
+- [M1 정적 OpenAPI](docs/spec/04_M1_OpenAPI.yaml)
 - [기본설정 구조와 설계 이유](docs/프로젝트_기본설정_온보딩.md)
-- 기존 v13 문서와 충돌하면 위 정책 문서를 우선한다.
+- 기본설정 온보딩은 현재 코드 기반 설명이며 M1 제품 계약 정본이 아니다.
 - M1의 `SETLOG` 업로드는 시드 콘텐츠를 적재하는 관리자만 가능하다.
 - 일반 사용자의 셋로그 업로드는 M2 범위다.
+
+## Collaboration
+
+- [Git·브랜치·PR 규칙](docs/convention/01_Git_브랜치_PR_규칙.md)
+- [백엔드 코딩 컨벤션](docs/convention/02_코딩_컨벤션.md)
 
 ## Database migration
 
