@@ -58,7 +58,7 @@ class PetMigrationPostgreSqlIntegrationTest {
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.info().current()).isNotNull();
         assertThat(flyway.info().current().getVersion().getVersion())
-                .isEqualTo("7");
+                .isEqualTo("8");
         assertThat(jdbcTemplate.queryForObject(
                 "select to_regclass('public.pets')",
                 String.class
