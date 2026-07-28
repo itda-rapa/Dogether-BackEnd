@@ -821,7 +821,11 @@ paths:
       tags: [Chat]
       summary: TEXT 메시지 전송
       operationId: sendChatMessage
-      description: clientMessageId로 재시도 멱등성을 보장한다.
+      description: |
+        clientMessageId로 재시도 멱등성을 보장한다.
+        ARCHIVED 방은 정상 메시지 저장 시 ACTIVE로 복구한다.
+        대표 오류는 VALIDATION_FAILED(400), BLOCKED_USER(403),
+        CHAT_ROOM_NOT_FOUND(404), GREETING_REPLY_REQUIRED·CHAT_DUPLICATE_MESSAGE(409)다.
       parameters:
         - $ref: '#/components/parameters/RoomId'
       requestBody:
