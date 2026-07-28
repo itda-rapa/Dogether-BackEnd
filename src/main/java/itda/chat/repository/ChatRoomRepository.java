@@ -41,4 +41,104 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             WHERE id = :roomId
             """, nativeQuery = true)
     void activateAndTouchLastMessageAt(@Param("roomId") long roomId);
+
+    /**
+     * Room list projection row — one row per room, with last-message columns from LEFT JOIN
+     * LATERAL. Used by {@code ChatQueryService.getRooms}.
+     */
+    @Query(value = """
+            SELECT
+                r.id                                     AS roomId,
+                r.status                                 AS status,
+                r.origin                                 AS origin,
+                r.pet_low_id                             AS petLowId,
+                r.pet_high_id                            AS petHighId,
+                r.last_message_at                        AS lastMessageAt,
+                r.created_at                             AS createdAt,
+                r.updated_at                             AS updatedAt,
+                lm.id                                    AS msgId,
+                lm.sender_type                           AS msgSenderType,
+                lm.sender_pet_id                         AS msgSenderPetId,
+                lm.type                                  AS msgType,
+                lm.body                                  AS msgBody,
+                lm.meeting_card_id                       AS msgMeetingCardId,
+                lm.client_message_id                     AS msgClientMessageId,
+                lm.created_at                            AS msgCreatedAt
+            FROM chat_room_participants p
+            JOIN chat_rooms r ON r.id = p.room_id
+            LEFT JOIN LATERAL (
+                SELECT m.* FROM chat_messages m
+                WHERE m.room_id = r.id
+                ORDER BY m.id DESC
+                LIMIT 1
+            ) lm ON TRUE
+            WHERE p.pet_id = :activePetId
+              AND p.left_at IS NULL
+              -- M1-015: block-exclusion predicate belongs here once Block Core lands
+              AND ( CAST(:cursorActivityAt AS TIMESTAMPTZ) IS NULL
+                    OR COALESCE(r.last_message_at, r.created_at) < CAST(:cursorActivityAt AS TIMESTAMPTZ)
+                    OR ( COALESCE(r.last_message_at, r.created_at) = CAST(:cursorActivityAt AS TIMESTAMPTZ)
+                         AND r.id < :cursorRoomId ) )
+            ORDER BY COALESCE(r.last_message_at, r.created_at) DESC, r.id DESC
+            LIMIT :limitPlusOne
+            """, nativeQuery = true)
+    java.util.List<RoomListRow> findRoomsWithLastMessage(@Param("activePetId") long activePetId,
+                                                         @Param("cursorActivityAt") String cursorActivityAt,
+                                                         @Param("cursorRoomId") long cursorRoomId,
+                                                         @Param("limitPlusOne") int limitPlusOne);
+
+    /**
+     * Fetch a single room by id, verifying the active pet is a participant.
+     */
+    @Query(value = """
+            SELECT
+                r.id                                     AS roomId,
+                r.status                                 AS status,
+                r.origin                                 AS origin,
+                r.pet_low_id                             AS petLowId,
+                r.pet_high_id                            AS petHighId,
+                r.last_message_at                        AS lastMessageAt,
+                r.created_at                             AS createdAt,
+                r.updated_at                             AS updatedAt,
+                lm.id                                    AS msgId,
+                lm.sender_type                           AS msgSenderType,
+                lm.sender_pet_id                         AS msgSenderPetId,
+                lm.type                                  AS msgType,
+                lm.body                                  AS msgBody,
+                lm.meeting_card_id                       AS msgMeetingCardId,
+                lm.client_message_id                     AS msgClientMessageId,
+                lm.created_at                            AS msgCreatedAt
+            FROM chat_room_participants p
+            JOIN chat_rooms r ON r.id = p.room_id
+            LEFT JOIN LATERAL (
+                SELECT m.* FROM chat_messages m
+                WHERE m.room_id = r.id
+                ORDER BY m.id DESC
+                LIMIT 1
+            ) lm ON TRUE
+            WHERE p.pet_id = :activePetId
+              AND p.left_at IS NULL
+              AND r.id = :roomId
+            """, nativeQuery = true)
+    java.util.Optional<RoomListRow> findRoomById(@Param("activePetId") long activePetId,
+                                                  @Param("roomId") long roomId);
+
+    interface RoomListRow {
+        Long getRoomId();
+        String getStatus();
+        String getOrigin();
+        Long getPetLowId();
+        Long getPetHighId();
+        java.time.Instant getLastMessageAt();
+        java.time.Instant getCreatedAt();
+        java.time.Instant getUpdatedAt();
+        Long getMsgId();
+        String getMsgSenderType();
+        Long getMsgSenderPetId();
+        String getMsgType();
+        String getMsgBody();
+        Long getMsgMeetingCardId();
+        String getMsgClientMessageId();
+        java.time.Instant getMsgCreatedAt();
+    }
 }
