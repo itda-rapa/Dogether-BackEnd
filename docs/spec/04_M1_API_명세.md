@@ -1886,8 +1886,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
 | `403` | `BLOCKED_USER` |
-| `404` | `RESOURCE_NOT_FOUND` |
-| `409` | `GREETING_REPLY_REQUIRED` |
+| `404` | `CHAT_ROOM_NOT_FOUND` |
+| `409` | `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
