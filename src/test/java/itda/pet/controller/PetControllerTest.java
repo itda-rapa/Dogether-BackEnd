@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -236,6 +237,50 @@ class PetControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: GET /pets/me")
+    class DescribeGetMyPets {
+
+        @Test
+        @DisplayName("It: 내 Pet 목록을 200 배열 응답으로 반환한다")
+        void itReturnsMyPetList() throws Exception {
+            given(myPetQueryService.getMyPets(USER_ID)).willReturn(List.of(
+                    petResponse(PET_ID, PetStatus.ACTIVE, true),
+                    petResponse(3L, PetStatus.SUSPENDED, false)
+            ));
+
+            var result = mockMvc.perform(get("/pets/me"));
+
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.length()").value(2))
+                    .andExpect(jsonPath("$.data[0].petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data[0].active").value(true))
+                    .andExpect(jsonPath("$.data[1].petId").value(3L))
+                    .andExpect(jsonPath("$.data[1].status")
+                            .value("SUSPENDED"))
+                    .andExpect(jsonPath("$.error").isEmpty())
+                    .andExpect(jsonPath("$.data[0].owner").doesNotExist())
+                    .andExpect(jsonPath("$.data[0].version").doesNotExist());
+            then(myPetQueryService).should().getMyPets(USER_ID);
+        }
+
+        @Test
+        @DisplayName("It: Pet이 없어도 빈 배열을 200으로 반환한다")
+        void itReturnsEmptyArrayWhenNoPetsExist() throws Exception {
+            given(myPetQueryService.getMyPets(USER_ID)).willReturn(List.of());
+
+            var result = mockMvc.perform(get("/pets/me"));
+
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data").isArray())
+                    .andExpect(jsonPath("$.data").isEmpty())
+                    .andExpect(jsonPath("$.error").isEmpty());
+            then(myPetQueryService).should().getMyPets(USER_ID);
+        }
+    }
+
     private String validRequestJson() {
         return """
                 {
@@ -254,8 +299,16 @@ class PetControllerTest {
     }
 
     private PetResponse petResponse(boolean active) {
+        return petResponse(PET_ID, PetStatus.ACTIVE, active);
+    }
+
+    private PetResponse petResponse(
+            Long petId,
+            PetStatus status,
+            boolean active
+    ) {
         return new PetResponse(
-                PET_ID,
+                petId,
                 USER_ID,
                 "몽이#B8M3",
                 "보호자#A7K2",
@@ -270,7 +323,7 @@ class PetControllerTest {
                 List.of("친화적"),
                 "닭고기 알레르기",
                 null,
-                PetStatus.ACTIVE,
+                status,
                 null,
                 false,
                 null,

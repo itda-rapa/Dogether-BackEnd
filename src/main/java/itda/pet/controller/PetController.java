@@ -9,9 +9,11 @@ import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -54,5 +56,15 @@ public class PetController {
                         ),
                         "Pet 등록이 완료되었습니다."
                 ));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<List<PetResponse>>> getMyPets(
+            @AuthenticationPrincipal CurrentUser currentUser
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                myPetQueryService.getMyPets(currentUser.id()),
+                "내 Pet 목록이 조회되었습니다."
+        ));
     }
 }

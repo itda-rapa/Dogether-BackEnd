@@ -3,6 +3,7 @@ package itda.pet.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
@@ -145,6 +146,71 @@ class MyPetQueryServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: 본인 소유의 미삭제 Pet 목록을 조회한다")
+    class DescribeGetMyPets {
+
+        @Test
+        @DisplayName("It: Pet이 없으면 빈 불변 List를 반환한다")
+        void itReturnsEmptyImmutableList() {
+            given(petRepository.findMyPetsOrdered(USER_ID))
+                    .willReturn(List.of());
+
+            List<PetResponse> responses = service.getMyPets(USER_ID);
+
+            assertThat(responses).isEmpty();
+            assertThatThrownBy(() -> responses.add(null))
+                    .isInstanceOf(UnsupportedOperationException.class);
+            then(petRepository).should().findMyPetsOrdered(USER_ID);
+        }
+
+        @Test
+        @DisplayName("It: Active 여부와 SUSPENDED 상태를 그대로 매핑한다")
+        void itMapsActiveStateAndSuspendedPet() {
+            Long inactivePetId = 3L;
+            Long activePetId = 4L;
+            User owner = user(USER_ID);
+            owner.selectActivePet(activePetId);
+            Pet inactivePet = pet(
+                    owner,
+                    inactivePetId,
+                    "몽이#B8M3",
+                    "몽이",
+                    List.of("친화적")
+            );
+            Pet activeSuspendedPet = pet(
+                    owner,
+                    activePetId,
+                    "초코#C9N4",
+                    "초코",
+                    null
+            );
+            ReflectionTestUtils.setField(
+                    activeSuspendedPet,
+                    "status",
+                    PetStatus.SUSPENDED
+            );
+            given(petRepository.findMyPetsOrdered(USER_ID))
+                    .willReturn(List.of(activeSuspendedPet, inactivePet));
+
+            List<PetResponse> responses = service.getMyPets(USER_ID);
+
+            assertThat(responses).hasSize(2);
+            assertThat(responses.get(0).petId()).isEqualTo(activePetId);
+            assertThat(responses.get(0).ownerUserId()).isEqualTo(USER_ID);
+            assertThat(responses.get(0).ownerPublicTag())
+                    .isEqualTo("보호자#A7K2");
+            assertThat(responses.get(0).publicTag()).isEqualTo("초코#C9N4");
+            assertThat(responses.get(0).nickname()).isEqualTo("초코");
+            assertThat(responses.get(0).status())
+                    .isEqualTo(PetStatus.SUSPENDED);
+            assertThat(responses.get(0).personalityTags()).isEmpty();
+            assertThat(responses.get(0).active()).isTrue();
+            assertThat(responses.get(1).petId()).isEqualTo(inactivePetId);
+            assertThat(responses.get(1).active()).isFalse();
+        }
+    }
+
     private User user(Long id) {
         User user = User.register(
                 "user%s@example.com".formatted(id),
@@ -158,10 +224,26 @@ class MyPetQueryServiceTest {
     }
 
     private Pet pet(User owner, List<String> personalityTags) {
-        Pet pet = Pet.register(
+        return pet(
                 owner,
+                PET_ID,
                 "몽이#B8M3",
                 "몽이",
+                personalityTags
+        );
+    }
+
+    private Pet pet(
+            User owner,
+            Long petId,
+            String publicTag,
+            String nickname,
+            List<String> personalityTags
+    ) {
+        Pet pet = Pet.register(
+                owner,
+                publicTag,
+                nickname,
                 "말티즈",
                 PetSex.FEMALE,
                 true,
@@ -172,7 +254,7 @@ class MyPetQueryServiceTest {
                 personalityTags,
                 "닭고기 알레르기"
         );
-        ReflectionTestUtils.setField(pet, "id", PET_ID);
+        ReflectionTestUtils.setField(pet, "id", petId);
         return pet;
     }
 

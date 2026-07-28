@@ -127,6 +127,20 @@ class SecurityConfigTest {
     }
 
     @Nested
+    @DisplayName("Describe: 인증되지 않은 내 Pet 목록 요청")
+    class DescribeAnonymousMyPetListRequest {
+
+        @Test
+        @DisplayName("It: GET /pets/me는 401을 반환한다")
+        void getMyPetsReturnsUnauthorized() throws Exception {
+            mockMvc.perform(get("/pets/me"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.UNAUTHORIZED.name()));
+        }
+    }
+
+    @Nested
     @DisplayName("Describe: 비활성 User의 Me 요청")
     class DescribeInactiveUsersMeRequest {
 
