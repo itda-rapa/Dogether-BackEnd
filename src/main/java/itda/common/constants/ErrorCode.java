@@ -37,7 +37,14 @@ public enum ErrorCode {
 
     PET_REQUIRED(HttpStatus.FORBIDDEN, "반려견 등록이 필요한 기능입니다."),
     ACTIVE_PET_REQUIRED(HttpStatus.FORBIDDEN, "활동할 반려견을 먼저 선택해주세요."),
+    PET_NOT_FOUND(HttpStatus.NOT_FOUND, "반려견을 찾을 수 없습니다."),
+    PET_NOT_OWNED(HttpStatus.FORBIDDEN, "해당 반려견의 소유자가 아닙니다."),
+    PET_NOT_ACTIVE(HttpStatus.FORBIDDEN, "활동 가능한 반려견이 아닙니다."),
     PET_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "반려견은 최대 5마리까지 등록할 수 있습니다."),
+    PET_PUBLIC_TAG_GENERATION_FAILED(
+            HttpStatus.CONFLICT,
+            "반려견 공개 태그를 생성하지 못했습니다."
+    ),
     ACTIVE_PET_DELETE_FORBIDDEN(HttpStatus.CONFLICT, "활동 중인 반려견은 삭제할 수 없습니다."),
     SAME_OWNER_INTERACTION_FORBIDDEN(HttpStatus.BAD_REQUEST, "같은 사용자가 소유한 반려견끼리는 상호작용할 수 없습니다."),
 
