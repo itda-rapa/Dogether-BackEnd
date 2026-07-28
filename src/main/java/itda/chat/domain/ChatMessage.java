@@ -55,8 +55,9 @@ public class ChatMessage {
 
     /*
      * Messages are written exclusively through ChatMessageService, which issues an atomic
-     * INSERT ... ON CONFLICT DO NOTHING RETURNING id against uk_chat_message_client. Type and
-     * sender invariants are enforced there (and by the ck_chat_message_sender DB check), so this
-     * entity is hydrated by JPA on read only and intentionally exposes no construction API.
+     * INSERT ... ON CONFLICT DO UPDATE ... RETURNING against uk_chat_message_client. Type, sender
+     * and participation invariants are enforced there (and by the ck_chat_message_sender and
+     * ck_chat_message_payload DB checks), so this entity is hydrated by JPA on read only and
+     * intentionally exposes no construction API.
      */
 }

@@ -15,8 +15,11 @@ import itda.chat.domain.ChatMessage;
 import itda.chat.domain.ChatRoom;
 import itda.chat.domain.MessageType;
 import itda.chat.domain.SenderType;
-import itda.chat.dto.SendTextRequest;
+import itda.chat.dto.ChatMessageCreateRequest;
+import itda.chat.dto.ChatMessageResult;
 import itda.chat.repository.ChatMessageRepository;
+import itda.chat.repository.ChatMessageRepository.MessageUpsert;
+import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
@@ -40,78 +43,140 @@ class ChatMessageServiceTest {
     @Mock
     private ChatRoomRepository chatRoomRepository;
 
+    @Mock
+    private ChatRoomParticipantRepository participantRepository;
+
     private ChatMessageService chatMessageService;
 
     @BeforeEach
     void setUp() {
-        chatMessageService = new ChatMessageService(chatMessageRepository, chatRoomRepository);
+        chatMessageService = new ChatMessageService(
+                chatMessageRepository, chatRoomRepository, participantRepository);
     }
 
-    // ---------- user-authored TEXT ----------
+    // ---------- request validation ----------
 
     @Test
     void textSendRequiresClientMessageId() {
-        assertThatThrownBy(() -> chatMessageService.sendText(
-                new SendTextRequest(1L, 10L, "hello", null)))
+        assertThatThrownBy(() -> chatMessageService.sendText(1L, 10L, request(null, "hello")))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHAT_CLIENT_MESSAGE_ID_REQUIRED);
     }
 
     @Test
-    void textSendRequiresSenderPetId() {
-        assertThatThrownBy(() -> chatMessageService.sendText(
-                new SendTextRequest(1L, null, "hello", "idem-1")))
+    void textSendRequiresBody() {
+        assertThatThrownBy(() -> chatMessageService.sendText(1L, 10L, request("idem-1", "  ")))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.CHAT_SENDER_REQUIRED);
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
     }
 
     @Test
-    void newTextIsInsertedAndAdvancesRoomActivity() {
+    void systemNoticeRejectsBlankBody() {
+        // postSystem is an internal entry point and never sees bean validation, so the service
+        // must reject this itself rather than letting ck_chat_message_payload raise a raw
+        // persistence exception.
+        assertThatThrownBy(() -> chatMessageService.postSystem(1L, "   ", null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    }
+
+    @Test
+    void senderMustBeARoomParticipant() {
+        ChatRoom room = mock(ChatRoom.class);
+
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetId(1L, 999L)).thenReturn(false);
+
+        assertThatThrownBy(() -> chatMessageService.sendText(1L, 999L, request("idem-1", "hello")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_SENDER_NOT_PARTICIPANT);
+    }
+
+    @Test
+    void sendingToAMissingRoomIsRejected() {
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(99L, "idem-9"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> chatMessageService.sendText(99L, 10L, request("idem-9", "hi")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_ROOM_NOT_FOUND);
+    }
+
+    // ---------- created flag and room activity ----------
+
+    @Test
+    void newTextIsCreatedAndAdvancesRoomActivity() {
         ChatRoom room = mock(ChatRoom.class);
         ChatMessage stored = textMsg(2L, 10L, "hello", "idem-2");
+        MessageUpsert upsert = upsert(2L, true);
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
-                .thenReturn(2L);
+                .thenReturn(upsert);
         when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
 
-        ChatMessage result = chatMessageService.sendText(
-                new SendTextRequest(1L, 10L, "hello", "idem-2"));
+        ChatMessageResult result = chatMessageService.sendText(1L, 10L, request("idem-2", "hello"));
 
-        assertThat(result.getId()).isEqualTo(2L);
+        assertThat(result.created()).isTrue();
+        assertThat(result.message().getId()).isEqualTo(2L);
         verify(chatRoomRepository).activateAndTouchLastMessageAt(1L);
     }
 
     @Test
-    void retriedTextReturnsTheOriginalWithoutReinserting() {
+    void sequentialRetryReturnsTheOriginalWithoutReinserting() {
         ChatMessage original = textMsg(1L, 10L, "hello", "idem-1");
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
                 .thenReturn(Optional.of(original));
 
-        ChatMessage result = chatMessageService.sendText(
-                new SendTextRequest(1L, 10L, "hello", "idem-1"));
+        ChatMessageResult result = chatMessageService.sendText(1L, 10L, request("idem-1", "hello"));
 
-        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.created()).isFalse();
+        assertThat(result.message().getId()).isEqualTo(1L);
         verify(chatMessageRepository, never()).insertMessageOnConflictWithReturning(
                 anyLong(), anyString(), any(), anyString(), any(), any(), any());
-        // A retry is not new room activity, so the room timestamp must not move.
         verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
     }
 
     @Test
-    void textSendRequiresBody() {
-        assertThatThrownBy(() -> chatMessageService.sendText(
-                new SendTextRequest(1L, 10L, "  ", "idem-1")))
-                .isInstanceOf(BusinessException.class)
-                .extracting(ex -> ((BusinessException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    void concurrentRetryLosesTheRaceAndLeavesRoomActivityAlone() {
+        // This caller passed the fast-path lookup before the winner committed, so it reaches the
+        // upsert and gets the winner's row back. It must behave like the sequential retry above:
+        // not created, and no activity bump. Reporting it as created would also answer 201 to a
+        // duplicate send.
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage winner = textMsg(2L, 10L, "hello", "idem-2");
+        MessageUpsert upsert = upsert(2L, false);
+
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(winner));
+
+        ChatMessageResult result = chatMessageService.sendText(1L, 10L, request("idem-2", "hello"));
+
+        assertThat(result.created()).isFalse();
+        assertThat(result.message().getId()).isEqualTo(2L);
+        verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
     }
+
+    // ---------- idempotency key misuse ----------
 
     @Test
     void reusingKeyWithDifferentBodyIsRejected() {
@@ -120,8 +185,8 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
                 .thenReturn(Optional.of(original));
 
-        assertThatThrownBy(() -> chatMessageService.sendText(
-                new SendTextRequest(1L, 10L, "different-body", "idem-1")))
+        assertThatThrownBy(() ->
+                chatMessageService.sendText(1L, 10L, request("idem-1", "different-body")))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHAT_DUPLICATE_MESSAGE);
@@ -135,68 +200,69 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
                 .thenReturn(Optional.of(original));
 
-        assertThatThrownBy(() -> chatMessageService.sendText(
-                new SendTextRequest(1L, 20L, "hello", "idem-1")))
+        assertThatThrownBy(() -> chatMessageService.sendText(1L, 20L, request("idem-1", "hello")))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHAT_DUPLICATE_MESSAGE);
     }
 
-    @Test
-    void sendingToAMissingRoomIsRejected() {
-        when(chatMessageRepository.findByRoomIdAndClientMessageId(99L, "idem-9"))
-                .thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> chatMessageService.sendText(
-                new SendTextRequest(99L, 10L, "hi", "idem-9")))
-                .isInstanceOf(BusinessException.class)
-                .extracting(ex -> ((BusinessException) ex).getErrorCode())
-                .isEqualTo(ErrorCode.CHAT_ROOM_NOT_FOUND);
-    }
-
     // ---------- server-authored CARD / SYSTEM ----------
 
     @Test
-    void systemNoticeNeedsNoIdempotencyKey() {
+    void systemNoticeNeedsNoIdempotencyKeyOrParticipation() {
         ChatRoom room = mock(ChatRoom.class);
         ChatMessage stored = systemMsg(100L, "System notice");
+        MessageUpsert upsert = upsert(100L, true);
 
         when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "SYSTEM", null, "SYSTEM", "System notice", null, null))
-                .thenReturn(100L);
+                .thenReturn(upsert);
         when(chatMessageRepository.findById(100L)).thenReturn(Optional.of(stored));
 
-        ChatMessage result = chatMessageService.postSystem(1L, "System notice", null);
+        ChatMessageResult result = chatMessageService.postSystem(1L, "System notice", null);
 
-        assertThat(result.getType()).isEqualTo(MessageType.SYSTEM);
-        assertThat(result.getSenderType()).isEqualTo(SenderType.SYSTEM);
-        assertThat(result.getSenderPetId()).isNull();
-        // Without a key there is nothing to look up.
+        assertThat(result.message().getType()).isEqualTo(MessageType.SYSTEM);
+        assertThat(result.message().getSenderType()).isEqualTo(SenderType.SYSTEM);
+        assertThat(result.message().getSenderPetId()).isNull();
+        // Without a key there is nothing to look up, and a system notice has no sending Pet to check.
         verify(chatMessageRepository, never()).findByRoomIdAndClientMessageId(any(), any());
+        verify(participantRepository, never()).existsByRoomIdAndPetId(anyLong(), anyLong());
     }
 
     @Test
     void cardAnnouncementCarriesMeetingCardId() {
         ChatRoom room = mock(ChatRoom.class);
         ChatMessage stored = cardMsg(50L, 10L, 7L, "card-7");
+        MessageUpsert upsert = upsert(50L, true);
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "card-7"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "CARD", null, 7L, "card-7"))
-                .thenReturn(50L);
+                .thenReturn(upsert);
         when(chatMessageRepository.findById(50L)).thenReturn(Optional.of(stored));
 
-        ChatMessage result = chatMessageService.postCard(1L, 10L, 7L, "card-7");
+        ChatMessageResult result = chatMessageService.postCard(1L, 10L, 7L, "card-7");
 
-        assertThat(result.getType()).isEqualTo(MessageType.CARD);
-        assertThat(result.getMeetingCardId()).isEqualTo(7L);
+        assertThat(result.message().getType()).isEqualTo(MessageType.CARD);
+        assertThat(result.message().getMeetingCardId()).isEqualTo(7L);
     }
 
     // ---------- helpers ----------
+
+    private static ChatMessageCreateRequest request(String clientMessageId, String body) {
+        return new ChatMessageCreateRequest(clientMessageId, body);
+    }
+
+    private static MessageUpsert upsert(long id, boolean created) {
+        MessageUpsert result = mock(MessageUpsert.class);
+        lenient().when(result.getId()).thenReturn(id);
+        lenient().when(result.getCreated()).thenReturn(created);
+        return result;
+    }
 
     private static ChatMessage textMsg(long id, Long senderPetId, String body, String clientMessageId) {
         return mockMsg(id, SenderType.PET, senderPetId, MessageType.TEXT, body, null, clientMessageId);

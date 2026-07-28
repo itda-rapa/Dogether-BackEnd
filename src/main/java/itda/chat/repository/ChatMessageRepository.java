@@ -38,13 +38,27 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             :body, :meetingCardId, :clientMessageId)
             ON CONFLICT (room_id, client_message_id)
             DO UPDATE SET client_message_id = chat_messages.client_message_id
-            RETURNING id
+            RETURNING id, (xmax = 0) AS created
             """, nativeQuery = true)
-    Long insertMessageOnConflictWithReturning(@Param("roomId") long roomId,
-                                              @Param("senderType") String senderType,
-                                              @Param("senderPetId") Long senderPetId,
-                                              @Param("msgType") String msgType,
-                                              @Param("body") String body,
-                                              @Param("meetingCardId") Long meetingCardId,
-                                              @Param("clientMessageId") String clientMessageId);
+    MessageUpsert insertMessageOnConflictWithReturning(@Param("roomId") long roomId,
+                                                       @Param("senderType") String senderType,
+                                                       @Param("senderPetId") Long senderPetId,
+                                                       @Param("msgType") String msgType,
+                                                       @Param("body") String body,
+                                                       @Param("meetingCardId") Long meetingCardId,
+                                                       @Param("clientMessageId") String clientMessageId);
+
+    /**
+     * Outcome of the upsert above: the surviving row's id, and whether this statement is what
+     * inserted it.
+     *
+     * <p>{@code xmax = 0} is the PostgreSQL idiom for "this tuple was inserted, not updated" — a
+     * row that took the {@code DO UPDATE} branch carries the updating transaction id in
+     * {@code xmax}. Without it the caller cannot tell a fresh message from a returned duplicate.
+     */
+    interface MessageUpsert {
+        Long getId();
+
+        Boolean getCreated();
+    }
 }

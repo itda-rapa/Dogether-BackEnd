@@ -56,6 +56,7 @@ public enum ErrorCode {
     CHAT_ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "채팅방을 찾을 수 없습니다."),
     CHAT_ROOM_SAME_PET_FORBIDDEN(HttpStatus.BAD_REQUEST, "같은 반려견만으로 채팅방을 만들 수 없습니다."),
     CHAT_SENDER_REQUIRED(HttpStatus.BAD_REQUEST, "PET 메시지에는 발신자 정보가 필요합니다."),
+    CHAT_SENDER_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "채팅방 참여자만 메시지를 보낼 수 있습니다."),
     CHAT_CLIENT_MESSAGE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "TEXT 메시지는 clientMessageId가 필요합니다."),
     CHAT_DUPLICATE_MESSAGE(HttpStatus.CONFLICT, "동일한 clientMessageId의 메시지가 이미 존재합니다.");
 

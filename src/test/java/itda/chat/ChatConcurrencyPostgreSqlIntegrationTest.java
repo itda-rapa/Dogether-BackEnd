@@ -2,10 +2,10 @@ package itda.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import itda.chat.domain.ChatMessage;
 import itda.chat.domain.RoomOrigin;
+import itda.chat.dto.ChatMessageCreateRequest;
+import itda.chat.dto.ChatMessageResult;
 import itda.chat.dto.EnsureDirectRoomResult;
-import itda.chat.dto.SendTextRequest;
 import itda.chat.service.ChatMessageService;
 import itda.chat.service.ChatRoomService;
 import java.util.ArrayList;
@@ -87,25 +87,32 @@ class ChatConcurrencyPostgreSqlIntegrationTest {
     }
 
     @Test
-    void concurrentSendsWithOneKeyStoreOneMessage() throws Exception {
+    void concurrentSendsWithOneKeyStoreOneMessageAndOnlyOneReportsCreated() throws Exception {
         long roomId = chatRoomService.ensureDirectRoom(11L, 22L, RoomOrigin.GREETING).roomId();
-        SendTextRequest request = new SendTextRequest(roomId, 11L, "안녕하세요", "idem-race");
+        ChatMessageCreateRequest request = new ChatMessageCreateRequest("idem-race", "안녕하세요");
 
-        List<ChatMessage> results = runConcurrently(() -> chatMessageService.sendText(request));
+        List<ChatMessageResult> results =
+                runConcurrently(() -> chatMessageService.sendText(roomId, 11L, request));
 
         assertThat(results).hasSize(WORKERS);
-        assertThat(results).extracting(ChatMessage::getId).containsOnly(results.get(0).getId());
+        assertThat(results).extracting(r -> r.message().getId())
+                .containsOnly(results.get(0).message().getId());
         assertThat(countOf("chat_messages")).isEqualTo(1);
+
+        // Exactly one caller wrote the row. The rest lost the race and must say so, otherwise a
+        // duplicate send would answer 201 and would bump the room activity timestamp.
+        assertThat(results.stream().filter(ChatMessageResult::created).count()).isEqualTo(1);
     }
 
     @Test
     void concurrentSendsWithDistinctKeysStoreEveryMessage() throws Exception {
         long roomId = chatRoomService.ensureDirectRoom(11L, 22L, RoomOrigin.GREETING).roomId();
 
-        List<ChatMessage> results = runConcurrentlyIndexed(i -> chatMessageService.sendText(
-                new SendTextRequest(roomId, 11L, "message " + i, "idem-" + i)));
+        List<ChatMessageResult> results = runConcurrentlyIndexed(i -> chatMessageService.sendText(
+                roomId, 11L, new ChatMessageCreateRequest("idem-" + i, "message " + i)));
 
-        assertThat(results).extracting(ChatMessage::getId).doesNotHaveDuplicates();
+        assertThat(results).extracting(r -> r.message().getId()).doesNotHaveDuplicates();
+        assertThat(results).allMatch(ChatMessageResult::created);
         assertThat(countOf("chat_messages")).isEqualTo(WORKERS);
     }
 
