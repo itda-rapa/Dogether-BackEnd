@@ -2,7 +2,9 @@ package itda.pet.service;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import java.sql.SQLException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,20 +15,49 @@ public class PetCreationService {
     private static final int PUBLIC_TAG_SAVE_ATTEMPTS = 5;
     private static final String PUBLIC_TAG_UNIQUE_CONSTRAINT =
             "uk_pets_public_tag";
+    private static final String POSTGRES_DEADLOCK_DETECTED = "40P01";
+    private static final String POSTGRES_LOCK_NOT_AVAILABLE = "55P03";
 
     private final PetPublicTagGenerator petPublicTagGenerator;
     private final PetCreationTransactionService petCreationTransactionService;
+    private final ActivePetAssignmentTransactionService
+            activePetAssignmentTransactionService;
 
     public PetCreationService(
             PetPublicTagGenerator petPublicTagGenerator,
-            PetCreationTransactionService petCreationTransactionService
+            PetCreationTransactionService petCreationTransactionService,
+            ActivePetAssignmentTransactionService
+                    activePetAssignmentTransactionService
     ) {
         this.petPublicTagGenerator = petPublicTagGenerator;
         this.petCreationTransactionService = petCreationTransactionService;
+        this.activePetAssignmentTransactionService =
+                activePetAssignmentTransactionService;
     }
 
     @Transactional(propagation = Propagation.NEVER)
-    public PetCreationOutcome create(
+    public PetCreationResult create(
+            Long userId,
+            PetCreateCommand command
+    ) {
+        PetCreationOutcome outcome = createPetWithPublicTagRetry(
+                userId,
+                command
+        );
+        if (!outcome.firstPetCandidate()) {
+            return new PetCreationResult(
+                    outcome.petId(),
+                    ActivePetAssignmentStatus.NOT_APPLICABLE
+            );
+        }
+
+        return new PetCreationResult(
+                outcome.petId(),
+                assignInitialActivePet(userId, outcome.petId())
+        );
+    }
+
+    private PetCreationOutcome createPetWithPublicTagRetry(
             Long userId,
             PetCreateCommand command
     ) {
@@ -46,6 +77,45 @@ public class PetCreationService {
         }
 
         throw new BusinessException(ErrorCode.PET_PUBLIC_TAG_GENERATION_FAILED);
+    }
+
+    private ActivePetAssignmentStatus assignInitialActivePet(
+            Long userId,
+            Long petId
+    ) {
+        try {
+            return activePetAssignmentTransactionService.assignIfAbsent(
+                    userId,
+                    petId
+            );
+        } catch (PessimisticLockingFailureException exception) {
+            if (isRetryablePostgreSqlLockFailure(exception)) {
+                return ActivePetAssignmentStatus.RETRY_REQUIRED;
+            }
+
+            throw exception;
+        }
+    }
+
+    private boolean isRetryablePostgreSqlLockFailure(
+            Throwable exception
+    ) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof SQLException sqlException
+                    && isRetryablePostgreSqlState(
+                    sqlException.getSQLState()
+            )) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isRetryablePostgreSqlState(String sqlState) {
+        return POSTGRES_DEADLOCK_DETECTED.equals(sqlState)
+                || POSTGRES_LOCK_NOT_AVAILABLE.equals(sqlState);
     }
 
     private boolean isPublicTagUniqueConstraintViolation(

@@ -17,9 +17,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PetCreationService")
@@ -35,13 +38,18 @@ class PetCreationServiceTest {
     @Mock
     private PetCreationTransactionService petCreationTransactionService;
 
+    @Mock
+    private ActivePetAssignmentTransactionService
+            activePetAssignmentTransactionService;
+
     private PetCreationService service;
 
     @BeforeEach
     void setUp() {
         service = new PetCreationService(
                 petPublicTagGenerator,
-                petCreationTransactionService
+                petCreationTransactionService,
+                activePetAssignmentTransactionService
         );
     }
 
@@ -50,8 +58,8 @@ class PetCreationServiceTest {
     class DescribeCreate {
 
         @Test
-        @DisplayName("It: 첫 시도에 성공하면 Outcome을 그대로 반환한다")
-        void itReturnsFirstSuccessfulOutcome() {
+        @DisplayName("It: 첫 Pet을 생성하고 자동 Active 지정 결과를 반환한다")
+        void itReturnsAssignedResultForFirstPet() {
             PetCreateCommand command = command();
             PetCreationOutcome outcome = new PetCreationOutcome(2L, true);
             given(petPublicTagGenerator.generate(command.nickname()))
@@ -61,14 +69,24 @@ class PetCreationServiceTest {
                     command,
                     FIRST_TAG
             )).willReturn(outcome);
+            given(activePetAssignmentTransactionService.assignIfAbsent(
+                    USER_ID,
+                    outcome.petId()
+            )).willReturn(ActivePetAssignmentStatus.ASSIGNED);
 
-            assertThat(service.create(USER_ID, command)).isSameAs(outcome);
+            PetCreationResult result = service.create(USER_ID, command);
+
+            assertThat(result.petId()).isEqualTo(outcome.petId());
+            assertThat(result.activePetAssignmentStatus())
+                    .isEqualTo(ActivePetAssignmentStatus.ASSIGNED);
             then(petPublicTagGenerator).should().generate(command.nickname());
             then(petCreationTransactionService).should().createAttempt(
                     USER_ID,
                     command,
                     FIRST_TAG
             );
+            then(activePetAssignmentTransactionService).should()
+                    .assignIfAbsent(USER_ID, outcome.petId());
         }
 
         @Test
@@ -84,7 +102,11 @@ class PetCreationServiceTest {
                     anyString()
             )).willThrow(publicTagUniqueViolation()).willReturn(outcome);
 
-            assertThat(service.create(USER_ID, command)).isSameAs(outcome);
+            PetCreationResult result = service.create(USER_ID, command);
+
+            assertThat(result.petId()).isEqualTo(outcome.petId());
+            assertThat(result.activePetAssignmentStatus())
+                    .isEqualTo(ActivePetAssignmentStatus.NOT_APPLICABLE);
             then(petPublicTagGenerator).should(times(2))
                     .generate(command.nickname());
             then(petCreationTransactionService).should().createAttempt(
@@ -97,6 +119,8 @@ class PetCreationServiceTest {
                     command,
                     SECOND_TAG
             );
+            then(activePetAssignmentTransactionService)
+                    .shouldHaveNoInteractions();
         }
 
         @Test
@@ -127,6 +151,8 @@ class PetCreationServiceTest {
                     .generate(command.nickname());
             then(petCreationTransactionService).should(times(5))
                     .createAttempt(eq(USER_ID), eq(command), anyString());
+            then(activePetAssignmentTransactionService)
+                    .shouldHaveNoInteractions();
         }
 
         @Test
@@ -151,6 +177,8 @@ class PetCreationServiceTest {
                     command,
                     FIRST_TAG
             );
+            then(activePetAssignmentTransactionService)
+                    .shouldHaveNoInteractions();
         }
 
         @Test
@@ -175,6 +203,153 @@ class PetCreationServiceTest {
                     command,
                     FIRST_TAG
             );
+            then(activePetAssignmentTransactionService)
+                    .shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 첫 Pet 후보가 아니면 자동 Active 지정을 호출하지 않는다")
+        void itDoesNotAssignWhenNotFirstPetCandidate() {
+            PetCreateCommand command = command();
+            PetCreationOutcome outcome = new PetCreationOutcome(4L, false);
+            given(petPublicTagGenerator.generate(command.nickname()))
+                    .willReturn(FIRST_TAG);
+            given(petCreationTransactionService.createAttempt(
+                    USER_ID,
+                    command,
+                    FIRST_TAG
+            )).willReturn(outcome);
+
+            PetCreationResult result = service.create(USER_ID, command);
+
+            assertThat(result.petId()).isEqualTo(outcome.petId());
+            assertThat(result.activePetAssignmentStatus())
+                    .isEqualTo(ActivePetAssignmentStatus.NOT_APPLICABLE);
+            then(activePetAssignmentTransactionService)
+                    .shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 기존 Active Pet이 있으면 자동 지정 결과를 그대로 반환한다")
+        void itReturnsNotApplicableWhenActivePetAlreadyExists() {
+            PetCreateCommand command = command();
+            PetCreationOutcome outcome = new PetCreationOutcome(5L, true);
+            given(petPublicTagGenerator.generate(command.nickname()))
+                    .willReturn(FIRST_TAG);
+            given(petCreationTransactionService.createAttempt(
+                    USER_ID,
+                    command,
+                    FIRST_TAG
+            )).willReturn(outcome);
+            given(activePetAssignmentTransactionService.assignIfAbsent(
+                    USER_ID,
+                    outcome.petId()
+            )).willReturn(ActivePetAssignmentStatus.NOT_APPLICABLE);
+
+            PetCreationResult result = service.create(USER_ID, command);
+
+            assertThat(result.petId()).isEqualTo(outcome.petId());
+            assertThat(result.activePetAssignmentStatus())
+                    .isEqualTo(ActivePetAssignmentStatus.NOT_APPLICABLE);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "40P01",
+                "55P03"
+        })
+        @DisplayName("It: 허용된 PostgreSQL 잠금 오류만 RETRY_REQUIRED로 변환한다")
+        void itConvertsRetryablePostgreSqlLockFailure(String sqlState) {
+            PetCreateCommand command = command();
+            PetCreationOutcome outcome = new PetCreationOutcome(6L, true);
+            given(petPublicTagGenerator.generate(command.nickname()))
+                    .willReturn(FIRST_TAG);
+            given(petCreationTransactionService.createAttempt(
+                    USER_ID,
+                    command,
+                    FIRST_TAG
+            )).willReturn(outcome);
+            given(activePetAssignmentTransactionService.assignIfAbsent(
+                    USER_ID,
+                    outcome.petId()
+            )).willThrow(pessimisticLockFailure(sqlState));
+
+            PetCreationResult result = service.create(USER_ID, command);
+
+            assertThat(result.petId()).isEqualTo(outcome.petId());
+            assertThat(result.activePetAssignmentStatus())
+                    .isEqualTo(ActivePetAssignmentStatus.RETRY_REQUIRED);
+        }
+
+        @Test
+        @DisplayName("It: SQLSTATE를 확인할 수 없는 비관적 잠금 오류는 숨기지 않는다")
+        void itPropagatesLockFailureWithoutSqlState() {
+            PetCreateCommand command = command();
+            PetCreationOutcome outcome = new PetCreationOutcome(7L, true);
+            PessimisticLockingFailureException exception =
+                    new PessimisticLockingFailureException(
+                            "unknown lock failure"
+                    );
+            given(petPublicTagGenerator.generate(command.nickname()))
+                    .willReturn(FIRST_TAG);
+            given(petCreationTransactionService.createAttempt(
+                    USER_ID,
+                    command,
+                    FIRST_TAG
+            )).willReturn(outcome);
+            given(activePetAssignmentTransactionService.assignIfAbsent(
+                    USER_ID,
+                    outcome.petId()
+            )).willThrow(exception);
+
+            assertThatThrownBy(() -> service.create(USER_ID, command))
+                    .isSameAs(exception);
+        }
+
+        @Test
+        @DisplayName("It: 허용되지 않은 SQLSTATE의 비관적 잠금 오류는 숨기지 않는다")
+        void itPropagatesLockFailureWithOtherSqlState() {
+            PetCreateCommand command = command();
+            PetCreationOutcome outcome = new PetCreationOutcome(8L, true);
+            PessimisticLockingFailureException exception =
+                    pessimisticLockFailure("23505");
+            given(petPublicTagGenerator.generate(command.nickname()))
+                    .willReturn(FIRST_TAG);
+            given(petCreationTransactionService.createAttempt(
+                    USER_ID,
+                    command,
+                    FIRST_TAG
+            )).willReturn(outcome);
+            given(activePetAssignmentTransactionService.assignIfAbsent(
+                    USER_ID,
+                    outcome.petId()
+            )).willThrow(exception);
+
+            assertThatThrownBy(() -> service.create(USER_ID, command))
+                    .isSameAs(exception);
+        }
+
+        @Test
+        @DisplayName("It: 자동 지정의 BusinessException을 RETRY_REQUIRED로 숨기지 않는다")
+        void itPropagatesAssignmentBusinessException() {
+            PetCreateCommand command = command();
+            PetCreationOutcome outcome = new PetCreationOutcome(7L, true);
+            given(petPublicTagGenerator.generate(command.nickname()))
+                    .willReturn(FIRST_TAG);
+            given(petCreationTransactionService.createAttempt(
+                    USER_ID,
+                    command,
+                    FIRST_TAG
+            )).willReturn(outcome);
+            given(activePetAssignmentTransactionService.assignIfAbsent(
+                    USER_ID,
+                    outcome.petId()
+            )).willThrow(new BusinessException(ErrorCode.ACCOUNT_NOT_ACTIVE));
+
+            assertErrorCode(
+                    () -> service.create(USER_ID, command),
+                    ErrorCode.ACCOUNT_NOT_ACTIVE
+            );
         }
     }
 
@@ -195,6 +370,15 @@ class PetCreationServiceTest {
 
     private DataIntegrityViolationException publicTagUniqueViolation() {
         return constraintViolation("uk_pets_public_tag");
+    }
+
+    private PessimisticLockingFailureException pessimisticLockFailure(
+            String sqlState
+    ) {
+        return new PessimisticLockingFailureException(
+                "locked",
+                new SQLException("postgres lock failure", sqlState)
+        );
     }
 
     private DataIntegrityViolationException constraintViolation(

@@ -54,6 +54,13 @@ class PetCreationPostgreSqlIntegrationTest {
     private PetCreationService petCreationService;
 
     @Autowired
+    private ActivePetAssignmentTransactionService
+            activePetAssignmentTransactionService;
+
+    @Autowired
+    private ActivePetSelectionService activePetSelectionService;
+
+    @Autowired
     private PetRepository petRepository;
 
     @Autowired
@@ -86,21 +93,113 @@ class PetCreationPostgreSqlIntegrationTest {
         given(petPublicTagGenerator.generate(command.nickname()))
                 .willReturn(DUPLICATE_TAG, NEW_TAG);
 
-        PetCreationOutcome outcome = petCreationService.create(
+        PetCreationResult result = petCreationService.create(
                 user.getId(),
                 command
         );
 
-        assertThat(outcome.firstPetCandidate()).isFalse();
+        assertThat(result.activePetAssignmentStatus())
+                .isEqualTo(ActivePetAssignmentStatus.NOT_APPLICABLE);
         assertThat(petRepository.countByOwner_IdAndDeletedAtIsNull(user.getId()))
                 .isEqualTo(2);
-        Pet savedPet = petRepository.findById(outcome.petId()).orElseThrow();
+        Pet savedPet = petRepository.findById(result.petId()).orElseThrow();
         assertThat(savedPet.getPublicTag()).isEqualTo(NEW_TAG);
         assertThat(petRepository.findAll())
                 .extracting(Pet::getPublicTag)
                 .containsExactlyInAnyOrder(DUPLICATE_TAG, NEW_TAG);
         then(petPublicTagGenerator).should(times(2))
                 .generate(command.nickname());
+    }
+
+    @Test
+    @DisplayName("It: 첫 Pet 생성 뒤 별도 Transaction으로 Active Pet을 자동 지정한다")
+    void assignsFirstPetAsActivePet() {
+        User user = createUser();
+        PetCreateCommand command = command();
+        given(petPublicTagGenerator.generate(command.nickname()))
+                .willReturn(NEW_TAG);
+
+        PetCreationResult result = petCreationService.create(
+                user.getId(),
+                command
+        );
+
+        assertThat(result.activePetAssignmentStatus())
+                .isEqualTo(ActivePetAssignmentStatus.ASSIGNED);
+        assertThat(petRepository.findById(result.petId())).isPresent();
+        User persistedUser = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(persistedUser.getActivePetId()).isEqualTo(result.petId());
+    }
+
+    @Test
+    @DisplayName("It: 두 번째 Pet 생성은 기존 Active Pet을 덮어쓰지 않는다")
+    void doesNotOverwriteActivePetWhenCreatingSecondPet() {
+        User user = createUser();
+        PetCreateCommand command = command();
+        given(petPublicTagGenerator.generate(command.nickname()))
+                .willReturn("첫째#A7K2", "둘째#B8M3");
+
+        PetCreationResult first = petCreationService.create(
+                user.getId(),
+                command
+        );
+        PetCreationResult second = petCreationService.create(
+                user.getId(),
+                command
+        );
+
+        assertThat(first.activePetAssignmentStatus())
+                .isEqualTo(ActivePetAssignmentStatus.ASSIGNED);
+        assertThat(second.activePetAssignmentStatus())
+                .isEqualTo(ActivePetAssignmentStatus.NOT_APPLICABLE);
+        User persistedUser = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(persistedUser.getActivePetId()).isEqualTo(first.petId());
+        assertThat(persistedUser.getActivePetId()).isNotEqualTo(second.petId());
+    }
+
+    @Test
+    @DisplayName("It: 수동 선택이 먼저 Commit되면 자동 지정은 기존 Active Pet을 유지한다")
+    void keepsManualSelectionWhenItCommitsFirst() {
+        User user = createUser();
+        Pet manualPet = savePet(user, "수동#C9N4", "수동");
+        Pet generatedPet = savePet(user, "자동#D2P5", "자동");
+
+        activePetSelectionService.selectActivePet(
+                user.getId(),
+                manualPet.getId()
+        );
+        ActivePetAssignmentStatus status =
+                activePetAssignmentTransactionService.assignIfAbsent(
+                        user.getId(),
+                        generatedPet.getId()
+                );
+
+        assertThat(status).isEqualTo(ActivePetAssignmentStatus.NOT_APPLICABLE);
+        User persistedUser = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(persistedUser.getActivePetId()).isEqualTo(manualPet.getId());
+    }
+
+    @Test
+    @DisplayName("It: 자동 지정 뒤에도 수동 선택은 다른 Pet으로 정상 전환된다")
+    void allowsManualSelectionAfterAutomaticAssignment() {
+        User user = createUser();
+        Pet automaticallyAssignedPet = savePet(user, "자동#E3Q6", "자동");
+        Pet manuallySelectedPet = savePet(user, "수동#F4R7", "수동");
+
+        ActivePetAssignmentStatus status =
+                activePetAssignmentTransactionService.assignIfAbsent(
+                        user.getId(),
+                        automaticallyAssignedPet.getId()
+                );
+        activePetSelectionService.selectActivePet(
+                user.getId(),
+                manuallySelectedPet.getId()
+        );
+
+        assertThat(status).isEqualTo(ActivePetAssignmentStatus.ASSIGNED);
+        User persistedUser = userRepository.findById(user.getId()).orElseThrow();
+        assertThat(persistedUser.getActivePetId())
+                .isEqualTo(manuallySelectedPet.getId());
     }
 
     @Test
@@ -152,8 +251,8 @@ class PetCreationPostgreSqlIntegrationTest {
         ));
     }
 
-    private void savePet(User user, String publicTag, String nickname) {
-        petRepository.saveAndFlush(Pet.register(
+    private Pet savePet(User user, String publicTag, String nickname) {
+        return petRepository.saveAndFlush(Pet.register(
                 user,
                 publicTag,
                 nickname,
