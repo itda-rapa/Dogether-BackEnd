@@ -1,0 +1,280 @@
+package itda.pet.controller;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.inOrder;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
+import itda.common.filter.JwtFilter;
+import itda.common.security.CurrentUser;
+import itda.pet.domain.PetSex;
+import itda.pet.domain.PetSizeCode;
+import itda.pet.domain.PetStatus;
+import itda.pet.dto.PetResponse;
+import itda.pet.service.ActivePetAssignmentStatus;
+import itda.pet.service.MyPetQueryService;
+import itda.pet.service.PetCreateCommand;
+import itda.pet.service.PetCreationResult;
+import itda.pet.service.PetCreationService;
+import itda.user.domain.Role;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+@WebMvcTest(PetController.class)
+@AutoConfigureMockMvc(addFilters = false)
+@DisplayName("PetController")
+class PetControllerTest {
+
+    private static final Long USER_ID = 1L;
+    private static final Long PET_ID = 2L;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockitoBean
+    private PetCreationService petCreationService;
+
+    @MockitoBean
+    private MyPetQueryService myPetQueryService;
+
+    @MockitoBean
+    private JwtFilter jwtFilter;
+
+    @BeforeEach
+    void authenticate() {
+        CurrentUser currentUser = new CurrentUser(
+                USER_ID,
+                "user@example.com",
+                Role.USER
+        );
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        currentUser,
+                        null,
+                        currentUser.getAuthorities()
+                )
+        );
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    @Nested
+    @DisplayName("Describe: POST /pets")
+    class DescribeCreatePet {
+
+        @Test
+        @DisplayName("It: ASSIGNED 상태와 최신 Pet 응답을 201로 반환한다")
+        void itCreatesPetAndReturnsAssignedResponse() throws Exception {
+            given(petCreationService.create(eq(USER_ID), any(PetCreateCommand.class)))
+                    .willReturn(new PetCreationResult(
+                            PET_ID,
+                            ActivePetAssignmentStatus.ASSIGNED
+                    ));
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willReturn(petResponse(true));
+
+            var result = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(validRequestJson()));
+
+            result.andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.pet.petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data.pet.nickname").value("몽이"))
+                    .andExpect(jsonPath("$.data.pet.active").value(true))
+                    .andExpect(jsonPath("$.data.activeAssignmentStatus")
+                            .value("ASSIGNED"))
+                    .andExpect(jsonPath("$.error").isEmpty())
+                    .andExpect(jsonPath("$.data.pet.firstPetCandidate")
+                            .doesNotExist())
+                    .andExpect(jsonPath("$.data.pet.version").doesNotExist())
+                    .andExpect(jsonPath("$.data.pet.owner").doesNotExist())
+                    .andExpect(jsonPath("$.data.pet.profileAsset").doesNotExist());
+            InOrder order = inOrder(petCreationService, myPetQueryService);
+            order.verify(petCreationService)
+                    .create(eq(USER_ID), any(PetCreateCommand.class));
+            order.verify(myPetQueryService).getMyPet(USER_ID, PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: NOT_APPLICABLE이어도 조회 결과가 active=true면 그대로 반환한다")
+        void itReturnsActualActiveStateIndependentlyFromAssignmentStatus()
+                throws Exception {
+            given(petCreationService.create(eq(USER_ID), any(PetCreateCommand.class)))
+                    .willReturn(new PetCreationResult(
+                            PET_ID,
+                            ActivePetAssignmentStatus.NOT_APPLICABLE
+                    ));
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willReturn(petResponse(true));
+
+            var result = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(validRequestJson()));
+
+            result.andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.activeAssignmentStatus")
+                            .value("NOT_APPLICABLE"))
+                    .andExpect(jsonPath("$.data.pet.active").value(true));
+        }
+
+        @Test
+        @DisplayName("It: RETRY_REQUIRED도 Pet과 함께 201로 반환한다")
+        void itReturnsRetryRequiredAsCreatedResponse() throws Exception {
+            given(petCreationService.create(eq(USER_ID), any(PetCreateCommand.class)))
+                    .willReturn(new PetCreationResult(
+                            PET_ID,
+                            ActivePetAssignmentStatus.RETRY_REQUIRED
+                    ));
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willReturn(petResponse(false));
+
+            var result = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(validRequestJson()));
+
+            result.andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.pet.petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data.activeAssignmentStatus")
+                            .value("RETRY_REQUIRED"));
+        }
+
+        @Test
+        @DisplayName("It: 잘못된 요청은 400으로 반환하고 Service를 호출하지 않는다")
+        void itRejectsInvalidRequestBeforeServiceInvocation() throws Exception {
+            var blankNickname = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "nickname": " "
+                            }
+                            """));
+            blankNickname.andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            var emojiNickname = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {
+                              "nickname": "몽이😀"
+                            }
+                            """));
+            emojiNickname.andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            then(petCreationService).shouldHaveNoInteractions();
+            then(myPetQueryService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 생성 Service의 일반 오류는 그대로 반환하고 조회하지 않는다")
+        void itPropagatesCreationFailureWithoutQueryingPet() throws Exception {
+            org.mockito.BDDMockito.willThrow(
+                    new BusinessException(ErrorCode.PET_LIMIT_EXCEEDED)
+            ).given(petCreationService)
+                    .create(eq(USER_ID), any(PetCreateCommand.class));
+
+            var result = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(validRequestJson()));
+
+            result.andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.PET_LIMIT_EXCEEDED.name()));
+            then(myPetQueryService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 처리되지 않은 동시성 충돌은 409를 반환하고 Pet을 조회하지 않는다")
+        void itReturnsConflictWithoutQueryingPetOnConcurrentFailure()
+                throws Exception {
+            PessimisticLockingFailureException exception =
+                    new PessimisticLockingFailureException(
+                            "concurrent update"
+                    );
+            given(petCreationService.create(
+                    eq(USER_ID),
+                    any(PetCreateCommand.class)
+            )).willThrow(exception);
+
+            var result = mockMvc.perform(post("/pets")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(validRequestJson()));
+
+            result.andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(
+                                    ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()
+                            ));
+            then(myPetQueryService).shouldHaveNoInteractions();
+        }
+    }
+
+    private String validRequestJson() {
+        return """
+                {
+                  "nickname": "몽이",
+                  "breedName": "말티즈",
+                  "sex": "FEMALE",
+                  "neutered": true,
+                  "birthDate": "2020-01-02",
+                  "weightKg": 3.40,
+                  "sizeCode": "SMALL",
+                  "bio": "사람을 좋아해요.",
+                  "personalityTags": ["친화적"],
+                  "careNote": "닭고기 알레르기"
+                }
+                """;
+    }
+
+    private PetResponse petResponse(boolean active) {
+        return new PetResponse(
+                PET_ID,
+                USER_ID,
+                "몽이#B8M3",
+                "보호자#A7K2",
+                "몽이",
+                "말티즈",
+                PetSex.FEMALE,
+                true,
+                LocalDate.of(2020, 1, 2),
+                new BigDecimal("3.40"),
+                PetSizeCode.SMALL,
+                "사람을 좋아해요.",
+                List.of("친화적"),
+                "닭고기 알레르기",
+                null,
+                PetStatus.ACTIVE,
+                null,
+                false,
+                null,
+                active
+        );
+    }
+}

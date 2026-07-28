@@ -87,6 +87,20 @@ class SecurityConfigTest {
                                 .value(ErrorCode.UNAUTHORIZED.name()));
             }
         }
+
+        @Nested
+        @DisplayName("Context: POST /pets를 호출하면")
+        class WithPetPost {
+
+            @Test
+            @DisplayName("It: UNAUTHORIZED 오류와 401을 반환한다")
+            void itReturnsUnauthorizedError() throws Exception {
+                mockMvc.perform(post("/pets"))
+                        .andExpect(status().isUnauthorized())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.UNAUTHORIZED.name()));
+            }
+        }
     }
 
     @Nested
