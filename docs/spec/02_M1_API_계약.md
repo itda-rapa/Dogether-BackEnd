@@ -64,8 +64,9 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 - Pet PublicTag 후보는 trim한 nickname의 앞 25개 Unicode code point와 `#XXXX`로
   생성한다. 충돌 시 새 트랜잭션에서 최대 5회 재시도한다.
 - nickname은 trim 후 1자 이상, M1 `profileUrl`은 null이다.
-- Pet 생성·수정 입력의 `breedCode`는 최대 30자, `breedName`은 최대 100자다.
-  `weightKg`는 0 이상 999.99 이하이며 소수 둘째 자리까지만 허용한다.
+- Pet 생성·수정 입력의 `breedName`은 최대 100자다. 사용자 입력 또는 향후
+  동물등록 조회의 `kindNm`을 견종명 후보로 반영할 수 있다. `weightKg`는 0 이상
+  999.99 이하이며 소수 둘째 자리까지만 허용한다.
 - Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면
   `409 PET_PUBLIC_TAG_GENERATION_FAILED`다.
 - M1은 Pet 생성 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는

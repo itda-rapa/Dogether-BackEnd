@@ -328,7 +328,7 @@ paths:
       summary: Pet 수정
       operationId: updatePet
       description: |
-        nickname, breedCode, breedName, sex, neutered, birthDate 중
+        nickname, breedName, sex, neutered, birthDate 중
         인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.
       requestBody:
         required: true
@@ -1361,12 +1361,13 @@ components:
           type: string
           minLength: 1
           maxLength: 30
-        breedCode:
-          type: [string, 'null']
-          maxLength: 30
+          description: >-
+            앞뒤 공백 제거 후 저장하며, 이모지 및 emoji-like pictographic
+            문자·기호(예: ©, ™, ☀, ♥)는 사용할 수 없다.
         breedName:
           type: [string, 'null']
           maxLength: 100
+          description: 사용자 입력 또는 향후 동물등록 조회의 kindNm을 반영할 수 있는 견종명
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -1401,12 +1402,13 @@ components:
           type: string
           minLength: 1
           maxLength: 30
-        breedCode:
-          type: [string, 'null']
-          maxLength: 30
+          description: >-
+            앞뒤 공백 제거 후 저장하며, 이모지 및 emoji-like pictographic
+            문자·기호(예: ©, ™, ☀, ♥)는 사용할 수 없다.
         breedName:
           type: [string, 'null']
           maxLength: 100
+          description: 사용자 입력 또는 향후 동물등록 조회의 kindNm을 반영할 수 있는 견종명
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -1456,10 +1458,9 @@ components:
         nickname:
           type: string
           minLength: 1
-        breedCode:
-          type: [string, 'null']
         breedName:
           type: [string, 'null']
+          description: 사용자 입력 또는 향후 동물등록 조회의 kindNm을 반영할 수 있는 견종명
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:

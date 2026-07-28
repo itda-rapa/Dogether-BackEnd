@@ -63,6 +63,8 @@ class PetMigrationPostgreSqlIntegrationTest {
                 "select to_regclass('public.pets')",
                 String.class
         )).isEqualTo("pets");
+        assertThat(columnExists("breed_name")).isTrue();
+        assertThat(columnExists("breed_code")).isFalse();
         assertThat(jdbcTemplate.queryForObject("""
                 select udt_name
                   from information_schema.columns
@@ -445,6 +447,17 @@ class PetMigrationPostgreSqlIntegrationTest {
                 unique + "@example.com",
                 "보호자#" + unique.substring(0, 8)
         );
+    }
+
+    private boolean columnExists(String columnName) {
+        Integer count = jdbcTemplate.queryForObject("""
+                select count(*)
+                  from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'pets'
+                   and column_name = ?
+                """, Integer.class, columnName);
+        return count != null && count == 1;
     }
 
     private Long createMediaAsset(Long ownerId, String purpose) {

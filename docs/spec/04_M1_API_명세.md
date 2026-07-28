@@ -403,7 +403,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 ```json
 {
   "nickname": "몽이",
-  "breedCode": "string",
   "breedName": "string",
   "sex": "MALE",
   "neutered": true,
@@ -440,7 +439,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "publicTag": "몽이#A7K2",
       "ownerPublicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -501,7 +499,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "publicTag": "몽이#A7K2",
       "ownerPublicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -646,7 +643,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -683,7 +679,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `updatePet`
 - 인증: Bearer Token 필요
-- 설명: nickname, breedCode, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
+- 설명: nickname, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
 
 **파라미터**
 
@@ -701,7 +697,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 ```json
 {
   "nickname": "몽이",
-  "breedCode": "string",
   "breedName": "string",
   "sex": "MALE",
   "neutered": true,
@@ -738,7 +733,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -820,7 +814,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "expiresAt": "2026-07-24T09:00:00Z",
     "petPrefill": {
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -896,7 +889,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -2617,9 +2609,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | maxLength: 30 | - |
-| `breedName` | ㄴ | string / null | maxLength: 100 | - |
+| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
@@ -2634,9 +2625,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | maxLength: 30 | - |
-| `breedName` | ㄴ | string / null | maxLength: 100 | - |
+| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
@@ -2662,8 +2652,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `publicTag` | ㅇ | string | maxLength: 30, pattern: `<1~25자>#XXXX` | User와 별도 Namespace. nickname 앞 25개 Unicode code point로 생성 |
 | `ownerPublicTag` | ㄴ | string | - | - |
 | `nickname` | ㅇ | string | minLength: 1 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | - | - |
-| `breedName` | ㄴ | string / null | - | - |
+| `breedName` | ㄴ | string / null | - | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |

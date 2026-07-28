@@ -3,7 +3,6 @@ CREATE TABLE pets (
     owner_user_id BIGINT NOT NULL,
     public_tag VARCHAR(30) NOT NULL,
     nickname VARCHAR(30) NOT NULL,
-    breed_code VARCHAR(30),
     breed_name VARCHAR(100),
     sex VARCHAR(10),
     neutered BOOLEAN,
