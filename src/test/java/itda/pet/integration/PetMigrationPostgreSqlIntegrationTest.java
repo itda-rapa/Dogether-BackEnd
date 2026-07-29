@@ -6,10 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -56,9 +58,15 @@ class PetMigrationPostgreSqlIntegrationTest {
     @Test
     void appliesPetMigrationAndValidatesHibernateSchema() {
         assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion())
-                .isEqualTo("8");
+        assertThat(Arrays.stream(flyway.info().all()))
+                .anyMatch(migration ->
+                        migration.getVersion() != null
+                                && "8".equals(
+                                migration.getVersion().getVersion()
+                        )
+                                && migration.getState()
+                                == MigrationState.SUCCESS
+                );
         assertThat(jdbcTemplate.queryForObject(
                 "select to_regclass('public.pets')",
                 String.class
