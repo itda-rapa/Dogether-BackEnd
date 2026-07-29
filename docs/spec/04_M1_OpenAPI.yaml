@@ -1006,6 +1006,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BlockListEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /reports:
     post:
