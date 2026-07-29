@@ -6,7 +6,7 @@
 
 - `.env`: 각 개발 PC에서 작성하는 로컬 실행값이다. Git에는 포함하지 않는다.
 - `.env.example`: `.env`에 필요한 환경 변수 목록과 안전한 예시값이다.
-- `Dockerfile`, `docker-compose.yml`: 애플리케이션 이미지와 로컬 PostgreSQL 실행 구성을 정의한다.
+- `Dockerfile`, `docker-compose.yml`: 애플리케이션 이미지와 로컬 PostgreSQL·RustFS 실행 구성을 정의한다.
 - `build.gradle`, `settings.gradle`: Java 버전, 의존성, 테스트 및 프로젝트 이름을 정의한다.
 - `gradlew`, `gradlew.bat`, `gradle/wrapper/*`: 별도 Gradle 설치 없이 프로젝트를 빌드하고 실행한다.
 - `src/main/resources/application*.yaml`: 공통·로컬·운영 Spring 설정을 정의한다.
@@ -17,29 +17,45 @@
 ### 실행 순서
 
 1. `.env.example`을 복사해 `.env`를 만들고 로컬 값을 채운다.
-2. Docker Desktop을 준비하고 Docker 엔진이 실행 중인지 확인한 뒤 전체 스택을 실행한다.
+2. Docker Desktop을 준비하고 Docker 엔진이 실행 중인지 확인한 뒤 PostgreSQL과
+   RustFS를 먼저 실행한다.
 
 ```powershell
-docker compose up -d --build
+docker compose up -d postgres rustfs
+docker compose ps
 ```
 
-3. PostgreSQL과 애플리케이션 상태를 확인한다.
+3. RustFS 콘솔에서 로컬 버킷을 수동으로 생성한다.
+
+- 콘솔: `http://localhost:9001/rustfs/console/index.html`
+- 계정: `.env`의 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- 버킷 이름: `.env`의 `S3_BUCKET` (기본값 `dogether-local`)
+
+RustFS 콘솔에 로그인해 `S3_BUCKET`과 동일한 이름의 버킷을 만든다. 이미 버킷이
+존재하면 이 단계는 생략한다. 버킷 데이터는 `dogether-rustfs-data` 볼륨에
+저장되므로 일반적인 `docker compose down` 이후에도 유지된다.
+
+4. 버킷 생성 후 애플리케이션을 빌드하고 실행한다.
 
 ```powershell
+docker compose up -d --build app
 docker compose ps
 Invoke-RestMethod http://localhost:8080/actuator/health
 ```
 
-두 컨테이너가 `healthy`이고 Health 응답의 `status`가 `UP`이면 실행이 완료된 것이다.
+PostgreSQL, RustFS, 애플리케이션 세 컨테이너가 `healthy`이고 Health 응답의
+`status`가 `UP`이면 실행이 완료된 것이다.
 PostgreSQL의 기본 호스트 포트는 `5432`를 사용한다.
+RustFS의 기본 API 포트는 `9000`, 콘솔 포트는 `9001`을 사용한다.
 애플리케이션 기본 호스트 포트는 `8080`이며, 충돌하면 `.env`의 `APP_PORT`를
 변경하고 Health URL에도 같은 포트를 사용한다.
 
 애플리케이션을 IDE 또는 Gradle로 직접 실행할 때는 Java 25를 준비하고
-PostgreSQL만 시작한다.
+PostgreSQL과 RustFS를 시작한다. 최초 실행이면 위와 동일하게 RustFS 콘솔에서
+버킷을 생성한다.
 
 ```powershell
-docker compose up -d postgres
+docker compose up -d postgres rustfs
 .\gradlew.bat bootRun
 ```
 
@@ -50,13 +66,13 @@ docker compose up -d postgres
 `db/migration`과 `db/seed`를 적용하며, 개발 seed는 `prod` 프로필에서 실행되지
 않는다.
 
-4. 빠른 단위 테스트를 실행한다.
+5. 빠른 단위 테스트를 실행한다.
 
 ```powershell
 .\gradlew.bat test
 ```
 
-5. Docker를 실행한 상태에서 PostgreSQL 통합 테스트를 실행한다.
+6. Docker를 실행한 상태에서 PostgreSQL 통합 테스트를 실행한다.
 
 ```powershell
 .\gradlew.bat postgresTest
@@ -64,6 +80,16 @@ docker compose up -d postgres
 
 `postgresTest`는 Docker가 없으면 실패한다. PR CI는 `test`와
 `postgresTest`를 모두 실행하므로 PostgreSQL/Flyway 검증이 SKIP될 수 없다.
+
+7. RustFS 호환성을 다시 확인해야 할 때 전용 통합 테스트를 수동 실행한다.
+
+```powershell
+.\gradlew.bat rustfsTest
+```
+
+`rustfsTest`는 별도의 임시 RustFS 컨테이너와 테스트 버킷을 생성해 Presigned
+PUT, HEAD, GET, DELETE를 검증한다. 로컬 Compose의 `dogether-local` 버킷을
+사용하지 않으며 일반 `test`와 CI에서는 자동 실행하지 않는다.
 
 작업을 마치면 데이터 볼륨을 유지한 채 컨테이너를 종료한다.
 
@@ -74,12 +100,32 @@ docker compose down
 실제 `.env`는 Git에 포함하지 않는다. Spring은 프로젝트 루트의 `.env`를
 `local` 프로필에서만 properties 형식으로 읽는다.
 
+### RustFS와 AWS S3 전환
+
+로컬 환경에서는 RustFS를 S3 호환 저장소로 사용한다.
+
+| 설정 | 로컬 RustFS | 운영 AWS S3 |
+|---|---|---|
+| `S3_ENDPOINT` | `http://localhost:9000` | 빈 값 |
+| `S3_PRESIGN_ENDPOINT` | `http://localhost:9000` | 빈 값 |
+| `S3_PATH_STYLE` | `true` | `false` |
+| 버킷 생성 | RustFS 콘솔에서 수동 생성 | AWS 인프라에서 별도 생성 |
+
+Docker Compose로 애플리케이션을 실행할 때는 내부 통신을 위해
+`S3_ENDPOINT=http://rustfs:9000`으로 자동 덮어쓴다. Presigned URL은
+브라우저에서 접근할 수 있도록 `localhost:9000`을 사용한다.
+
+AWS S3로 전환할 때는 RustFS 컨테이너와 로컬 버킷 생성 절차를 운영 환경에
+사용하지 않는다. AWS에서 버킷, CORS, IAM 권한을 별도로 구성하고 endpoint를
+비운 뒤 path-style을 비활성화한다. 운영 자격증명은 코드나 `.env`에 저장하지
+않고 IAM Role 또는 표준 AWS 자격증명 체인을 사용한다.
+
 ## Spring Profiles
 
 | Profile | 용도 | DB·Flyway |
 |---|---|---|
 | `local` | 개발 PC와 Docker Compose | PostgreSQL, Flyway 기본 비활성화, 활성화 시 migration과 seed 적용 |
-| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`는 Testcontainers/Flyway 활성화 |
+| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`와 `rustfsTest`는 Testcontainers 사용 |
 | `prod` | 운영 배포 | 운영 PostgreSQL, Flyway 기본 비활성화, migration만 적용 가능 |
 
 Gradle의 모든 `Test` 작업은 `test` 프로필을 자동 활성화한다. `prod` 프로필은

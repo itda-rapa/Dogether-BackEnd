@@ -28,6 +28,7 @@ app:
     bucket: ${S3_BUCKET:dogether-local}
     region: ${AWS_REGION:ap-northeast-2}
     endpoint: ${S3_ENDPOINT:}
+    presign-endpoint: ${S3_PRESIGN_ENDPOINT:${S3_ENDPOINT:}}
     path-style-access-enabled: ${S3_PATH_STYLE:false}
   media:
     upload-url-ttl: ${MEDIA_UPLOAD_URL_TTL:15m}

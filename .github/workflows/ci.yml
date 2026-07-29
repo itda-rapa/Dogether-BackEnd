@@ -2,7 +2,7 @@ name: Backend CI
 
 on:
   push:
-    branches: [dev] # test용도 -> 정상적으로 build시 main으로 변경
+    branches: [main]
 
 permissions:
   contents: read

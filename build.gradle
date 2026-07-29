@@ -56,7 +56,7 @@ tasks.withType(Test).configureEach {
 
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'postgres'
+        excludeTags 'postgres', 'rustfs'
     }
 }
 
@@ -67,6 +67,17 @@ tasks.register('postgresTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {
         includeTags 'postgres'
+    }
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.register('rustfsTest', Test) {
+    description = 'Runs RustFS S3 compatibility tests with Testcontainers.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'rustfs'
     }
     shouldRunAfter tasks.named('test')
 }

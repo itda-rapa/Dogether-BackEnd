@@ -26,4 +26,5 @@ app:
     bucket: ${S3_BUCKET}
     region: ${AWS_REGION}
     endpoint:
+    presign-endpoint:
     path-style-access-enabled: false
