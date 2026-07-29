@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -263,6 +264,8 @@ class PetControllerTest {
                     .andExpect(jsonPath("$.data[0].owner").doesNotExist())
                     .andExpect(jsonPath("$.data[0].version").doesNotExist());
             then(myPetQueryService).should().getMyPets(USER_ID);
+            then(myPetQueryService).should(never())
+                    .getMyPet(any(), any());
         }
 
         @Test
@@ -278,6 +281,78 @@ class PetControllerTest {
                     .andExpect(jsonPath("$.data").isEmpty())
                     .andExpect(jsonPath("$.error").isEmpty());
             then(myPetQueryService).should().getMyPets(USER_ID);
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: GET /pets/{petId}")
+    class DescribeGetMyPet {
+
+        @Test
+        @DisplayName("It: 본인 소유 Pet 상세를 200으로 반환한다")
+        void itReturnsMyPetDetail() throws Exception {
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willReturn(petResponse(true));
+
+            var result = mockMvc.perform(get("/pets/{petId}", PET_ID));
+
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data.ownerUserId").value(USER_ID))
+                    .andExpect(jsonPath("$.data.nickname").value("몽이"))
+                    .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                    .andExpect(jsonPath("$.data.active").value(true))
+                    .andExpect(jsonPath("$.data.profileUrl").isEmpty())
+                    .andExpect(jsonPath("$.data.verified").value(false))
+                    .andExpect(jsonPath("$.data.verifiedAt").isEmpty())
+                    .andExpect(jsonPath("$.error").isEmpty())
+                    .andExpect(jsonPath("$.data.owner").doesNotExist())
+                    .andExpect(jsonPath("$.data.version").doesNotExist());
+            then(myPetQueryService).should().getMyPet(USER_ID, PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: 본인 소유 SUSPENDED Pet도 200으로 반환한다")
+        void itReturnsSuspendedPet() throws Exception {
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willReturn(petResponse(
+                            PET_ID,
+                            PetStatus.SUSPENDED,
+                            true
+                    ));
+
+            var result = mockMvc.perform(get("/pets/{petId}", PET_ID));
+
+            result.andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("SUSPENDED"))
+                    .andExpect(jsonPath("$.data.active").value(true));
+        }
+
+        @Test
+        @DisplayName("It: Pet이 없으면 PET_NOT_FOUND를 반환한다")
+        void itReturnsNotFoundWhenPetDoesNotExist() throws Exception {
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willThrow(new BusinessException(ErrorCode.PET_NOT_FOUND));
+
+            var result = mockMvc.perform(get("/pets/{petId}", PET_ID));
+
+            result.andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.PET_NOT_FOUND.name()));
+        }
+
+        @Test
+        @DisplayName("It: 미삭제 타인 Pet은 PET_NOT_OWNED를 반환한다")
+        void itReturnsForbiddenWhenPetIsOwnedByAnotherUser() throws Exception {
+            given(myPetQueryService.getMyPet(USER_ID, PET_ID))
+                    .willThrow(new BusinessException(ErrorCode.PET_NOT_OWNED));
+
+            var result = mockMvc.perform(get("/pets/{petId}", PET_ID));
+
+            result.andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.PET_NOT_OWNED.name()));
         }
     }
 

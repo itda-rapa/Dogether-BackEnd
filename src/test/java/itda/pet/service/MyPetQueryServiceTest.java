@@ -109,6 +109,21 @@ class MyPetQueryServiceTest {
         }
 
         @Test
+        @DisplayName("It: 본인 소유의 미삭제 SUSPENDED Pet도 현재 Active 상태와 함께 반환한다")
+        void itReturnsOwnedSuspendedPet() {
+            User owner = user(USER_ID);
+            owner.selectActivePet(PET_ID);
+            Pet pet = pet(owner, null);
+            ReflectionTestUtils.setField(pet, "status", PetStatus.SUSPENDED);
+            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+
+            PetResponse response = service.getMyPet(USER_ID, PET_ID);
+
+            assertThat(response.status()).isEqualTo(PetStatus.SUSPENDED);
+            assertThat(response.active()).isTrue();
+        }
+
+        @Test
         @DisplayName("It: Pet이 없으면 PET_NOT_FOUND를 반환한다")
         void itRejectsMissingPet() {
             given(petRepository.findById(PET_ID)).willReturn(Optional.empty());
