@@ -1,5 +1,12 @@
 spring:
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/dogether}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
   flyway:
+    enabled: ${FLYWAY_ENABLED:false}
     locations:
       - classpath:db/migration
       - classpath:db/seed

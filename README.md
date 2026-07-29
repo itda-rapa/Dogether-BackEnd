@@ -72,7 +72,26 @@ docker compose down
 ```
 
 실제 `.env`는 Git에 포함하지 않는다. Spring은 프로젝트 루트의 `.env`를
-properties 형식으로 선택적으로 읽는다.
+`local` 프로필에서만 properties 형식으로 읽는다.
+
+## Spring Profiles
+
+| Profile | 용도 | DB·Flyway |
+|---|---|---|
+| `local` | 개발 PC와 Docker Compose | PostgreSQL, Flyway 기본 비활성화, 활성화 시 migration과 seed 적용 |
+| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`는 Testcontainers/Flyway 활성화 |
+| `prod` | 운영 배포 | 운영 PostgreSQL, Flyway 기본 비활성화, migration만 적용 가능 |
+
+Gradle의 모든 `Test` 작업은 `test` 프로필을 자동 활성화한다. `prod` 프로필은
+프로젝트의 `.env`를 읽지 않으며 다음 환경변수에 개발용 기본값을 사용하지 않는다.
+
+- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`
+- `JWT_ISSUER`, `JWT_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`
+- `CORS_ALLOWED_ORIGINS`
+- `S3_BUCKET`, `AWS_REGION`
+
+위 값이 없으면 운영 애플리케이션은 시작 단계에서 실패한다. `prod`에서는 Swagger가
+항상 비활성화되고 개발 seed 경로가 Flyway locations에 포함되지 않는다.
 
 ## API
 
