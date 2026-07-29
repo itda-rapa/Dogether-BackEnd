@@ -36,13 +36,14 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 - `status = DELETED ↔ deleted_at IS NOT NULL`을 보장한다.
 - Pet 생성 트랜잭션에서 내부 `firstPetCandidate`를 확정하고 Commit한다.
 - 생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.
-- 생성 Commit 이후 자동 Active 지정에서 발생한 lock timeout·deadlock 등
-  좁게 분류된 일시 실패에만 `201 Created`와 생성된 Pet, `RETRY_REQUIRED`를 반환한다.
+- 생성 Commit 이후 자동 Active 지정에서 비관적 잠금 실패로 분류된 동시성 오류에만
+  `201 Created`와 생성된 Pet, `RETRY_REQUIRED`를 반환한다.
 - Pet 생성 Transaction의 owner User 잠금·동시 수정 충돌은 Pet을 Commit하지 않고
   `409 CONCURRENT_UPDATE_CONFLICT`로 처리한다.
 - `POST /pets`의 `409` 대표 원인은 `PET_LIMIT_EXCEEDED`,
   `PET_PUBLIC_TAG_GENERATION_FAILED`, `CONCURRENT_UPDATE_CONFLICT`다.
-- DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은 `RETRY_REQUIRED` 또는
+- 자동 Active 지정의 DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은
+  `RETRY_REQUIRED` 또는
   `NOT_APPLICABLE`로 변환하지 않고 원인에 맞는 오류 흐름으로 처리한다. 이는 모든
   오류를 하나의 ErrorCode나 `500`으로 통일한다는 의미가 아니다.
 - 선행 Pet 생성 Transaction이 이미 Commit된 경우에는 후속 Active 지정이 오류로

@@ -30,6 +30,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
@@ -83,6 +84,22 @@ class PetCreationTransactionServiceTest {
                     () -> service.createAttempt(USER_ID, command(), PUBLIC_TAG),
                     ErrorCode.ACCOUNT_NOT_ACTIVE
             );
+            then(petRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: User 잠금 실패를 원형 전파하고 Pet 저장을 시도하지 않는다")
+        void itPropagatesUserPessimisticLockFailure() {
+            PessimisticLockingFailureException exception =
+                    new PessimisticLockingFailureException(
+                            "pet creation lock failure"
+                    );
+            given(userRepository.findByIdForUpdate(USER_ID))
+                    .willThrow(exception);
+
+            assertThatThrownBy(() ->
+                    service.createAttempt(USER_ID, command(), PUBLIC_TAG)
+            ).isSameAs(exception);
             then(petRepository).shouldHaveNoInteractions();
         }
 

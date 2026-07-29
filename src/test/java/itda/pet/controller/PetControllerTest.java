@@ -213,8 +213,12 @@ class PetControllerTest {
         }
 
         @Test
-        @DisplayName("It: 처리되지 않은 동시성 충돌은 409를 반환하고 Pet을 조회하지 않는다")
-        void itReturnsConflictWithoutQueryingPetOnConcurrentFailure()
+        @DisplayName(
+                "It: PetCreationService에서 전파된 잠금 충돌은 "
+                        + "409 CONCURRENT_UPDATE_CONFLICT를 반환하고 "
+                        + "Pet을 조회하지 않는다"
+        )
+        void itReturnsConflictWithoutQueryWhenCreationServicePropagatesLockFailure()
                 throws Exception {
             PessimisticLockingFailureException exception =
                     new PessimisticLockingFailureException(

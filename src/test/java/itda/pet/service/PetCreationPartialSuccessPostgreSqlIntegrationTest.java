@@ -9,7 +9,6 @@ import static org.mockito.Mockito.reset;
 import itda.pet.repository.PetRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
-import java.sql.SQLException;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -76,7 +75,7 @@ class PetCreationPartialSuccessPostgreSqlIntegrationTest {
     }
 
     @Test
-    @DisplayName("It: 자동 지정의 잠금 충돌 뒤에도 생성 Pet을 유지하고 RETRY_REQUIRED를 반환한다")
+    @DisplayName("It: PostgreSQL Pet Commit 뒤 Mock 자동 지정의 비관적 잠금 실패를 RETRY_REQUIRED로 처리한다")
     void keepsCreatedPetWhenAutomaticAssignmentHasLockFailure() {
         User user = createUser();
         PetCreateCommand command = command();
@@ -86,8 +85,7 @@ class PetCreationPartialSuccessPostgreSqlIntegrationTest {
                 anyLong(),
                 anyLong()
         )).willThrow(new PessimisticLockingFailureException(
-                "locked",
-                new SQLException("postgres lock failure", "55P03")
+                "automatic assignment lock failure"
         ));
 
         PetCreationResult result = petCreationService.create(
