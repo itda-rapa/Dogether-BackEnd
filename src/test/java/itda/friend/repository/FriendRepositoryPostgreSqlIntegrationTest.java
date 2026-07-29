@@ -1,0 +1,251 @@
+package itda.friend.repository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import itda.friend.repository.FriendRequestRepository.PendingFriendRequestRelationshipRow;
+import itda.friend.repository.FriendshipRepository.FriendshipRelationshipRow;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+
+@Tag("postgres")
+@Testcontainers
+@SpringBootTest
+@TestPropertySource(properties = {
+        "spring.flyway.enabled=true",
+        "spring.jpa.hibernate.ddl-auto=validate",
+        "spring.flyway.locations=classpath:db/migration,classpath:db/seed"
+})
+class FriendRepositoryPostgreSqlIntegrationTest {
+
+    private static final Instant NOW =
+            Instant.parse("2026-07-29T07:00:00Z");
+
+    @Container
+    @ServiceConnection
+    static PostgreSQLContainer postgres =
+            new PostgreSQLContainer("postgres:16-alpine");
+
+    @Autowired
+    private FriendshipRepository friendshipRepository;
+
+    @Autowired
+    private FriendRequestRepository friendRequestRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void cleanDatabase() {
+        jdbcTemplate.update("delete from friendships");
+        jdbcTemplate.update("delete from friend_requests");
+        jdbcTemplate.update("update users set active_pet_id = null");
+        jdbcTemplate.update("delete from pets");
+        jdbcTemplate.update("delete from media_assets");
+        jdbcTemplate.update("delete from refresh_tokens");
+        jdbcTemplate.update("delete from users");
+    }
+
+    @Test
+    void findsFriendshipsInBothDirectionsAndExcludesUnrelatedPairs() {
+        Long ownerId = createUser();
+        Long firstPetId = createPet(ownerId);
+        Long sourcePetId = createPet(ownerId);
+        Long thirdPetId = createPet(ownerId);
+        Long unrelatedPetId = createPet(ownerId);
+        Long unrelatedCounterpartPetId = createPet(ownerId);
+        insertFriendship(firstPetId, sourcePetId);
+        insertFriendship(sourcePetId, thirdPetId);
+        insertFriendship(unrelatedPetId, unrelatedCounterpartPetId);
+
+        List<FriendshipRelationshipRow> rows =
+                friendshipRepository.findRelationships(
+                        sourcePetId,
+                        List.of(
+                                firstPetId,
+                                thirdPetId,
+                                unrelatedPetId,
+                                unrelatedCounterpartPetId
+                        )
+                );
+
+        assertThat(rows)
+                .extracting(row ->
+                        row.getPetLowId() + ":" + row.getPetHighId()
+                )
+                .containsExactlyInAnyOrder(
+                        firstPetId + ":" + sourcePetId,
+                        sourcePetId + ":" + thirdPetId
+                );
+    }
+
+    @Test
+    void findsOnlyActivePendingRequestsAtStrictExpiryBoundary() {
+        Long ownerId = createUser();
+        Long sourcePetId = createPet(ownerId);
+        Long sentTargetPetId = createPet(ownerId);
+        Long receivedRequesterPetId = createPet(ownerId);
+        Long equalExpiryTargetPetId = createPet(ownerId);
+        Long expiredRequesterPetId = createPet(ownerId);
+        Long acceptedTargetPetId = createPet(ownerId);
+        Long unrelatedPetId = createPet(ownerId);
+        Long unrelatedTargetPetId = createPet(ownerId);
+
+        insertFriendRequest(
+                sourcePetId,
+                sentTargetPetId,
+                "PENDING",
+                NOW.plusSeconds(1)
+        );
+        insertFriendRequest(
+                receivedRequesterPetId,
+                sourcePetId,
+                "PENDING",
+                NOW.plusSeconds(2)
+        );
+        Long equalExpiryRequestId = insertFriendRequest(
+                sourcePetId,
+                equalExpiryTargetPetId,
+                "PENDING",
+                NOW
+        );
+        Long expiredRequestId = insertFriendRequest(
+                expiredRequesterPetId,
+                sourcePetId,
+                "PENDING",
+                NOW.minusSeconds(1)
+        );
+        insertFriendRequest(
+                sourcePetId,
+                acceptedTargetPetId,
+                "ACCEPTED",
+                NOW.plusSeconds(3)
+        );
+        insertFriendRequest(
+                unrelatedPetId,
+                unrelatedTargetPetId,
+                "PENDING",
+                NOW.plusSeconds(4)
+        );
+
+        List<PendingFriendRequestRelationshipRow> rows =
+                friendRequestRepository.findActivePendingRelationships(
+                        sourcePetId,
+                        List.of(
+                                sentTargetPetId,
+                                receivedRequesterPetId,
+                                equalExpiryTargetPetId,
+                                expiredRequesterPetId,
+                                acceptedTargetPetId,
+                                unrelatedPetId,
+                                unrelatedTargetPetId
+                        ),
+                        NOW
+                );
+
+        Set<String> directions = rows.stream()
+                .map(row ->
+                        row.getRequesterPetId() + "->" + row.getTargetPetId()
+                )
+                .collect(Collectors.toSet());
+        assertThat(directions).containsExactlyInAnyOrder(
+                sourcePetId + "->" + sentTargetPetId,
+                receivedRequesterPetId + "->" + sourcePetId
+        );
+        assertThat(status(equalExpiryRequestId)).isEqualTo("PENDING");
+        assertThat(status(expiredRequestId)).isEqualTo("PENDING");
+    }
+
+    private Long createUser() {
+        String unique = unique();
+        return jdbcTemplate.queryForObject("""
+                insert into users (
+                    email,
+                    password_hash,
+                    nickname,
+                    public_tag,
+                    role,
+                    account_status,
+                    neighborhood_code
+                ) values (?, 'encoded', '보호자', ?, 'USER', 'ACTIVE', '4113111500')
+                returning id
+                """,
+                Long.class,
+                unique + "@example.com",
+                "보호자#" + unique.substring(0, 8)
+        );
+    }
+
+    private Long createPet(Long ownerId) {
+        String unique = unique();
+        return jdbcTemplate.queryForObject("""
+                insert into pets (
+                    owner_user_id,
+                    public_tag,
+                    nickname,
+                    status
+                ) values (?, ?, '반려견', 'ACTIVE')
+                returning id
+                """,
+                Long.class,
+                ownerId,
+                "반려견#" + unique.substring(0, 4).toUpperCase()
+        );
+    }
+
+    private Long insertFriendRequest(
+            Long requesterPetId,
+            Long targetPetId,
+            String status,
+            Instant expiresAt
+    ) {
+        return jdbcTemplate.queryForObject("""
+                insert into friend_requests (
+                    requester_pet_id,
+                    target_pet_id,
+                    status,
+                    expires_at
+                ) values (?, ?, ?, ?)
+                returning id
+                """,
+                Long.class,
+                requesterPetId,
+                targetPetId,
+                status,
+                expiresAt.atOffset(ZoneOffset.UTC)
+        );
+    }
+
+    private void insertFriendship(Long petLowId, Long petHighId) {
+        jdbcTemplate.update("""
+                insert into friendships (pet_low_id, pet_high_id)
+                values (?, ?)
+                """, petLowId, petHighId);
+    }
+
+    private String status(Long requestId) {
+        return jdbcTemplate.queryForObject("""
+                select status
+                  from friend_requests
+                 where id = ?
+                """, String.class, requestId);
+    }
+
+    private String unique() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+}
