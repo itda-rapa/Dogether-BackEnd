@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequ
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -151,6 +152,10 @@ public class MediaService {
     }
 
     public String getPresignedUrl(Long id) {
+        return getPresignedDownloadUrl(id).url();
+    }
+
+    public PresignedDownloadUrl getPresignedDownloadUrl(Long id) {
         Media foundedMedia = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(id);
         // Media가 INIT & FAILED 상태 인 경우 비허용
         if (foundedMedia.getStatus() == MediaStatus.INIT
@@ -170,6 +175,15 @@ public class MediaService {
                 .build();
         // GetObjectPresignRequest에 서명을 추가해서 RustFS에 전달함으로써 다운로드 URL을 정의하는 PresignedURL을 생성
         PresignedGetObjectRequest presignedRequest = s3Presigner.presignGetObject(presignRequest);
-        return presignedRequest.url().toString();
+        return new PresignedDownloadUrl(
+                presignedRequest.url().toString(),
+                presignedRequest.expiration()
+        );
+    }
+
+    public record PresignedDownloadUrl(
+            String url,
+            Instant expiresAt
+    ) {
     }
 }

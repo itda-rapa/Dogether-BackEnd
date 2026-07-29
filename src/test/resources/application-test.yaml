@@ -19,8 +19,11 @@ app:
     allowed-origins:
       - http://localhost:3000
   s3:
+    access-key: test-access-key
+    secret-key: test-secret-key
     bucket: dogether-test
     region: ap-northeast-2
+    presigned-url-expiration-seconds: 600
     endpoint:
     presign-endpoint:
     path-style-access-enabled: false

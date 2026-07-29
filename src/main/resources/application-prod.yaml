@@ -26,8 +26,8 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
   s3:
-    bucket: ${S3_BUCKET}
+    access-key: ${AWS_S3_ACCESS_KEY}
+    secret-key: ${AWS_S3_SECRET_KEY}
+    bucket: ${AWS_S3_BUCKET_NAME}
     region: ${AWS_REGION}
-    endpoint:
-    presign-endpoint:
-    path-style-access-enabled: false
+    presigned-url-expiration-seconds: ${PRESIGNEDURL_EXPIRATION_TIME_SEC}

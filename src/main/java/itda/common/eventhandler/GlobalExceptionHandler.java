@@ -10,6 +10,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -44,7 +45,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({
             ConstraintViolationException.class,
-            HttpMessageNotReadableException.class
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleMalformedRequest(Exception exception) {
         return ResponseEntity.badRequest().body(
