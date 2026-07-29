@@ -59,6 +59,7 @@ public enum ErrorCode {
     MEETING_CARD_NOT_EDITABLE(HttpStatus.CONFLICT, "M1에서는 약속 카드를 수정할 수 없습니다."),
     MEETING_CARD_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "약속 참여 반려견만 카드를 취소할 수 있습니다."),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
+    REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 
     CHAT_ROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "채팅방을 찾을 수 없습니다."),
     CHAT_ROOM_SAME_PET_FORBIDDEN(HttpStatus.BAD_REQUEST, "같은 반려견만으로 채팅방을 만들 수 없습니다."),
