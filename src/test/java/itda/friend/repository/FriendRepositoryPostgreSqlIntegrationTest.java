@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import itda.friend.repository.FriendRequestRepository.PendingFriendRequestRelationshipRow;
 import itda.friend.repository.FriendshipRepository.FriendshipRelationshipRow;
+import itda.friend.service.FriendBlockCleanupService;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -45,6 +46,9 @@ class FriendRepositoryPostgreSqlIntegrationTest {
 
     @Autowired
     private FriendRequestRepository friendRequestRepository;
+
+    @Autowired
+    private FriendBlockCleanupService friendBlockCleanupService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -170,6 +174,43 @@ class FriendRepositoryPostgreSqlIntegrationTest {
         assertThat(status(expiredRequestId)).isEqualTo("PENDING");
     }
 
+    @Test
+    void blockCleanupCoversEveryPetPairAndPreservesHistoryAndUnrelatedRelations() {
+        Long userA = createUser();
+        Long userB = createUser();
+        Long userC = createUser();
+        Long petA1 = createPet(userA);
+        Long petA2 = createPet(userA);
+        Long petB1 = createPet(userB);
+        Long petB2 = createPet(userB);
+        Long petC1 = createPet(userC);
+
+        insertFriendship(petA1, petB1);
+        insertFriendship(petA2, petB2);
+        insertFriendship(petA1, petC1);
+
+        Long pendingAB = insertFriendRequest(
+                petA1, petB2, "PENDING", NOW.plusSeconds(60));
+        Long pendingBA = insertFriendRequest(
+                petB1, petA2, "PENDING", NOW.plusSeconds(60));
+        Long acceptedAB = insertFriendRequest(
+                petA2, petB1, "ACCEPTED", NOW.plusSeconds(60));
+        Long unrelated = insertFriendRequest(
+                petA1, petC1, "PENDING", NOW.plusSeconds(60));
+
+        FriendBlockCleanupService.CleanupResult result =
+                friendBlockCleanupService.cleanupBetweenUsers(userA, userB);
+
+        assertThat(result.deletedFriendships()).isEqualTo(2);
+        assertThat(result.canceledPendingRequests()).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from friendships", Integer.class)).isEqualTo(1);
+        assertThat(status(pendingAB)).isEqualTo("CANCELED");
+        assertThat(status(pendingBA)).isEqualTo("CANCELED");
+        assertThat(status(acceptedAB)).isEqualTo("ACCEPTED");
+        assertThat(status(unrelated)).isEqualTo("PENDING");
+    }
+
     private Long createUser() {
         String unique = unique();
         return jdbcTemplate.queryForObject("""
@@ -234,7 +275,7 @@ class FriendRepositoryPostgreSqlIntegrationTest {
         jdbcTemplate.update("""
                 insert into friendships (pet_low_id, pet_high_id)
                 values (?, ?)
-                """, petLowId, petHighId);
+                """, Math.min(petLowId, petHighId), Math.max(petLowId, petHighId));
     }
 
     private String status(Long requestId) {

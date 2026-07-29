@@ -442,6 +442,53 @@ class ChatRestPollingApiPostgreSqlIntegrationTest {
     }
 
     @Test
+    void blockedDirectRoomIsHiddenAndInaccessibleInBothDirections() {
+        long roomId = newRoom(PET_1, PET_2);
+        sendText(roomId, PET_1, "before-block", "preserved evidence");
+        jdbcTemplate.update("""
+                        insert into user_blocks (
+                            blocker_user_id, blocked_user_id, source_pet_id, target_pet_id
+                        ) values (?, ?, ?, ?)
+                        """,
+                USER_1, USER_2, PET_1, PET_2);
+
+        assertThat(chatQueryService.getRooms(USER_1, null, 20).items()).isEmpty();
+        assertThat(chatQueryService.getRooms(USER_2, null, 20).items()).isEmpty();
+
+        for (long userId : List.of(USER_1, USER_2)) {
+            assertThat(org.junit.jupiter.api.Assertions.assertThrows(
+                    BusinessException.class,
+                    () -> chatQueryService.getRoom(userId, roomId)))
+                    .extracting(BusinessException::getErrorCode)
+                    .isEqualTo(ErrorCode.CHAT_ROOM_NOT_FOUND);
+
+            assertThat(org.junit.jupiter.api.Assertions.assertThrows(
+                    BusinessException.class,
+                    () -> chatQueryService.getMessages(userId, roomId, 0, 50)))
+                    .extracting(BusinessException::getErrorCode)
+                    .isEqualTo(ErrorCode.CHAT_ROOM_NOT_FOUND);
+
+            assertThat(org.junit.jupiter.api.Assertions.assertThrows(
+                    BusinessException.class,
+                    () -> chatQueryService.sendMessage(
+                            userId,
+                            roomId,
+                            new ChatMessageCreateRequest(
+                                    "after-block-" + userId,
+                                    "must not be stored"))))
+                    .extracting(BusinessException::getErrorCode)
+                    .isEqualTo(ErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from chat_rooms where id = ?", Integer.class, roomId))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from chat_messages where room_id = ?", Integer.class, roomId))
+                .isEqualTo(1);
+    }
+
+    @Test
     void canSendAndSendBlockedReasonConsistentWithList() {
         long roomId = newRoom(11L, 22L);
 
