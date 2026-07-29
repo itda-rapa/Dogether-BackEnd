@@ -74,7 +74,25 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             ) lm ON TRUE
             WHERE p.pet_id = :activePetId
               AND p.left_at IS NULL
-              -- M1-015: block-exclusion predicate belongs here once Block Core lands
+              AND (:activePetId = r.pet_low_id OR :activePetId = r.pet_high_id)
+              AND NOT EXISTS (
+                  SELECT 1
+                    FROM user_blocks ub
+                    JOIN pets actor_pet
+                      ON actor_pet.id = :activePetId
+                    JOIN pets counterpart_pet
+                      ON counterpart_pet.id = CASE
+                          WHEN r.pet_low_id = :activePetId THEN r.pet_high_id
+                          ELSE r.pet_low_id
+                      END
+                   WHERE (
+                       ub.blocker_user_id = actor_pet.owner_user_id
+                       AND ub.blocked_user_id = counterpart_pet.owner_user_id
+                   ) OR (
+                       ub.blocker_user_id = counterpart_pet.owner_user_id
+                       AND ub.blocked_user_id = actor_pet.owner_user_id
+                   )
+              )
               AND ( CAST(:cursorActivityAt AS TIMESTAMPTZ) IS NULL
                     OR COALESCE(r.last_message_at, r.created_at) < CAST(:cursorActivityAt AS TIMESTAMPTZ)
                     OR ( COALESCE(r.last_message_at, r.created_at) = CAST(:cursorActivityAt AS TIMESTAMPTZ)
@@ -122,6 +140,42 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             """, nativeQuery = true)
     java.util.Optional<RoomListRow> findRoomById(@Param("activePetId") long activePetId,
                                                   @Param("roomId") long roomId);
+
+    @Query(value = """
+            SELECT EXISTS (
+                SELECT 1
+                  FROM chat_rooms room
+                  JOIN chat_room_participants participant
+                    ON participant.room_id = room.id
+                   AND participant.pet_id = :activePetId
+                   AND participant.left_at IS NULL
+                  JOIN pets actor_pet
+                    ON actor_pet.id = :activePetId
+                  JOIN pets counterpart_pet
+                    ON counterpart_pet.id = CASE
+                        WHEN room.pet_low_id = :activePetId THEN room.pet_high_id
+                        ELSE room.pet_low_id
+                    END
+                 WHERE room.id = :roomId
+                   AND room.type = 'DIRECT'
+                   AND (:activePetId = room.pet_low_id OR :activePetId = room.pet_high_id)
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM user_blocks ub
+                        WHERE (
+                            ub.blocker_user_id = actor_pet.owner_user_id
+                            AND ub.blocked_user_id = counterpart_pet.owner_user_id
+                        ) OR (
+                            ub.blocker_user_id = counterpart_pet.owner_user_id
+                            AND ub.blocked_user_id = actor_pet.owner_user_id
+                        )
+                   )
+            )
+            """, nativeQuery = true)
+    boolean existsAccessibleDirectRoomForPet(
+            @Param("roomId") long roomId,
+            @Param("activePetId") long activePetId
+    );
 
     interface RoomListRow {
         Long getRoomId();

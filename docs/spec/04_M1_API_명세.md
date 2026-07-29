@@ -2141,7 +2141,11 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
 | `200` | 차단 목록 | [`BlockListEnvelope`](#schema-blocklistenvelope) |
+| `400` | 잘못된 cursor 또는 limit | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
+
+차단 목록은 User 단위 안전 데이터이므로 Active Pet을 요구하지 않는다. Pet이 없거나
+정지된 상태에서도 조회할 수 있다. Active Pet은 차단 생성(`POST`)에서만 요구한다.
 
 **Response JSON — 200**
 
@@ -2171,6 +2175,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | HTTP | 대표 ErrorCode |
 |---:|---|
+| `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
