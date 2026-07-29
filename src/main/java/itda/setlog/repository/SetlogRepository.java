@@ -46,4 +46,21 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
             @Param("status") SetlogStatus status,
             @Param("mediaStatuses") List<MediaStatus> mediaStatuses
     );
+
+    @Query("""
+            select setlog
+              from Setlog setlog
+              join fetch setlog.authorPet authorPet
+              join fetch authorPet.owner
+              join fetch setlog.media media
+             where setlog.id = :setlogId
+               and setlog.seed = true
+               and setlog.status = :status
+               and media.status in :mediaStatuses
+            """)
+    Optional<Setlog> findVisibleSeedById(
+            @Param("setlogId") Long setlogId,
+            @Param("status") SetlogStatus status,
+            @Param("mediaStatuses") List<MediaStatus> mediaStatuses
+    );
 }

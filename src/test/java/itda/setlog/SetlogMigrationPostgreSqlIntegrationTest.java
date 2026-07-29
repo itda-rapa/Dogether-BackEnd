@@ -21,7 +21,7 @@ class SetlogMigrationPostgreSqlIntegrationTest {
             new PostgreSQLContainer("postgres:16-alpine");
 
     @Test
-    void createsCurrentMediaSetlogAndReactionTables() {
+    void createsCurrentMediaSetlogReactionAndGreetingTables() {
         Flyway flyway = Flyway.configure()
                 .dataSource(
                         postgres.getJdbcUrl(),
@@ -47,13 +47,15 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                    and table_name in (
                        'media',
                        'setlogs',
-                       'setlog_reactions'
+                       'setlog_reactions',
+                       'greetings'
                    )
                 """, String.class);
         assertThat(tables).containsExactlyInAnyOrder(
                 "media",
                 "setlogs",
-                "setlog_reactions"
+                "setlog_reactions",
+                "greetings"
         );
 
         String referencedTable = jdbcTemplate.queryForObject("""

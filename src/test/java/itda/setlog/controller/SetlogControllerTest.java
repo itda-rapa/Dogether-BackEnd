@@ -4,6 +4,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -12,6 +13,9 @@ import itda.common.constants.ErrorCode;
 import itda.common.filter.JwtFilter;
 import itda.common.security.CurrentUser;
 import itda.friend.domain.FriendRelationship;
+import itda.greeting.domain.GreetingStatus;
+import itda.greeting.dto.GreetingResponse;
+import itda.greeting.service.GreetingService;
 import itda.setlog.domain.ReactionType;
 import itda.setlog.dto.SetlogAuthorPetResponse;
 import itda.setlog.dto.SetlogReactionResponse;
@@ -49,6 +53,9 @@ class SetlogControllerTest {
 
     @MockitoBean
     private SetlogReactionService setlogReactionService;
+
+    @MockitoBean
+    private GreetingService greetingService;
 
     @MockitoBean
     private JwtFilter jwtFilter;
@@ -150,6 +157,31 @@ class SetlogControllerTest {
                         .value(ErrorCode.VALIDATION_FAILED.name()));
 
         then(setlogReactionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("POST 인사 API는 DIRECT 방 정보와 함께 201을 반환한다")
+    void sendGreetingReturnsCreated() throws Exception {
+        given(greetingService.send(USER_ID, SETLOG_ID))
+                .willReturn(new GreetingResponse(
+                        30L,
+                        40L,
+                        GreetingStatus.SENT,
+                        GreetingService.FIXED_MESSAGE,
+                        Instant.parse("2026-07-31T01:00:00Z"),
+                        Instant.parse("2026-07-30T01:00:00Z")
+                ));
+
+        mockMvc.perform(post("/setlogs/10/greetings"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.greetingId").value(30L))
+                .andExpect(jsonPath("$.data.roomId").value(40L))
+                .andExpect(jsonPath("$.data.status").value("SENT"))
+                .andExpect(jsonPath("$.data.fixedMessage")
+                        .value("안녕하세요! 같이 놀아요."));
+
+        then(greetingService).should().send(USER_ID, SETLOG_ID);
     }
 
     private SetlogResponse setlogResponse() {
