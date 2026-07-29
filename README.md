@@ -31,7 +31,7 @@ Invoke-RestMethod http://localhost:8080/actuator/health
 ```
 
 두 컨테이너가 `healthy`이고 Health 응답의 `status`가 `UP`이면 실행이 완료된 것이다.
-PostgreSQL의 기본 호스트 포트는 다른 로컬 DB와의 충돌을 피하기 위해 `5433`을 사용한다.
+PostgreSQL의 기본 호스트 포트는 `5432`를 사용한다.
 애플리케이션 기본 호스트 포트는 `8080`이며, 충돌하면 `.env`의 `APP_PORT`를
 변경하고 Health URL에도 같은 포트를 사용한다.
 
