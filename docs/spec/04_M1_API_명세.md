@@ -513,8 +513,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "profileUrl": null,
       "status": "ACTIVE",
       "deletedAt": null,
-      "verified": true,
-      "verifiedAt": "2026-07-24T09:00:00Z",
+      "verified": false,
+      "verifiedAt": null,
       "active": true
     }
   ],
@@ -657,8 +657,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "profileUrl": null,
     "status": "ACTIVE",
     "deletedAt": null,
-    "verified": true,
-    "verifiedAt": "2026-07-24T09:00:00Z",
+    "verified": false,
+    "verifiedAt": null,
     "active": true
   },
   "error": null
