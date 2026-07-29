@@ -198,7 +198,6 @@ class PetRepositoryTest {
                 owner,
                 publicTag,
                 nickname,
-                "DOG-001",
                 "말티즈",
                 PetSex.UNKNOWN,
                 false,

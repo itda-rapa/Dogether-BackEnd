@@ -391,7 +391,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `createPet`
 - 인증: Bearer Token 필요
-- 설명: owner User를 직렬화한 생성 트랜잭션에서 `deleted_at IS NULL` Pet 수를 조회한다.<br>생성 단계의 owner User 잠금·동시 수정 충돌은 Pet을 Commit하지 않고 `409 CONCURRENT_UPDATE_CONFLICT`로 처리한다.<br>생성 전 수가 0이면 내부 `firstPetCandidate=true`로 확정하고 Pet을 Commit한다.<br>생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.<br>lock timeout·deadlock처럼 예상 가능한 일시 실패에는 생성된 Pet을 유지하고 `201 + RETRY_REQUIRED`를 반환한다.<br>DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은 `RETRY_REQUIRED` 또는 `NOT_APPLICABLE`로 숨기지 않고 원인에 맞는 오류 흐름으로 처리한다.<br>선행 Pet 생성이 이미 Commit됐다면 후속 자동 Active 지정이 오류로 실패해도 생성 Pet은 유지된다.<br>같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시 `409 PET_LIMIT_EXCEEDED`다.<br>Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면 `409 PET_PUBLIC_TAG_GENERATION_FAILED`다.<br>M1은 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는 `GET /pets/me`로 생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.<br>
+- 설명: owner User를 직렬화한 생성 트랜잭션에서 `deleted_at IS NULL` Pet 수를 조회한다.<br>생성 단계의 owner User 잠금·동시 수정 충돌은 Pet을 Commit하지 않고 `409 CONCURRENT_UPDATE_CONFLICT`로 처리한다.<br>생성 전 수가 0이면 내부 `firstPetCandidate=true`로 확정하고 Pet을 Commit한다.<br>생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.<br>자동 Active 지정 단계에서 비관적 잠금 실패로 분류된 동시성 오류에는 생성된 Pet을 유지하고 `201 + RETRY_REQUIRED`를 반환한다.<br>자동 지정의 DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은 `RETRY_REQUIRED` 또는 `NOT_APPLICABLE`로 숨기지 않고 원인에 맞는 오류 흐름으로 처리한다.<br>선행 Pet 생성이 이미 Commit됐다면 후속 자동 Active 지정이 오류로 실패해도 생성 Pet은 유지된다.<br>같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시 `409 PET_LIMIT_EXCEEDED`다.<br>Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면 `409 PET_PUBLIC_TAG_GENERATION_FAILED`다.<br>M1은 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는 `GET /pets/me`로 생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.<br>
 
 **요청 본문**
 
@@ -403,7 +403,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 ```json
 {
   "nickname": "몽이",
-  "breedCode": "string",
   "breedName": "string",
   "sex": "MALE",
   "neutered": true,
@@ -440,7 +439,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "publicTag": "몽이#A7K2",
       "ownerPublicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -501,7 +499,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "publicTag": "몽이#A7K2",
       "ownerPublicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -516,8 +513,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "profileUrl": null,
       "status": "ACTIVE",
       "deletedAt": null,
-      "verified": true,
-      "verifiedAt": "2026-07-24T09:00:00Z",
+      "verified": false,
+      "verifiedAt": null,
       "active": true
     }
   ],
@@ -646,7 +643,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -661,8 +657,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "profileUrl": null,
     "status": "ACTIVE",
     "deletedAt": null,
-    "verified": true,
-    "verifiedAt": "2026-07-24T09:00:00Z",
+    "verified": false,
+    "verifiedAt": null,
     "active": true
   },
   "error": null
@@ -683,7 +679,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `updatePet`
 - 인증: Bearer Token 필요
-- 설명: nickname, breedCode, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
+- 설명: nickname, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
 
 **파라미터**
 
@@ -701,7 +697,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 ```json
 {
   "nickname": "몽이",
-  "breedCode": "string",
   "breedName": "string",
   "sex": "MALE",
   "neutered": true,
@@ -738,7 +733,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -820,7 +814,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "expiresAt": "2026-07-24T09:00:00Z",
     "petPrefill": {
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -896,7 +889,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -2617,9 +2609,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | maxLength: 30 | - |
-| `breedName` | ㄴ | string / null | maxLength: 100 | - |
+| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
@@ -2634,9 +2625,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | maxLength: 30 | - |
-| `breedName` | ㄴ | string / null | maxLength: 100 | - |
+| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
@@ -2662,8 +2652,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `publicTag` | ㅇ | string | maxLength: 30, pattern: `<1~25자>#XXXX` | User와 별도 Namespace. nickname 앞 25개 Unicode code point로 생성 |
 | `ownerPublicTag` | ㄴ | string | - | - |
 | `nickname` | ㅇ | string | minLength: 1 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | - | - |
-| `breedName` | ㄴ | string / null | - | - |
+| `breedName` | ㄴ | string / null | - | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
@@ -3017,7 +3006,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
 | `pet` | ㅇ | [`Pet`](#schema-pet) | - | [`Pet`](#schema-pet) |
-| `activeAssignmentStatus` | ㅇ | string | enum: ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE | 자동 지정 성공이면 ASSIGNED, lock timeout·deadlock 등 예상 가능한 일시 실패면 RETRY_REQUIRED,<br>후보가 아니거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다. DB 장애·무결성 오류·코딩 오류는 숨기지 않는다.<br> |
+| `activeAssignmentStatus` | ㅇ | string | enum: ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE | 자동 지정 성공이면 ASSIGNED, 자동 지정 단계에서 비관적 잠금 실패로 분류된 동시성 오류면 RETRY_REQUIRED,<br>후보가 아니거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다. DB 장애·무결성 오류·코딩 오류는 숨기지 않는다.<br> |
 
 <a id="schema-petcreateenvelope"></a>
 ### `PetCreateEnvelope`

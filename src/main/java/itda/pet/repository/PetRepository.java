@@ -19,6 +19,19 @@ public interface PetRepository extends JpaRepository<Pet, Long> {
             Long ownerUserId
     );
 
+    @Query("""
+            select pet
+            from Pet pet
+            join fetch pet.owner owner
+            where owner.id = :userId
+              and pet.deletedAt is null
+            order by
+              case when owner.activePetId = pet.id then 0 else 1 end,
+              pet.createdAt asc,
+              pet.id asc
+            """)
+    List<Pet> findMyPetsOrdered(@Param("userId") Long userId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select pet from Pet pet where pet.id = :petId")
     Optional<Pet> findByIdForUpdate(@Param("petId") Long petId);

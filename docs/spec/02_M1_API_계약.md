@@ -36,13 +36,14 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 - `status = DELETED ↔ deleted_at IS NOT NULL`을 보장한다.
 - Pet 생성 트랜잭션에서 내부 `firstPetCandidate`를 확정하고 Commit한다.
 - 생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.
-- 생성 Commit 이후 자동 Active 지정에서 발생한 lock timeout·deadlock 등
-  좁게 분류된 일시 실패에만 `201 Created`와 생성된 Pet, `RETRY_REQUIRED`를 반환한다.
+- 생성 Commit 이후 자동 Active 지정에서 비관적 잠금 실패로 분류된 동시성 오류에만
+  `201 Created`와 생성된 Pet, `RETRY_REQUIRED`를 반환한다.
 - Pet 생성 Transaction의 owner User 잠금·동시 수정 충돌은 Pet을 Commit하지 않고
   `409 CONCURRENT_UPDATE_CONFLICT`로 처리한다.
 - `POST /pets`의 `409` 대표 원인은 `PET_LIMIT_EXCEEDED`,
   `PET_PUBLIC_TAG_GENERATION_FAILED`, `CONCURRENT_UPDATE_CONFLICT`다.
-- DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은 `RETRY_REQUIRED` 또는
+- 자동 Active 지정의 DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은
+  `RETRY_REQUIRED` 또는
   `NOT_APPLICABLE`로 변환하지 않고 원인에 맞는 오류 흐름으로 처리한다. 이는 모든
   오류를 하나의 ErrorCode나 `500`으로 통일한다는 의미가 아니다.
 - 선행 Pet 생성 Transaction이 이미 Commit된 경우에는 후속 Active 지정이 오류로
@@ -64,8 +65,9 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 - Pet PublicTag 후보는 trim한 nickname의 앞 25개 Unicode code point와 `#XXXX`로
   생성한다. 충돌 시 새 트랜잭션에서 최대 5회 재시도한다.
 - nickname은 trim 후 1자 이상, M1 `profileUrl`은 null이다.
-- Pet 생성·수정 입력의 `breedCode`는 최대 30자, `breedName`은 최대 100자다.
-  `weightKg`는 0 이상 999.99 이하이며 소수 둘째 자리까지만 허용한다.
+- Pet 생성·수정 입력의 `breedName`은 최대 100자다. 사용자 입력 또는 향후
+  동물등록 조회의 `kindNm`을 견종명 후보로 반영할 수 있다. `weightKg`는 0 이상
+  999.99 이하이며 소수 둘째 자리까지만 허용한다.
 - Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면
   `409 PET_PUBLIC_TAG_GENERATION_FAILED`다.
 - M1은 Pet 생성 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는

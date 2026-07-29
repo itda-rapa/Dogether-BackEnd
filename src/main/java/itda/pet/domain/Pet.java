@@ -45,9 +45,6 @@ public class Pet extends BaseEntity {
     @Column(nullable = false, length = 30)
     private String nickname;
 
-    @Column(name = "breed_code", length = 30)
-    private String breedCode;
-
     @Column(name = "breed_name", length = 100)
     private String breedName;
 
@@ -96,7 +93,6 @@ public class Pet extends BaseEntity {
             User owner,
             String publicTag,
             String nickname,
-            String breedCode,
             String breedName,
             PetSex sex,
             Boolean neutered,
@@ -110,7 +106,6 @@ public class Pet extends BaseEntity {
         this.owner = owner;
         this.publicTag = publicTag;
         this.nickname = nickname;
-        this.breedCode = breedCode;
         this.breedName = breedName;
         this.sex = sex;
         this.neutered = neutered;
@@ -129,7 +124,6 @@ public class Pet extends BaseEntity {
             User owner,
             String publicTag,
             String nickname,
-            String breedCode,
             String breedName,
             PetSex sex,
             Boolean neutered,
@@ -144,7 +138,6 @@ public class Pet extends BaseEntity {
                 owner,
                 publicTag,
                 nickname,
-                breedCode,
                 breedName,
                 sex,
                 neutered,

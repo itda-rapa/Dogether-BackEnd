@@ -263,7 +263,6 @@ class ActivePetQueryServiceTest {
                 null,
                 null,
                 null,
-                null,
                 null
         );
         ReflectionTestUtils.setField(pet, "id", id);

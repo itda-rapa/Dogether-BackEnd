@@ -208,11 +208,11 @@ paths:
         Commit하지 않고 409 CONCURRENT_UPDATE_CONFLICT를 반환한다.
         생성 전 수가 0이면 내부 firstPetCandidate=true로 확정하고 Pet을 Commit한다.
         생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.
-        lock timeout·deadlock처럼 예상 가능한 일시적 Active 지정 실패에는 생성된
-        Pet을 유지하고 201과 RETRY_REQUIRED를 반환한다. DB 연결 장애·무결성 오류·
-        코딩 오류·불변조건 위반은 RETRY_REQUIRED 또는 NOT_APPLICABLE로 숨기지 않고
-        원인에 맞는 오류 흐름으로 처리한다. 선행 Pet 생성이 이미 Commit됐다면 후속
-        자동 Active 지정이 오류로 실패해도 생성 Pet은 유지된다.
+        자동 Active 지정 단계에서 비관적 잠금 실패로 분류된 동시성 오류에는 생성된
+        Pet을 유지하고 201과 RETRY_REQUIRED를 반환한다. 자동 지정의 DB 연결 장애·
+        무결성 오류·코딩 오류·불변조건 위반은 RETRY_REQUIRED 또는 NOT_APPLICABLE로
+        숨기지 않고 원인에 맞는 오류 흐름으로 처리한다. 선행 Pet 생성이 이미
+        Commit됐다면 후속 자동 Active 지정이 오류로 실패해도 생성 Pet은 유지된다.
         같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시
         409 PET_LIMIT_EXCEEDED를 반환한다.
         Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면
@@ -328,7 +328,7 @@ paths:
       summary: Pet 수정
       operationId: updatePet
       description: |
-        nickname, breedCode, breedName, sex, neutered, birthDate 중
+        nickname, breedName, sex, neutered, birthDate 중
         인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.
       requestBody:
         required: true
@@ -1361,12 +1361,13 @@ components:
           type: string
           minLength: 1
           maxLength: 30
-        breedCode:
-          type: [string, 'null']
-          maxLength: 30
+          description: >-
+            앞뒤 공백 제거 후 저장하며, 이모지 및 emoji-like pictographic
+            문자·기호(예: ©, ™, ☀, ♥)는 사용할 수 없다.
         breedName:
           type: [string, 'null']
           maxLength: 100
+          description: 사용자 입력 또는 향후 동물등록 조회의 kindNm을 반영할 수 있는 견종명
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -1401,12 +1402,13 @@ components:
           type: string
           minLength: 1
           maxLength: 30
-        breedCode:
-          type: [string, 'null']
-          maxLength: 30
+          description: >-
+            앞뒤 공백 제거 후 저장하며, 이모지 및 emoji-like pictographic
+            문자·기호(예: ©, ™, ☀, ♥)는 사용할 수 없다.
         breedName:
           type: [string, 'null']
           maxLength: 100
+          description: 사용자 입력 또는 향후 동물등록 조회의 kindNm을 반영할 수 있는 견종명
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -1456,10 +1458,9 @@ components:
         nickname:
           type: string
           minLength: 1
-        breedCode:
-          type: [string, 'null']
         breedName:
           type: [string, 'null']
+          description: 사용자 입력 또는 향후 동물등록 조회의 kindNm을 반영할 수 있는 견종명
         sex:
           $ref: '#/components/schemas/NullablePetSex'
         neutered:
@@ -2056,7 +2057,8 @@ components:
           enum: [ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE]
           description: |
             firstPetCandidate=true이고 자동 지정에 성공하면 ASSIGNED,
-            후보지만 lock timeout·deadlock 등 예상 가능한 일시 실패면 RETRY_REQUIRED,
+            후보지만 자동 지정 단계에서 비관적 잠금 실패로 분류된 동시성 오류면
+            RETRY_REQUIRED,
             firstPetCandidate=false이거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다.
             DB 장애·무결성 오류·코딩 오류는 RETRY_REQUIRED로 숨기지 않는다.
             firstPetCandidate 자체는 외부 응답에 노출하지 않는다.

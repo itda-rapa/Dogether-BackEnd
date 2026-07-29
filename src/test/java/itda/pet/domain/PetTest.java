@@ -34,7 +34,6 @@ class PetTest {
                     owner,
                     "몽이#A7K2",
                     "몽이",
-                    "DOG-001",
                     "말티즈",
                     PetSex.FEMALE,
                     true,
@@ -50,7 +49,6 @@ class PetTest {
             assertThat(pet.getOwner()).isSameAs(owner);
             assertThat(pet.getPublicTag()).isEqualTo("몽이#A7K2");
             assertThat(pet.getNickname()).isEqualTo("몽이");
-            assertThat(pet.getBreedCode()).isEqualTo("DOG-001");
             assertThat(pet.getBreedName()).isEqualTo("말티즈");
             assertThat(pet.getSex()).isEqualTo(PetSex.FEMALE);
             assertThat(pet.getNeutered()).isTrue();
@@ -82,7 +80,6 @@ class PetTest {
                     owner(1L),
                     "초코#B8M3",
                     "초코",
-                    null,
                     null,
                     null,
                     null,
