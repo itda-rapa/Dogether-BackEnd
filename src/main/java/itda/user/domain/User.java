@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -91,6 +92,27 @@ public class User extends BaseEntity {
 
     public boolean isActive() {
         return accountStatus == AccountStatus.ACTIVE;
+    }
+
+    public void selectActivePet(Long petId) {
+        if (petId == null) {
+            throw new NullPointerException("petId는 null일 수 없습니다.");
+        }
+
+        if (Objects.equals(activePetId, petId)) {
+            return;
+        }
+
+        activePetId = petId;
+    }
+
+    public boolean hasActivePet() {
+        return activePetId != null;
+    }
+
+    public boolean isActivePet(Long petId) {
+        return activePetId != null
+                && Objects.equals(activePetId, petId);
     }
 
     public void changeRole(Role role) {

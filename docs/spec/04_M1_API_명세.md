@@ -326,7 +326,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `selectActivePet`
 - 인증: Bearer Token 필요
-- 설명: Active Pet이 없는 L1 사용자도 호출할 수 있으며 `ACTIVE_PET_REQUIRED`를 선행 적용하지 않는다.<br>대상은 요청 User가 소유하고 `status=ACTIVE`, `deletedAt=null`인 Pet이어야 한다.<br>
+- 설명: Active Pet이 없는 L1 사용자도 호출할 수 있으며 `ACTIVE_PET_REQUIRED`를 선행 적용하지 않는다.<br>대상은 요청 User가 소유하고 `status=ACTIVE`, `deletedAt=null`인 Pet이어야 한다.<br>Pet이 없으면 `404 PET_NOT_FOUND`, 타인 소유면 `403 PET_NOT_OWNED`, ACTIVE·미삭제 조건을 충족하지 않으면 `403 PET_NOT_ACTIVE`다.<br>동시 선택·잠금 충돌 등으로 요청 상태가 변경되면 `409 CONCURRENT_UPDATE_CONFLICT`다. 이 오류는 POST `/pets` 후속 자동 지정의 `201 RETRY_REQUIRED`와 구분한다.<br>
 
 **요청 본문**
 
@@ -350,6 +350,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `409` | 동시 선택·잠금 충돌 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
 **Response JSON — 200**
 
@@ -378,8 +379,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---:|---|
 | `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `PET_NOT_OWNED`, `PET_NOT_ACTIVE` |
+| `404` | `PET_NOT_FOUND` |
+| `409` | `CONCURRENT_UPDATE_CONFLICT` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
@@ -389,7 +391,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `createPet`
 - 인증: Bearer Token 필요
-- 설명: owner User를 직렬화한 생성 트랜잭션에서 `deleted_at IS NULL` Pet 수를 조회한다.<br>생성 전 수가 0이면 내부 `firstPetCandidate=true`로 확정하고 Pet을 Commit한다.<br>생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.<br>lock timeout·deadlock처럼 예상 가능한 일시 실패에는 생성된 Pet을 유지하고 `201 + RETRY_REQUIRED`를 반환한다.<br>DB 연결 장애·무결성 오류·코딩 오류는 `RETRY_REQUIRED`로 숨기지 않는다.<br>같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시 `409 PET_LIMIT_EXCEEDED`다.<br>M1은 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는 `GET /pets/me`로 생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.<br>
+- 설명: owner User를 직렬화한 생성 트랜잭션에서 `deleted_at IS NULL` Pet 수를 조회한다.<br>생성 단계의 owner User 잠금·동시 수정 충돌은 Pet을 Commit하지 않고 `409 CONCURRENT_UPDATE_CONFLICT`로 처리한다.<br>생성 전 수가 0이면 내부 `firstPetCandidate=true`로 확정하고 Pet을 Commit한다.<br>생성 Commit 뒤 후보인 경우에만 별도 트랜잭션으로 Active 지정을 시도한다.<br>자동 Active 지정 단계에서 비관적 잠금 실패로 분류된 동시성 오류에는 생성된 Pet을 유지하고 `201 + RETRY_REQUIRED`를 반환한다.<br>자동 지정의 DB 연결 장애·무결성 오류·코딩 오류·불변조건 위반은 `RETRY_REQUIRED` 또는 `NOT_APPLICABLE`로 숨기지 않고 원인에 맞는 오류 흐름으로 처리한다.<br>선행 Pet 생성이 이미 Commit됐다면 후속 자동 Active 지정이 오류로 실패해도 생성 Pet은 유지된다.<br>같은 owner의 미삭제 Pet은 SUSPENDED를 포함해 최대 5마리이며 초과 시 `409 PET_LIMIT_EXCEEDED`다.<br>Pet PublicTag Unique 충돌로 총 5회 저장에 실패하면 `409 PET_PUBLIC_TAG_GENERATION_FAILED`다.<br>M1은 Idempotency-Key를 제공하지 않는다. timeout·5xx 뒤에는 `GET /pets/me`로 생성 여부를 확인하고 POST를 무작정 재시도하지 않는다.<br>
 
 **요청 본문**
 
@@ -401,7 +403,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 ```json
 {
   "nickname": "몽이",
-  "breedCode": "string",
   "breedName": "string",
   "sex": "MALE",
   "neutered": true,
@@ -423,7 +424,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `201` | Pet 등록 완료 | [`PetCreateEnvelope`](#schema-petcreateenvelope) |
 | `400` | 잘못된 요청 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
-| `409` | 미삭제 Pet 5마리 한도 초과 또는 생성 상태 충돌 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `409` | Pet 한도 초과, PublicTag 생성 실패 또는 생성 단계의 동시 수정 충돌 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
 **Response JSON — 201**
 
@@ -438,7 +439,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "publicTag": "몽이#A7K2",
       "ownerPublicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -469,7 +469,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---:|---|
 | `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
-| `409` | `PET_LIMIT_EXCEEDED` |
+| `409` | `PET_LIMIT_EXCEEDED`, `PET_PUBLIC_TAG_GENERATION_FAILED`, `CONCURRENT_UPDATE_CONFLICT` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
@@ -499,7 +499,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "publicTag": "몽이#A7K2",
       "ownerPublicTag": "몽이#A7K2",
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -514,8 +513,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "profileUrl": null,
       "status": "ACTIVE",
       "deletedAt": null,
-      "verified": true,
-      "verifiedAt": "2026-07-24T09:00:00Z",
+      "verified": false,
+      "verifiedAt": null,
       "active": true
     }
   ],
@@ -615,7 +614,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `getMyPet`
 - 인증: Bearer Token 필요
-- 설명: 본인 소유 Pet의 전체 정보를 조회한다.
+- 설명: 본인 소유의 미삭제 Pet 전체 정보를 조회한다.<br>Pet 행 존재 여부, 삭제 여부, 미삭제 Pet의 소유권 순서로 검사한다.<br>Pet 행이 없거나 삭제된 Pet이면 소유권 검사보다 먼저 `404 PET_NOT_FOUND`를 반환하고, 삭제되지 않은 Pet이 존재하지만 다른 User 소유인 경우에만 `403 PET_NOT_OWNED`를 반환한다.<br>따라서 다른 User 소유이면서 삭제된 Pet도 `404 PET_NOT_FOUND`로 처리한다.<br>과거 Chat 이력 표시용 내부 Pet 조회는 이 REST endpoint와 별도이며 삭제된 Pet도 조회할 수 있다.
 
 **파라미터**
 
@@ -644,7 +643,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -659,8 +657,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "profileUrl": null,
     "status": "ACTIVE",
     "deletedAt": null,
-    "verified": true,
-    "verifiedAt": "2026-07-24T09:00:00Z",
+    "verified": false,
+    "verifiedAt": null,
     "active": true
   },
   "error": null
@@ -672,8 +670,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `PET_NOT_OWNED` |
+| `404` | `PET_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
@@ -681,7 +679,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `updatePet`
 - 인증: Bearer Token 필요
-- 설명: nickname, breedCode, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
+- 설명: nickname, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
 
 **파라미터**
 
@@ -699,7 +697,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 ```json
 {
   "nickname": "몽이",
-  "breedCode": "string",
   "breedName": "string",
   "sex": "MALE",
   "neutered": true,
@@ -736,7 +733,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -818,7 +814,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "expiresAt": "2026-07-24T09:00:00Z",
     "petPrefill": {
       "nickname": "몽이",
-      "breedCode": "string",
       "breedName": "string",
       "sex": "MALE",
       "neutered": true,
@@ -894,7 +889,6 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "publicTag": "몽이#A7K2",
     "ownerPublicTag": "몽이#A7K2",
     "nickname": "몽이",
-    "breedCode": "string",
     "breedName": "string",
     "sex": "MALE",
     "neutered": true,
@@ -2615,13 +2609,12 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | - | - |
-| `breedName` | ㄴ | string / null | - | - |
+| `nickname` | ㅇ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
-| `weightKg` | ㄴ | number / null | minimum: 0 | - |
+| `weightKg` | ㄴ | number / null | minimum: 0, maximum: 999.99, multipleOf: 0.01 | 0 이상 999.99 이하, 소수 둘째 자리까지 |
 | `sizeCode` | ㄴ | string / null | enum: SMALL, MEDIUM, LARGE, null | - |
 | `bio` | ㄴ | string / null | maxLength: 500 | - |
 | `personalityTags` | ㄴ | array<string> | maxItems: 10 | - |
@@ -2632,13 +2625,12 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | - | - |
-| `breedName` | ㄴ | string / null | - | - |
+| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
-| `weightKg` | ㄴ | number / null | minimum: 0 | - |
+| `weightKg` | ㄴ | number / null | minimum: 0, maximum: 999.99, multipleOf: 0.01 | 0 이상 999.99 이하, 소수 둘째 자리까지 |
 | `sizeCode` | ㄴ | string / null | enum: SMALL, MEDIUM, LARGE, null | - |
 | `bio` | ㄴ | string / null | maxLength: 500 | - |
 | `personalityTags` | ㄴ | array<string> | maxItems: 10 | - |
@@ -2660,8 +2652,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `publicTag` | ㅇ | string | maxLength: 30, pattern: `<1~25자>#XXXX` | User와 별도 Namespace. nickname 앞 25개 Unicode code point로 생성 |
 | `ownerPublicTag` | ㄴ | string | - | - |
 | `nickname` | ㅇ | string | minLength: 1 | trim 후 1자 이상 |
-| `breedCode` | ㄴ | string / null | - | - |
-| `breedName` | ㄴ | string / null | - | - |
+| `breedName` | ㄴ | string / null | - | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
@@ -3015,7 +3006,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
 | `pet` | ㅇ | [`Pet`](#schema-pet) | - | [`Pet`](#schema-pet) |
-| `activeAssignmentStatus` | ㅇ | string | enum: ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE | 자동 지정 성공이면 ASSIGNED, lock timeout·deadlock 등 예상 가능한 일시 실패면 RETRY_REQUIRED,<br>후보가 아니거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다. DB 장애·무결성 오류·코딩 오류는 숨기지 않는다.<br> |
+| `activeAssignmentStatus` | ㅇ | string | enum: ASSIGNED, RETRY_REQUIRED, NOT_APPLICABLE | 자동 지정 성공이면 ASSIGNED, 자동 지정 단계에서 비관적 잠금 실패로 분류된 동시성 오류면 RETRY_REQUIRED,<br>후보가 아니거나 이미 Active Pet이 있으면 NOT_APPLICABLE이다. DB 장애·무결성 오류·코딩 오류는 숨기지 않는다.<br> |
 
 <a id="schema-petcreateenvelope"></a>
 ### `PetCreateEnvelope`
