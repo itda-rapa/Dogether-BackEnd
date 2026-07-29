@@ -50,6 +50,10 @@ dependencies {
     testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+tasks.withType(Test).configureEach {
+    systemProperty 'spring.profiles.active', 'test'
+}
+
 tasks.named('test') {
     useJUnitPlatform {
         excludeTags 'postgres'
