@@ -1,7 +1,7 @@
 package itda.pet.domain;
 
 import itda.common.BaseEntity;
-import itda.media.old.domain.MediaAsset;
+import itda.media.domain.Media;
 import itda.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -80,7 +80,7 @@ public class Pet extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "profile_asset_id")
-    private MediaAsset profileAsset;
+    private Media profileAsset;
 
     @Version
     @Column(nullable = false)

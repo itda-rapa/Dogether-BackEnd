@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.time.Instant;
 import java.util.Map;
 
 @Entity
@@ -39,6 +40,9 @@ public class Media extends BaseEntity {
     //
     @Column
     private Long fileSize; // 업로드 파일 크기
+
+    @Column
+    private Instant deletedAt;
     //
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")

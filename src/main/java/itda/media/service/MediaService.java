@@ -9,6 +9,7 @@ import itda.media.dto.uploaddto.MultipartUploaded;
 import itda.media.dto.uploaddto.PresignedUrl;
 import itda.media.repository.MediaRepository;
 import itda.user.domain.User;
+import itda.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
@@ -35,15 +36,18 @@ public class MediaService {
     private final MultipartService multipartService;
     private final S3Presigner s3Presigner;
     private final S3Properties s3Properties;
+    private final UserRepository userRepository;
 
 
     // 파일 업로드를 수행하는 메서드
     public PresignedUrl initMedia(
             MediaType mediaType,
             Long fileSize,
-            User user,
+            Long userId,
             String subPath
     ){
+        User user = userRepository.findByIdOrThrow(userId);
+
         // 해당 MediaType의 확장자를 반환
         // MediaType : IMAGE인 경우 filename : UUID.jpg
         String filename = UUID.randomUUID() + mediaType.fileExtension();
@@ -118,8 +122,10 @@ public class MediaService {
     public Media mediaUploaded(
             Long mediaId,
             List<MultipartUploaded> parts,
-            User user
+            Long userId
     ) {
+        User user = userRepository.findByIdOrThrow(userId);
+
         Media media = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(mediaId);
         // Media가 본인 소유가 아니면 다운로드 차단
         if (!media.getUserId().equals(user.getId())) {

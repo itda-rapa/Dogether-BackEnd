@@ -1,6 +1,7 @@
 package itda.media.controller;
 
 import itda.common.dto.ApiResponse;
+import itda.common.security.CurrentUser;
 import itda.media.domain.Media;
 import itda.media.dto.downloaddto.PresignedUrlResponse;
 import itda.media.dto.uploaddto.*;
@@ -20,13 +21,13 @@ public class MediaController {
 
     @PostMapping("/api/v1/media/init")
     public ApiResponse<MediaInitResponse> initMedia(
-            @AuthenticationPrincipal User user,
+            @AuthenticationPrincipal CurrentUser user,
             @RequestBody MediaInitRequest request
     ) {
         PresignedUrl result = mediaService.initMedia(
                 request.mediaType(),
                 request.fileSize(),
-                user,
+                user.id(),
                 "posts"
         );
         return
@@ -39,13 +40,13 @@ public class MediaController {
 
     @PostMapping("/api/v1/media/uploaded")
     public ApiResponse<MediaResponse> mediaUploaded(
-            @AuthenticationPrincipal User user,
+            @AuthenticationPrincipal CurrentUser user,
             @RequestBody MediaUploadedRequest request
     ) {
         Media media = mediaService.mediaUploaded(
                 request.mediaId(),
                 request.parts(),
-                user
+                user.id()
         );
         return ApiResponse.ok(
                 MediaResponse.from(media),
