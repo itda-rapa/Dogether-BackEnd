@@ -22,6 +22,7 @@ app:
     bucket: dogether-test
     region: ap-northeast-2
     endpoint:
+      presign-endpoint:
     path-style-access-enabled: false
   media:
     upload-url-ttl: 15m

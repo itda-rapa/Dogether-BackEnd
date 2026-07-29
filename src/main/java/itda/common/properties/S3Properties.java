@@ -9,7 +9,8 @@ import org.springframework.validation.annotation.Validated;
 public record S3Properties(
         @NotBlank String bucket,
         @NotBlank String region,
-        String endpoint,
+        String endpoint,    // 백엔드가 저장소에 접근할 주소
+        String presignEndpoint,    // 프론트엔드가 접근할 Presigned URL 주소
         boolean pathStyleAccessEnabled
 ) {
 }
