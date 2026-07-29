@@ -120,6 +120,32 @@ AWS S3로 전환할 때는 RustFS 컨테이너와 로컬 버킷 생성 절차를
 비운 뒤 path-style을 비활성화한다. 운영 자격증명은 코드나 `.env`에 저장하지
 않고 IAM Role 또는 표준 AWS 자격증명 체인을 사용한다.
 
+### S3 미디어 저장 정책
+
+- 버킷은 환경별로 분리한다. 로컬은 `dogether-local`, AWS는
+  `dogether-dev-<unique-suffix>`, `dogether-prod-<unique-suffix>` 형식을 사용한다.
+- 객체 키는 `media/{userId}/{purpose}/{uuid}` 형식을 사용하며 원본 파일명이나
+  사용자 개인정보를 포함하지 않는다.
+- 모든 객체는 비공개로 저장하고 Presigned PUT/GET으로만 접근한다. 업로드 URL은
+  15분, 조회 URL은 10분 동안 유효하다.
+- 허용 크기는 M1 기준 최대 10 MiB다. PROFILE·FOURCUT은 JPEG, PNG, WebP를,
+  SETLOG는 해당 이미지 형식과 MP4를 허용한다.
+- 업로드 완료 요청 시 S3 HEAD 결과의 Content-Type과 Content-Length가 최초
+  요청값과 일치해야 `UPLOADED` 상태가 된다.
+- 완료되지 않은 업로드는 15분 후 정리한다. S3 삭제에 성공해야 `EXPIRED`로
+  변경하며, 실패하면 `PENDING`을 유지해 다음 배치에서 재시도한다.
+- 삭제 요청 즉시 API 조회를 차단하고 다음 정리 배치에서 S3 객체를 삭제한다.
+  삭제가 실패하면 `DELETE_REQUESTED`를 유지해 재시도한다.
+- 정상 `media/` 객체에는 자동 만료 Lifecycle을 설정하지 않는다. Multipart
+  업로드를 도입할 때만 미완료 Multipart 정리 Lifecycle을 추가한다.
+- AWS 버킷은 Public Access Block과 Bucket owner enforced를 사용하고 기본
+  암호화는 SSE-S3, 버전 관리는 M1에서 비활성화한다.
+- 애플리케이션 IAM Role은 환경별 버킷의 `media/*`에 대해 `s3:PutObject`,
+  `s3:GetObject`, `s3:DeleteObject`만 허용한다. 버킷 생성·정책·CORS·Lifecycle
+  설정 권한은 배포용 역할로 분리한다.
+- 로컬 RustFS CORS는 개발 편의를 위해 모든 Origin을 허용할 수 있다. AWS
+  dev/prod는 실제 프론트엔드 Origin만 허용하고 메서드는 GET, PUT, HEAD로 제한한다.
+
 ## Spring Profiles
 
 | Profile | 용도 | DB·Flyway |

@@ -18,6 +18,7 @@ public enum ErrorCode {
             "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
     ),
 
+
     USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
     PUBLIC_TAG_GENERATION_FAILED(HttpStatus.CONFLICT, "공개 사용자 태그를 생성하지 못했습니다."),
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "잘못된 비밀번호 또는 존재하지 않는 이메일입니다."),

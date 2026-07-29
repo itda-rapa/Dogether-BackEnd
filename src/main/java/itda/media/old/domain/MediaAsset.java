@@ -1,6 +1,8 @@
-package itda.media.domain;
+package itda.media.old.domain;
 
+/*
 import itda.common.BaseEntity;
+import itda.media.domain.MediaStatus;
 import itda.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -114,3 +116,4 @@ public class MediaAsset extends BaseEntity {
         status = MediaStatus.DELETED;
     }
 }
+*/

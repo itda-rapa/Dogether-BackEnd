@@ -1,4 +1,4 @@
-package itda.media.dto;
+package itda.media.old.dto;
 
 import java.time.Instant;
 

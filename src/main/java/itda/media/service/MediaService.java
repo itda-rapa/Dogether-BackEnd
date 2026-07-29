@@ -1,173 +1,175 @@
 package itda.media.service;
 
-import itda.common.constants.ErrorCode;
-import itda.common.exception.BusinessException;
-import itda.common.properties.MediaProperties;
-import itda.media.domain.MediaAsset;
+import itda.common.properties.S3Properties;
+import itda.media.domain.Media;
 import itda.media.domain.MediaStatus;
-import itda.media.dto.MediaAssetResponse;
-import itda.media.dto.MediaUploadRequest;
-import itda.media.dto.MediaUploadResponse;
-import itda.media.repository.MediaAssetRepository;
-import itda.media.domain.MediaPurpose;
-import itda.user.domain.Role;
+import itda.media.domain.MediaType;
+import itda.media.dto.uploaddto.MultipartUploadInfo;
+import itda.media.dto.uploaddto.MultipartUploaded;
+import itda.media.dto.uploaddto.PresignedUrl;
+import itda.media.repository.MediaRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.Locale;
-import java.util.UUID;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.S3Exception;
+import org.springframework.util.CollectionUtils;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class MediaService {
-
-    private final MediaAssetRepository mediaAssetRepository;
+    private static final long MULTIPART_THRESHOLD = 8 * 1024 * 1024; // 8MB = 8,388,608
+    //
+    private final MediaRepository mediaRepository;
+    private final MultipartService multipartService;
+    private final S3Presigner s3Presigner;
+    private final S3Properties s3Properties;
     private final UserRepository userRepository;
-    private final S3StorageService storageService;
-    private final MediaPolicy mediaPolicy;
-    private final MediaProperties properties;
-    private final Clock clock = Clock.systemUTC();
 
-    public MediaService(
-            MediaAssetRepository mediaAssetRepository,
-            UserRepository userRepository,
-            S3StorageService storageService,
-            MediaPolicy mediaPolicy,
-            MediaProperties properties
+
+    // 파일 업로드를 수행하는 메서드
+    public PresignedUrl initMedia(
+            MediaType mediaType,
+            Long fileSize,
+            Long userId,
+            String subPath
+    ){
+        User user = userRepository.findByIdOrThrow(userId);
+
+        // 해당 MediaType의 확장자를 반환
+        // MediaType : IMAGE인 경우 filename : UUID.jpg
+        String filename = UUID.randomUUID() + mediaType.fileExtension();
+        // Object Storage 상 미디어파일 저장경로 생성
+        // ex ) RustFS 상 users/1/posts/UUID.jpg로 저장
+        String path = "users/%s/%s/%s".formatted(
+                user.getId(),
+                subPath,
+                filename
+        );
+        // 파일크기에 따라서 단일업로드 / 멀티파트 업로드 결정
+        if (fileSize != null
+                && fileSize > MULTIPART_THRESHOLD)
+            return initMultipartUpload(user, path, mediaType, fileSize);
+        return initSingleUpload(user,path,mediaType,fileSize);
+    }
+
+    private PresignedUrl initSingleUpload(
+            User user,
+            String path,
+            MediaType mediaType,
+            Long fileSize
     ) {
-        this.mediaAssetRepository = mediaAssetRepository;
-        this.userRepository = userRepository;
-        this.storageService = storageService;
-        this.mediaPolicy = mediaPolicy;
-        this.properties = properties;
-    }
-
-    @Transactional
-    public MediaUploadResponse createUpload(Long userId, MediaUploadRequest request) {
-        mediaPolicy.validate(
-                request.purpose(),
-                request.contentType(),
-                request.sizeBytes()
-        );
-
-        User owner = userRepository.findById(userId)
-                .filter(User::isActive)
-                .orElseThrow(() -> new BusinessException(ErrorCode.ACCOUNT_NOT_ACTIVE));
-        if (request.purpose() == MediaPurpose.SETLOG
-                && owner.getRole() == Role.USER) {
-            throw new BusinessException(ErrorCode.MEDIA_PURPOSE_FORBIDDEN);
-        }
-        Instant expiresAt = clock.instant().plus(properties.uploadUrlTtl());
-        String objectKey = generateObjectKey(userId, request);
-
-        MediaAsset mediaAsset = mediaAssetRepository.save(
-                MediaAsset.pending(
-                        owner,
-                        request.purpose(),
-                        objectKey,
-                        request.contentType(),
-                        request.sizeBytes(),
-                        expiresAt
+        // RustFS의 버킷정보 및 initMedia()에서 정의한 Path 정보와 MediaType 정보를 전달
+        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                .bucket(s3Properties.bucket()) // RustFS에 저장할 버킷명
+                .key(path) // 경로 및 이름을 정의한 저장될 파일명
+                .contentType(mediaType.contentType()) // 파일의 MIME 타입
+                .build();
+        // RustFS에 전달할 PresignedURL에 대한 요청을 생성하기 위해 PutObjectRequest 객체 생성
+        // PresignedUrl의 유효기간에 관한 설정도 추가
+        PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofSeconds(s3Properties.presignedUrlExpirationSeconds()))
+                .putObjectRequest(putObjectRequest)
+                .build();
+        // S3Presigner 객체를 통해 RustFS에 요청을 전달하여 PresignedUrl를 수신
+        PresignedPutObjectRequest presignedRequest = s3Presigner.presignPutObject(presignRequest);
+        String presignedUrl = presignedRequest.url().toString();
+        // INIT 상태의 Media 객체 생성
+        Media media = mediaRepository.save(
+                new Media(
+                        mediaType,
+                        path,
+                        user.getId(),
+                        fileSize
                 )
         );
-
-        String uploadUrl = storageService.createUploadUrl(
-                objectKey,
-                request.contentType(),
-                request.sizeBytes(),
-                properties.uploadUrlTtl()
-        );
-
-        return new MediaUploadResponse(mediaAsset.getId(), uploadUrl, expiresAt);
+        // PresinedUrl을 Client에게 반환
+        return PresignedUrl.forSingleUpload(media, presignedUrl);
     }
 
-    @Transactional(noRollbackFor = BusinessException.class)
-    public MediaAssetResponse complete(Long userId, Long mediaAssetId) {
-        MediaAsset mediaAsset = ownedAssetForUpdate(userId, mediaAssetId);
-        if (mediaAsset.getStatus() != MediaStatus.PENDING) {
-            throw new BusinessException(ErrorCode.MEDIA_STATE_CONFLICT);
-        }
-        if (!mediaAsset.getExpiresAt().isAfter(clock.instant())) {
-            mediaAsset.markExpired();
-            throw new BusinessException(ErrorCode.MEDIA_EXPIRED);
-        }
-
-        HeadObjectResponse object;
-        try {
-            object = storageService.head(mediaAsset.getObjectKey());
-        } catch (NoSuchKeyException exception) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
-        } catch (S3Exception exception) {
-            if (exception.statusCode() == 404) {
-                throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
-            }
-            throw exception;
-        }
-
-        if (object.contentLength() != mediaAsset.getSizeBytes()
-                || !mediaAsset.getContentType().equalsIgnoreCase(object.contentType())) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
-        }
-
-        mediaAsset.markUploaded();
-        return MediaAssetResponse.from(
-                mediaAsset,
-                storageService.createViewUrl(
-                        mediaAsset.getObjectKey(),
-                        properties.viewUrlTtl()
+    private PresignedUrl initMultipartUpload(User user, String path, MediaType mediaType, long fileSize) {
+        // 멀티파트 업로드를 수행하기 위해 RustFS에 요청을 전달하여 복수의 PresignedUrl를 수신
+        MultipartUploadInfo uploadInfo = multipartService.initMultipartUpload(
+                path,
+                mediaType.contentType(),
+                fileSize
+        );
+        // INIT 상태의 Media 객체 생성
+        Media media = mediaRepository.save(
+                new Media(
+                        mediaType,
+                        path,
+                        user.getId(),
+                        fileSize,
+                        uploadInfo.uploadId()
                 )
         );
+        return PresignedUrl.forMultipartUpload(media, uploadInfo.uploadId(), uploadInfo.presignedUrlParts());
     }
 
-    @Transactional(readOnly = true)
-    public MediaAssetResponse get(Long userId, Long mediaAssetId) {
-        MediaAsset mediaAsset = ownedAsset(userId, mediaAssetId);
-        if (mediaAsset.getStatus() == MediaStatus.DELETE_REQUESTED
-                || mediaAsset.getStatus() == MediaStatus.DELETED) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+    public Media mediaUploaded(
+            Long mediaId,
+            List<MultipartUploaded> parts,
+            Long userId
+    ) {
+        User user = userRepository.findByIdOrThrow(userId);
+
+        Media media = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(mediaId);
+        // Media가 본인 소유가 아니면 다운로드 차단
+        if (!media.getUserId().equals(user.getId())) {
+            throw new IllegalArgumentException("You are not authorized to update this media");
         }
-        String viewUrl = mediaAsset.getStatus() == MediaStatus.UPLOADED
-                ? storageService.createViewUrl(
-                        mediaAsset.getObjectKey(),
-                        properties.viewUrlTtl()
-                )
-                : null;
-        return MediaAssetResponse.from(mediaAsset, viewUrl);
-    }
-
-    @Transactional
-    public void requestDeletion(Long userId, Long mediaAssetId) {
-        ownedAssetForUpdate(userId, mediaAssetId).requestDeletion();
-    }
-
-    private MediaAsset ownedAsset(Long userId, Long mediaAssetId) {
-        MediaAsset mediaAsset = mediaAssetRepository.findById(mediaAssetId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
-        if (!mediaAsset.belongsTo(userId)) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);
+        // Media가 INIT 상태 인 경우에만 허용
+        if (media.getStatus() != MediaStatus.INIT) {
+            throw new IllegalArgumentException("Media is not in INIT status");
         }
-        return mediaAsset;
-    }
-
-    private MediaAsset ownedAssetForUpdate(Long userId, Long mediaAssetId) {
-        MediaAsset mediaAsset = mediaAssetRepository.findByIdForUpdate(mediaAssetId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
-        if (!mediaAsset.belongsTo(userId)) {
-            throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);
+        // 멀티파트 업로드인 경우 S3에 작업완료를 지시 ( 단일 업로드 인 경우 생략 )
+        if (media.getUploadId() != null && !CollectionUtils.isEmpty(parts)) {
+            // completeMultipartUpload()를 호출하여 S3에 업로드 완료를 알림
+            // S3에서 백엔드로부터 API 수신 시 업로드된 파일을 병합 시작
+            multipartService.completeMultipartUpload(media.getPath(), media.getUploadId(), parts);
+            Map<String, Object> attributes = new HashMap<>();
+            attributes.put("parts", parts);
+            media.updateAttributes(attributes);
         }
-        return mediaAsset;
+        // Media 객체 상태를 UPLOADED로 전환
+        media.updateStatus(MediaStatus.UPLOADED);
+        // Media 객체 저장
+        return mediaRepository.save(media);
     }
 
-    private String generateObjectKey(Long userId, MediaUploadRequest request) {
-        return "media/%d/%s/%s".formatted(
-                userId,
-                request.purpose().name().toLowerCase(Locale.ROOT),
-                UUID.randomUUID()
-        );
+    public String getPresignedUrl(Long id) {
+        Media foundedMedia = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(id);
+        // Media가 INIT & FAILED 상태 인 경우 비허용
+        if (foundedMedia.getStatus() == MediaStatus.INIT
+                || foundedMedia.getStatus() == MediaStatus.FAILED
+        ) {
+            throw new IllegalArgumentException("Media is in FAILED or INIT status");
+        }
+        // 다운로드할 미디어 파일의 요청객체를 생성
+        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
+                .bucket(s3Properties.bucket()) // 다운로드할 파일의 버킷
+                .key(foundedMedia.getPath()) // 다운로드할 파일의 경로/파일.확장자
+                .build();
+        // `GetObjectRequest`와 `URL 만료시간`을 지정하여 다운로드 PresignedURL을 요청하는 `객체` 생성
+        GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
+                .signatureDuration(Duration.ofSeconds(s3Properties.presignedUrlExpirationSeconds()))
+                .getObjectRequest(getObjectRequest)
+                .build();
+        // GetObjectPresignRequest에 서명을 추가해서 RustFS에 전달함으로써 다운로드 URL을 정의하는 PresignedURL을 생성
+        PresignedGetObjectRequest presignedRequest = s3Presigner.presignGetObject(presignRequest);
+        return presignedRequest.url().toString();
     }
 }
