@@ -23,6 +23,10 @@ import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.greeting.domain.Greeting;
+import itda.greeting.domain.GreetingStatus;
+import itda.greeting.repository.GreetingRepository;
+import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,12 +50,19 @@ class ChatMessageServiceTest {
     @Mock
     private ChatRoomParticipantRepository participantRepository;
 
+    @Mock
+    private GreetingRepository greetingRepository;
+
     private ChatMessageService chatMessageService;
 
     @BeforeEach
     void setUp() {
         chatMessageService = new ChatMessageService(
-                chatMessageRepository, chatRoomRepository, participantRepository);
+                chatMessageRepository,
+                chatRoomRepository,
+                participantRepository,
+                greetingRepository
+        );
     }
 
     // ---------- request validation ----------
@@ -204,6 +215,85 @@ class ChatMessageServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHAT_DUPLICATE_MESSAGE);
+    }
+
+    @Test
+    void greetingSenderCannotSendAgainBeforeReply() {
+        when(greetingRepository
+                .findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                        1L,
+                        10L,
+                        GreetingStatus.SENT
+                )).thenReturn(Optional.empty());
+        when(greetingRepository.existsByRoomIdAndFromPet_IdAndStatus(
+                1L,
+                10L,
+                GreetingStatus.SENT
+        )).thenReturn(true);
+
+        assertThatThrownBy(() ->
+                chatMessageService.sendText(
+                        1L,
+                        10L,
+                        request("idem-3", "한 번 더 보낼게요")
+                ))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.GREETING_REPLY_REQUIRED);
+
+        verify(chatMessageRepository, never())
+                .insertMessageOnConflictWithReturning(
+                        anyLong(),
+                        anyString(),
+                        any(),
+                        anyString(),
+                        any(),
+                        any(),
+                        any()
+                );
+    }
+
+    @Test
+    void firstReplyMarksGreetingResponded() {
+        Greeting greeting = mock(Greeting.class);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = textMsg(3L, 20L, "반가워요", "reply-1");
+        MessageUpsert upsert = upsert(3L, true);
+        when(greetingRepository
+                .findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                        1L,
+                        20L,
+                        GreetingStatus.SENT
+                )).thenReturn(Optional.of(greeting));
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(
+                1L,
+                "reply-1"
+        )).thenReturn(Optional.empty());
+        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetId(1L, 20L))
+                .thenReturn(true);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L,
+                "PET",
+                20L,
+                "TEXT",
+                "반가워요",
+                null,
+                "reply-1"
+        )).thenReturn(upsert);
+        when(chatMessageRepository.findById(3L))
+                .thenReturn(Optional.of(stored));
+
+        ChatMessageResult result = chatMessageService.sendText(
+                1L,
+                20L,
+                request("reply-1", "반가워요")
+        );
+
+        assertThat(result.created()).isTrue();
+        verify(greeting).markResponded(
+                org.mockito.ArgumentMatchers.any(Instant.class)
+        );
     }
 
     // ---------- server-authored CARD / SYSTEM ----------

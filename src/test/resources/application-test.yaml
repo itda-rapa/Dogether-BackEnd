@@ -23,7 +23,10 @@ app:
     secret-key: test-secret-key
     bucket: dogether-test
     region: ap-northeast-2
-    presigned-url-expiration-seconds: 900
+    presigned-url-expiration-seconds: 600
+    endpoint:
+    presign-endpoint:
+    path-style-access-enabled: false
   media:
     upload-url-ttl: 15m
     view-url-ttl: 10m

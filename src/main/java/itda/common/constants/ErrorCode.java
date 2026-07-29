@@ -51,12 +51,14 @@ public enum ErrorCode {
 
     GREETING_ALREADY_USED(HttpStatus.CONFLICT, "이미 인사한 상대에게 다시 인사할 수 없습니다."),
     GREETING_DAILY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "하루 인사 가능 인원을 초과했습니다."),
+    GREETING_SELF_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견에게 인사할 수 없습니다."),
     GREETING_REPLY_REQUIRED(HttpStatus.CONFLICT, "상대가 답변한 뒤 추가 메시지를 보낼 수 있습니다."),
     FRIEND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "친구는 반려견당 최대 50명까지 등록할 수 있습니다."),
     FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
 
-    SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.BAD_REQUEST, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),
+    SETLOG_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그를 찾을 수 없습니다."),
+    SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),
     MEETING_CARD_NOT_EDITABLE(HttpStatus.CONFLICT, "M1에서는 약속 카드를 수정할 수 없습니다."),
     MEETING_CARD_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "약속 참여 반려견만 카드를 취소할 수 있습니다."),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),

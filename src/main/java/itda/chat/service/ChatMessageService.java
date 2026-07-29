@@ -11,7 +11,12 @@ import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.greeting.domain.Greeting;
+import itda.greeting.domain.GreetingStatus;
+import itda.greeting.repository.GreetingRepository;
+import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +31,7 @@ public class ChatMessageService {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomParticipantRepository participantRepository;
+    private final GreetingRepository greetingRepository;
 
     /**
      * Send a user-authored message.
@@ -43,8 +49,52 @@ public class ChatMessageService {
         if (request.clientMessageId() == null || request.clientMessageId().isBlank()) {
             throw new BusinessException(ErrorCode.CHAT_CLIENT_MESSAGE_ID_REQUIRED);
         }
-        return insert(roomId, SenderType.PET, senderPetId,
+        Optional<Greeting> greetingToRespond =
+                greetingRepository
+                        .findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                                roomId,
+                                senderPetId,
+                                GreetingStatus.SENT
+                        );
+        if (greetingToRespond.isEmpty()
+                && greetingRepository
+                .existsByRoomIdAndFromPet_IdAndStatus(
+                        roomId,
+                        senderPetId,
+                        GreetingStatus.SENT
+                )) {
+            throw new BusinessException(ErrorCode.GREETING_REPLY_REQUIRED);
+        }
+
+        ChatMessageResult result = insert(roomId, SenderType.PET, senderPetId,
                 MessageType.TEXT, request.body(), null, request.clientMessageId());
+        if (result.created()) {
+            greetingToRespond.ifPresent(greeting ->
+                    greeting.markResponded(Instant.now())
+            );
+        }
+        return result;
+    }
+
+    /**
+     * Stores the server-defined first Greeting text without applying the
+     * "wait for reply" gate that immediately becomes active afterward.
+     */
+    @Transactional
+    public ChatMessageResult sendGreetingText(
+            long roomId,
+            long senderPetId,
+            ChatMessageCreateRequest request
+    ) {
+        return insert(
+                roomId,
+                SenderType.PET,
+                senderPetId,
+                MessageType.TEXT,
+                request.body(),
+                null,
+                request.clientMessageId()
+        );
     }
 
     /**
