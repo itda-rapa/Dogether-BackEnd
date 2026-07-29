@@ -1,19 +1,19 @@
 package itda.media.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.common.properties.MediaProperties;
-import itda.media.domain.MediaPurpose;
-import itda.media.domain.MediaAsset;
+import itda.media.old.domain.MediaPurpose;
+import itda.media.old.domain.MediaAsset;
 import itda.media.domain.MediaStatus;
-import itda.media.dto.MediaUploadRequest;
-import itda.media.repository.MediaAssetRepository;
+import itda.media.old.dto.MediaUploadRequest;
+import itda.media.old.repository.MediaAssetRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.time.Duration;
@@ -54,7 +54,6 @@ class MediaServiceTest {
                 new MediaProperties(
                         Duration.ofMinutes(15),
                         Duration.ofMinutes(10),
-                        Duration.ofMinutes(5),
                         10 * 1024 * 1024
                 )
         );
@@ -73,7 +72,7 @@ class MediaServiceTest {
     }
 
     @Test
-    void expiredUploadPersistsExpiredStatusBeforeReturningGone() {
+    void expiredUploadRemainsPendingForMaintenanceRetry() {
         MediaAsset mediaAsset = org.mockito.Mockito.mock(MediaAsset.class);
         given(mediaAssetRepository.findByIdForUpdate(7L))
                 .willReturn(Optional.of(mediaAsset));
@@ -89,7 +88,6 @@ class MediaServiceTest {
                 new MediaProperties(
                         Duration.ofMinutes(15),
                         Duration.ofMinutes(10),
-                        Duration.ofMinutes(5),
                         10 * 1024 * 1024
                 )
         );
@@ -99,7 +97,7 @@ class MediaServiceTest {
                 .extracting(error -> ((BusinessException) error).getErrorCode())
                 .isEqualTo(ErrorCode.MEDIA_EXPIRED);
 
-        verify(mediaAsset).markExpired();
+        verify(mediaAsset, never()).markExpired();
         verifyNoInteractions(storageService);
     }
 
@@ -119,7 +117,6 @@ class MediaServiceTest {
                 new MediaProperties(
                         Duration.ofMinutes(15),
                         Duration.ofMinutes(10),
-                        Duration.ofMinutes(5),
                         10 * 1024 * 1024
                 )
         );

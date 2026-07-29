@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import itda.common.exception.BusinessException;
 import itda.common.properties.MediaProperties;
-import itda.media.domain.MediaPurpose;
+import itda.media.old.domain.MediaPurpose;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +15,6 @@ class MediaPolicyTest {
             new MediaProperties(
                     Duration.ofMinutes(15),
                     Duration.ofMinutes(10),
-                    Duration.ofMinutes(5),
                     10 * 1024 * 1024
             )
     );

@@ -1,4 +1,7 @@
 spring:
+  config:
+    # Application 구동 시 .env.production 파일이 자동으로 적용
+    import: optional:file:.env[.properties]
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}

@@ -1,6 +1,6 @@
-package itda.media.dto;
+package itda.media.old.dto;
 
-import itda.media.domain.MediaPurpose;
+import itda.media.old.domain.MediaPurpose;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;

@@ -1,7 +1,7 @@
-package itda.media.dto;
+package itda.media.old.dto;
 
-import itda.media.domain.MediaAsset;
-import itda.media.domain.MediaPurpose;
+import itda.media.old.domain.MediaAsset;
+import itda.media.old.domain.MediaPurpose;
 import itda.media.domain.MediaStatus;
 import java.time.Instant;
 

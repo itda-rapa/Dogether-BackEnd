@@ -27,7 +27,6 @@ app:
   media:
     upload-url-ttl: 15m
     view-url-ttl: 10m
-    delete-grace: 5m
     max-upload-bytes: 10485760
     maintenance-delay: 1h
   bootstrap-admin:

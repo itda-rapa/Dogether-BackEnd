@@ -7,10 +7,10 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 
-import itda.media.domain.MediaAsset;
-import itda.media.domain.MediaPurpose;
+import itda.media.old.domain.MediaAsset;
+import itda.media.old.domain.MediaPurpose;
 import itda.media.domain.MediaStatus;
-import itda.media.repository.MediaAssetRepository;
+import itda.media.old.repository.MediaAssetRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.time.Duration;

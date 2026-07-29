@@ -1,7 +1,7 @@
 package itda.pet.domain;
 
 import itda.common.BaseEntity;
-import itda.media.domain.MediaAsset;
+import itda.media.old.domain.MediaAsset;
 import itda.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

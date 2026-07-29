@@ -1,73 +1,66 @@
 package itda.media.controller;
 
 import itda.common.dto.ApiResponse;
-import itda.common.security.CurrentUser;
-import itda.media.dto.MediaAssetResponse;
-import itda.media.dto.MediaUploadRequest;
-import itda.media.dto.MediaUploadResponse;
+import itda.media.domain.Media;
+import itda.media.dto.downloaddto.PresignedUrlResponse;
+import itda.media.dto.uploaddto.*;
+import itda.media.repository.MediaRepository;
 import itda.media.service.MediaService;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import itda.user.domain.User;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/media")
+@RequiredArgsConstructor
 public class MediaController {
-
     private final MediaService mediaService;
+    private final MediaRepository mediaRepository;
+    // ...
 
-    public MediaController(MediaService mediaService) {
-        this.mediaService = mediaService;
-    }
-
-    @PostMapping("/uploads")
-    public ResponseEntity<ApiResponse<MediaUploadResponse>> createUpload(
-            @AuthenticationPrincipal CurrentUser currentUser,
-            @Valid @RequestBody MediaUploadRequest request
+    @PostMapping("/api/v1/media/init")
+    public ApiResponse<MediaInitResponse> initMedia(
+            @AuthenticationPrincipal User user,
+            @RequestBody MediaInitRequest request
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.created(
-                        mediaService.createUpload(currentUser.id(), request),
-                        "업로드 URL이 발급되었습니다."
-                ));
-    }
-
-    @PostMapping("/{mediaAssetId}/complete")
-    public ApiResponse<MediaAssetResponse> complete(
-            @AuthenticationPrincipal CurrentUser currentUser,
-            @PathVariable Long mediaAssetId
-    ) {
-        return ApiResponse.ok(
-                mediaService.complete(currentUser.id(), mediaAssetId),
-                "업로드가 확인되었습니다."
+        PresignedUrl result = mediaService.initMedia(
+                request.mediaType(),
+                request.fileSize(),
+                user,
+                "posts"
         );
+        return
+                ApiResponse.created(
+                        MediaInitResponse.from(result),
+                        "Media 객체가 초기화되었습니다."
+                )
+                ;
     }
 
-    @GetMapping("/{mediaAssetId}")
-    public ApiResponse<MediaAssetResponse> get(
-            @AuthenticationPrincipal CurrentUser currentUser,
-            @PathVariable Long mediaAssetId
+    @PostMapping("/api/v1/media/uploaded")
+    public ApiResponse<MediaResponse> mediaUploaded(
+            @AuthenticationPrincipal User user,
+            @RequestBody MediaUploadedRequest request
     ) {
-        return ApiResponse.ok(
-                mediaService.get(currentUser.id(), mediaAssetId),
-                "미디어 자산이 조회되었습니다."
+        Media media = mediaService.mediaUploaded(
+                request.mediaId(),
+                request.parts(),
+                user
         );
+        return ApiResponse.ok(
+                MediaResponse.from(media),
+                "성공적으로 업로드되었습니다."
+        )
+                ;
     }
 
-    @DeleteMapping("/{mediaAssetId}")
-    public ResponseEntity<Void> delete(
-            @AuthenticationPrincipal CurrentUser currentUser,
-            @PathVariable Long mediaAssetId
-    ) {
-        mediaService.requestDeletion(currentUser.id(), mediaAssetId);
-        return ResponseEntity.accepted().build();
+    @GetMapping("/api/v1/media/{id}/presigned-url")
+    public ApiResponse<PresignedUrlResponse> getPresignedUrl(@PathVariable Long id) {
+        Media media = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(id);
+        String presignedUrl = mediaService.getPresignedUrl(id);
+        return ApiResponse.ok(
+                new PresignedUrlResponse(presignedUrl, MediaResponse.from(media)),
+                "다운로드용 PresignedURL이 발급되었습니다."
+        );
     }
 }

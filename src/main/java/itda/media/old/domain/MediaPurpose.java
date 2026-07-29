@@ -1,4 +1,4 @@
-package itda.media.domain;
+package itda.media.old.domain;
 
 public enum MediaPurpose {
     SETLOG,

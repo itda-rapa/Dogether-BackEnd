@@ -1,6 +1,6 @@
-package itda.media.repository;
+package itda.media.old.repository;
 
-import itda.media.domain.MediaAsset;
+import itda.media.old.domain.MediaAsset;
 import itda.media.domain.MediaStatus;
 import java.time.Instant;
 import java.util.List;
@@ -23,4 +23,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, Long> {
             MediaStatus status,
             Instant expiresAt
     );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<MediaAsset> findTop100ByStatusOrderById(MediaStatus status);
 }
