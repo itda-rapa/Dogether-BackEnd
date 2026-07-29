@@ -1,6 +1,7 @@
 package itda.chat.repository;
 
 import itda.chat.domain.ChatMessage;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -61,4 +62,17 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
         Boolean getCreated();
     }
+
+    /**
+     * Poll messages for a room, ascending by id, from afterMessageId exclusively.
+     */
+    @Query(value = """
+            SELECT m FROM ChatMessage m
+            WHERE m.room.id = :roomId
+              AND m.id > :afterMessageId
+            ORDER BY m.id ASC
+            """)
+    List<ChatMessage> findMessagesAfter(@Param("roomId") long roomId,
+                                        @Param("afterMessageId") long afterMessageId,
+                                        org.springframework.data.domain.Pageable pageable);
 }
