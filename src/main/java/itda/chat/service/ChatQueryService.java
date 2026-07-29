@@ -8,7 +8,6 @@ import itda.chat.dto.response.ChatRoomResponse;
 import itda.chat.dto.response.CursorPage;
 import itda.chat.dto.response.PetSearchItem;
 import itda.chat.repository.ChatMessageRepository;
-import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.chat.repository.ChatRoomRepository.RoomListRow;
 import itda.chat.support.RoomCursorCodec;
@@ -47,7 +46,6 @@ public class ChatQueryService {
 
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
-    private final ChatRoomParticipantRepository participantRepository;
     private final ChatMessageService chatMessageService;
     private final ActivePetQueryService activePetQueryService;
     private final PetDisplayQueryService petDisplayQueryService;
@@ -130,7 +128,7 @@ public class ChatQueryService {
      * a future block relationship excludes it.
      */
     public void requireParticipant(long roomId, long petId) {
-        if (!participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(roomId, petId)) {
+        if (!chatRoomRepository.existsAccessibleDirectRoomForPet(roomId, petId)) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
         }
     }
