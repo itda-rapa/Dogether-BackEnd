@@ -1967,10 +1967,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `CHAT_ROOM_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
+
+AI 실패·지연·컨텍스트 부족은 오류가 아니라 `200` 과 빈 폼으로 돌려준다. 위 오류는
+인증·Active Pet·방 접근에만 해당한다.
 
 #### `POST /meeting-cards`
 
@@ -2034,12 +2037,15 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | HTTP | 대표 ErrorCode |
 |---:|---|
-| `400` | `VALIDATION_FAILED` |
+| `400` | `VALIDATION_FAILED`, `MEETING_CARD_ROOM_REQUIRED` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `CHAT_ROOM_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
+
+`draftId` 를 보냈을 때 그 초안이 요청자 것이 아니거나 다른 방 초안이거나 이미 카드를
+만든 초안이면 `VALIDATION_FAILED` 다. DIRECT 방이 아니면 `MEETING_CARD_ROOM_REQUIRED` 다.
 
 #### `GET /meeting-cards/{cardId}`
 
@@ -2092,10 +2098,13 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `MEETING_CARD_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
+
+카드 없음·참여 Pet 아님·차단된 방을 모두 `MEETING_CARD_NOT_FOUND` 로 수렴시켜 카드
+존재 자체를 숨긴다. 권한 없음(`403`)을 주면 카드 id 를 훑어 존재를 알아낼 수 있다.
 
 #### `POST /meeting-cards/{cardId}/cancel`
 
@@ -2150,11 +2159,16 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `MEETING_CARD_CANCEL_FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
-| `409` | `MEETING_CARD_NOT_EDITABLE` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `MEETING_CARD_NOT_FOUND` |
+| `409` | `MEETING_CARD_ALREADY_CANCELED` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
+
+이미 취소된 카드를 다시 취소하면 `MEETING_CARD_ALREADY_CANCELED` 다.
+`MEETING_CARD_NOT_EDITABLE` 는 "수정할 수 없습니다" 라는 문구이므로 취소 충돌에
+재사용하지 않는다. 양쪽 Pet 이 동시에 취소하면 한쪽만 성공하고 다른 쪽이 이 코드를
+받으며, SYSTEM 메시지는 정확히 한 건만 생성된다.
 
 ### 3.11. Block
 
@@ -2846,7 +2860,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---|---:|---|---|---|
 | `draftId` | ㅇ | integer | format: int64 | - |
 | `roomId` | ㅇ | integer | format: int64 | - |
-| `cardType` | ㄴ | string / null | enum: WALK, PLAY, OTHER, null | - |
+| `cardType` | ㄴ | string / null | enum: WALK, PLAY, HOSPITAL, OTHER, null | - |
 | `placeText` | ㄴ | string / null | maxLength: 500 | - |
 | `meetAt` | ㄴ | string / null | format: date-time | - |
 | `fallback` | ㅇ | boolean | - | - |
@@ -2860,7 +2874,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---|---:|---|---|---|
 | `roomId` | ㅇ | integer | format: int64 | - |
 | `draftId` | ㄴ | integer / null | format: int64 | - |
-| `cardType` | ㅇ | string | enum: WALK, PLAY, OTHER | - |
+| `cardType` | ㅇ | string | enum: WALK, PLAY, HOSPITAL, OTHER | - |
 | `placeText` | ㅇ | string | minLength: 1<br>maxLength: 500 | - |
 | `meetAt` | ㅇ | string | format: date-time | - |
 
@@ -2873,7 +2887,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `roomId` | ㅇ | integer | format: int64 | - |
 | `creatorPetId` | ㅇ | integer | format: int64 | - |
 | `participantPetIds` | ㅇ | array<integer> | minItems: 2<br>maxItems: 2 | - |
-| `cardType` | ㅇ | string | enum: WALK, PLAY, OTHER | - |
+| `cardType` | ㅇ | string | enum: WALK, PLAY, HOSPITAL, OTHER | - |
 | `placeText` | ㅇ | string | - | - |
 | `meetAt` | ㅇ | string | format: date-time | - |
 | `status` | ㅇ | string | enum: OPEN, CANCELED | - |

@@ -125,7 +125,7 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 | POST | `/meeting-cards/{cardId}/cancel` | 참여 Pet 양쪽 모두 취소 가능 |
 
 M1에서는 수정·참여·퇴장 API를 제공하지 않는다.
-카드 종류는 `WALK`, `PLAY`, `OTHER`다.
+카드 종류는 `WALK`, `PLAY`, `HOSPITAL`, `OTHER`다.
 프런트는 최근 24시간 내 사용자 `TEXT` 메시지가 2개 이상일 때 버튼을 활성화한다.
 서버는 0~1개에서도 요청을 거절하지 않고 `200`과 빈 폼,
 `fallbackReason=INSUFFICIENT_CONTEXT`를 반환한다. `CARD`, `SYSTEM`은 개수에서 제외한다.

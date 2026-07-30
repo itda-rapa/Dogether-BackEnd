@@ -145,7 +145,9 @@ erDiagram
 
 - 친구 여부와 무관하게 생성할 수 있다.
 - 확정 시 `card_type`, `place_text`, `meet_at`이 필수다.
-- `card_type`은 `WALK`, `PLAY`, `OTHER`다.
+- `card_type`은 `WALK`, `PLAY`, `HOSPITAL`, `OTHER`다.
+- `meeting_cards.source_draft_id`는 확정에 사용한 `card_drafts` 행을 가리키며 nullable이다.
+  초안 없이 직접 확정할 수 있고, 한 초안으로 카드를 두 번 만들 수 없도록 UNIQUE다.
 - M1 참여 Pet은 두 마리다.
 - 양쪽 참여 Pet 모두 취소할 수 있다.
 - 수정은 제공하지 않으며 취소 후 새 카드를 만든다.

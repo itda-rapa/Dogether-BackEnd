@@ -15,6 +15,7 @@ import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.dto.LockedPetContext;
 import itda.interaction.dto.LockedUserContext;
 import itda.interaction.service.InteractionPairLockService;
+import itda.meetingcard.service.MeetingCardBlockCleanupService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
@@ -40,19 +41,22 @@ public class BlockService {
     private final ActivePetQueryService activePetQueryService;
     private final InteractionPairLockService interactionPairLockService;
     private final FriendBlockCleanupService friendBlockCleanupService;
+    private final MeetingCardBlockCleanupService meetingCardBlockCleanupService;
 
     public BlockService(
             UserBlockRepository userBlockRepository,
             UserRepository userRepository,
             ActivePetQueryService activePetQueryService,
             InteractionPairLockService interactionPairLockService,
-            FriendBlockCleanupService friendBlockCleanupService
+            FriendBlockCleanupService friendBlockCleanupService,
+            MeetingCardBlockCleanupService meetingCardBlockCleanupService
     ) {
         this.userBlockRepository = userBlockRepository;
         this.userRepository = userRepository;
         this.activePetQueryService = activePetQueryService;
         this.interactionPairLockService = interactionPairLockService;
         this.friendBlockCleanupService = friendBlockCleanupService;
+        this.meetingCardBlockCleanupService = meetingCardBlockCleanupService;
     }
 
     /**
@@ -93,6 +97,14 @@ public class BlockService {
         friendBlockCleanupService.cleanupBetweenUsers(
                 pair.sourceUser().userId(),
                 targetOwnerId
+        );
+
+        // 차단하면 방이 양쪽에서 404 로 숨겨져 아무도 카드를 취소할 수 없다. 정리하지 않으면
+        // OPEN 카드가 영구히 남으므로 Friendship·PENDING 요청과 같이 정리한다.
+        meetingCardBlockCleanupService.cancelOpenCardsBetweenUsers(
+                pair.sourceUser().userId(),
+                targetOwnerId,
+                pair.sourcePet().petId()
         );
 
         return new BlockResult(response, inserted == 1);

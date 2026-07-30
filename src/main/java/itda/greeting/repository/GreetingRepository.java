@@ -30,4 +30,9 @@ public interface GreetingRepository extends JpaRepository<Greeting, Long> {
             Long fromPetId,
             GreetingStatus status
     );
+
+    boolean existsByRoomIdAndStatus(
+            Long roomId,
+            GreetingStatus status
+    );
 }
