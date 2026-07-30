@@ -61,6 +61,9 @@ public enum ErrorCode {
     SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),
     MEETING_CARD_NOT_EDITABLE(HttpStatus.CONFLICT, "M1에서는 약속 카드를 수정할 수 없습니다."),
     MEETING_CARD_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "약속 참여 반려견만 카드를 취소할 수 있습니다."),
+    MEETING_CARD_ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소된 약속 카드입니다."),
+    MEETING_CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "약속 카드를 찾을 수 없습니다."),
+    MEETING_CARD_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "약속 카드는 DIRECT 채팅방에서만 만들 수 있습니다."),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
     REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 

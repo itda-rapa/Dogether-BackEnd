@@ -75,4 +75,26 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     List<ChatMessage> findMessagesAfter(@Param("roomId") long roomId,
                                         @Param("afterMessageId") long afterMessageId,
                                         org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * AI 약속 초안에 넘길 원본 메시지. 사용자가 직접 쓴 TEXT 만 대상이며 CARD·SYSTEM 은
+     * 제외한다(04_M1_OpenAPI.yaml card-drafts 설명).
+     *
+     * <p>최신순으로 뽑는다. 최대 30개 제한에 걸렸을 때 잘려나가야 하는 쪽이 오래된
+     * 메시지이기 때문이다. 호출부가 AI 에 넘기기 전에 시간순으로 되돌린다.
+     */
+    @Query(value = """
+            SELECT m FROM ChatMessage m
+            WHERE m.room.id = :roomId
+              AND m.senderType = :senderType
+              AND m.type = :type
+              AND m.createdAt >= :since
+            ORDER BY m.id DESC
+            """)
+    List<ChatMessage> findRecentMessagesForDraft(
+            @Param("roomId") long roomId,
+            @Param("senderType") itda.chat.domain.SenderType senderType,
+            @Param("type") itda.chat.domain.MessageType type,
+            @Param("since") java.time.Instant since,
+            org.springframework.data.domain.Pageable pageable);
 }
