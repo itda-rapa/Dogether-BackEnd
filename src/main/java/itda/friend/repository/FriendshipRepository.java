@@ -1,6 +1,7 @@
 package itda.friend.repository;
 
 import itda.friend.domain.Friendship;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -52,6 +53,38 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
             @Param("targetPetIds") Collection<Long> targetPetIds
     );
 
+    @Query(value = """
+            SELECT
+                friendship.id AS friendshipId,
+                friendship.created_at AS createdAt,
+                CASE
+                    WHEN friendship.pet_low_id = :petId
+                        THEN friendship.pet_high_id
+                    ELSE friendship.pet_low_id
+                END AS counterpartPetId
+            FROM friendships friendship
+            WHERE (
+                    friendship.pet_low_id = :petId
+                    OR friendship.pet_high_id = :petId
+                  )
+              AND (
+                    CAST(:cursorCreatedAt AS TIMESTAMPTZ) IS NULL
+                    OR friendship.created_at < :cursorCreatedAt
+                    OR (
+                        friendship.created_at = :cursorCreatedAt
+                        AND friendship.id < :cursorFriendshipId
+                    )
+                  )
+            ORDER BY friendship.created_at DESC, friendship.id DESC
+            LIMIT :limitPlusOne
+            """, nativeQuery = true)
+    List<FriendshipListRow> findFriendPage(
+            @Param("petId") Long petId,
+            @Param("cursorCreatedAt") Instant cursorCreatedAt,
+            @Param("cursorFriendshipId") Long cursorFriendshipId,
+            @Param("limitPlusOne") int limitPlusOne
+    );
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
             DELETE FROM friendships friendship
@@ -83,5 +116,14 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
         Long getPetId();
 
         Long getFriendCount();
+    }
+
+    interface FriendshipListRow {
+
+        Long getFriendshipId();
+
+        Instant getCreatedAt();
+
+        Long getCounterpartPetId();
     }
 }

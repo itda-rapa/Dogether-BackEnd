@@ -1248,7 +1248,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `listReceivedFriendRequests`
 - 인증: Bearer Token 필요
-- 설명: 현재 Active Pet이 받은 요청만 반환한다.
+- 설명: 현재 Active Pet이 받은 유효한 PENDING 요청만 반환한다.
+- 정렬: `requestedAt DESC, requestId DESC`
+- 만료: `expiresAt <= now`는 제외하되 GET에서 DB 상태를 변경하지 않는다.
 
 **파라미터**
 
@@ -1262,26 +1264,28 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
 | `200` | 받은 요청 | [`FriendRequestListEnvelope`](#schema-friendrequestlistenvelope) |
+| `400` | cursor·limit 검증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `404` | Pet 표시 정보 누락 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
 **Response JSON — 200**
 
 ```json
 {
   "success": true,
-  "message": "처리 내용입니다.",
+  "message": "받은 친구 요청 목록이 조회되었습니다.",
   "data": {
     "items": [
       {
         "requestId": 1,
         "requesterPet": {
-          "petId": 1,
-          "publicTag": "몽이#A7K2",
-          "nickname": "몽이",
+          "petId": 2,
+          "publicTag": "콩이#B2C3",
+          "nickname": "콩이",
           "profileUrl": null,
           "verified": true,
-          "relationship": "NONE"
+          "relationship": "REQUEST_RECEIVED"
         },
         "targetPet": {
           "petId": 1,
@@ -1294,8 +1298,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
         "status": "PENDING",
         "requestedAt": "2026-07-24T09:00:00Z",
         "respondedAt": null,
-        "expiresAt": "2026-07-24T09:00:00Z",
-        "directRoomId": 1
+        "expiresAt": "2026-07-31T09:00:00Z",
+        "directRoomId": null
       }
     ],
     "page": {
@@ -1312,7 +1316,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
+| `400` | `VALIDATION_FAILED` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `PET_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
@@ -1320,7 +1326,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `listSentFriendRequests`
 - 인증: Bearer Token 필요
-- 설명: 현재 Active Pet이 보낸 요청만 반환한다.
+- 설명: 현재 Active Pet이 보낸 유효한 PENDING 요청만 반환한다.
+- 정렬: `requestedAt DESC, requestId DESC`
+- 만료: `expiresAt <= now`는 제외하되 GET에서 DB 상태를 변경하지 않는다.
 
 **파라미터**
 
@@ -1334,26 +1342,28 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
 | `200` | 보낸 요청 | [`FriendRequestListEnvelope`](#schema-friendrequestlistenvelope) |
+| `400` | cursor·limit 검증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `404` | Pet 표시 정보 누락 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
 **Response JSON — 200**
 
 ```json
 {
   "success": true,
-  "message": "처리 내용입니다.",
+  "message": "보낸 친구 요청 목록이 조회되었습니다.",
   "data": {
     "items": [
       {
         "requestId": 1,
         "requesterPet": {
-          "petId": 1,
-          "publicTag": "몽이#A7K2",
-          "nickname": "몽이",
+          "petId": 2,
+          "publicTag": "콩이#B2C3",
+          "nickname": "콩이",
           "profileUrl": null,
           "verified": true,
-          "relationship": "NONE"
+          "relationship": "REQUEST_SENT"
         },
         "targetPet": {
           "petId": 1,
@@ -1366,8 +1376,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
         "status": "PENDING",
         "requestedAt": "2026-07-24T09:00:00Z",
         "respondedAt": null,
-        "expiresAt": "2026-07-24T09:00:00Z",
-        "directRoomId": 1
+        "expiresAt": "2026-07-31T09:00:00Z",
+        "directRoomId": null
       }
     ],
     "page": {
@@ -1384,7 +1394,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
+| `400` | `VALIDATION_FAILED` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `PET_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
@@ -1569,6 +1581,8 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 - operationId: `listPetFriends`
 - 인증: Bearer Token 필요
+- 설명: 본인 소유 미삭제 Pet의 친구를 `friendship.createdAt DESC, friendshipId DESC`로 반환한다.
+- 본인 소유라면 SUSPENDED 또는 현재 Active Pet이 아닌 Pet도 조회할 수 있다.
 
 **파라미터**
 
@@ -1583,6 +1597,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
 | `200` | 친구 목록 | [`PetSearchListEnvelope`](#schema-petsearchlistenvelope) |
+| `400` | cursor·limit 검증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
@@ -1592,16 +1607,16 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 ```json
 {
   "success": true,
-  "message": "처리 내용입니다.",
+  "message": "Pet 친구 목록이 조회되었습니다.",
   "data": {
     "items": [
       {
-        "petId": 1,
-        "publicTag": "몽이#A7K2",
-        "nickname": "몽이",
+        "petId": 2,
+        "publicTag": "콩이#B2C3",
+        "nickname": "콩이",
         "profileUrl": null,
         "verified": true,
-        "relationship": "NONE"
+        "relationship": "FRIEND"
       }
     ],
     "page": {
@@ -1618,8 +1633,9 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `400` | `VALIDATION_FAILED` |
+| `403` | `PET_NOT_OWNED` |
+| `404` | `PET_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 

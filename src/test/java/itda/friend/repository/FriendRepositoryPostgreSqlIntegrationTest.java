@@ -3,8 +3,10 @@ package itda.friend.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import itda.friend.repository.FriendRequestRepository.FriendRequestPairRow;
+import itda.friend.repository.FriendRequestRepository.FriendRequestListRow;
 import itda.friend.repository.FriendRequestRepository.PendingFriendRequestRelationshipRow;
 import itda.friend.repository.FriendshipRepository.FriendshipCountRow;
+import itda.friend.repository.FriendshipRepository.FriendshipListRow;
 import itda.friend.repository.FriendshipRepository.FriendshipRelationshipRow;
 import itda.friend.service.FriendBlockCleanupService;
 import java.sql.SQLException;
@@ -365,6 +367,148 @@ class FriendRepositoryPostgreSqlIntegrationTest {
     }
 
     @Test
+    void pagesReceivedAndSentPendingRequestsWithStrictExpiryAndStableCursor() {
+        Long ownerId = createUser();
+        Long activePetId = createPet(ownerId);
+        Long firstCounterpart = createPet(ownerId);
+        Long secondCounterpart = createPet(ownerId);
+        Long thirdCounterpart = createPet(ownerId);
+        Instant sameRequestedAt = NOW.minusSeconds(60);
+
+        Long olderRequestId = insertFriendRequestAt(
+                firstCounterpart,
+                activePetId,
+                "PENDING",
+                sameRequestedAt.minusSeconds(1),
+                NOW.plusSeconds(60)
+        );
+        Long firstTieId = insertFriendRequestAt(
+                secondCounterpart,
+                activePetId,
+                "PENDING",
+                sameRequestedAt,
+                NOW.plusSeconds(60)
+        );
+        Long secondTieId = insertFriendRequestAt(
+                thirdCounterpart,
+                activePetId,
+                "PENDING",
+                sameRequestedAt,
+                NOW.plusSeconds(60)
+        );
+        Long equalExpiryId = insertFriendRequestAt(
+                activePetId,
+                createPet(ownerId),
+                "PENDING",
+                NOW.minusSeconds(30),
+                NOW
+        );
+        insertFriendRequestAt(
+                activePetId,
+                createPet(ownerId),
+                "ACCEPTED",
+                NOW.minusSeconds(20),
+                NOW.plusSeconds(60)
+        );
+
+        List<FriendRequestListRow> firstPage =
+                friendRequestRepository.findReceivedPendingPage(
+                        activePetId,
+                        NOW,
+                        null,
+                        null,
+                        2
+                );
+
+        assertThat(firstPage)
+                .extracting(FriendRequestListRow::getRequestId)
+                .containsExactly(secondTieId, firstTieId);
+        assertThat(firstPage)
+                .allSatisfy(row -> {
+                    assertThat(row.getStatus()).isEqualTo("PENDING");
+                    assertThat(row.getRespondedAt()).isNull();
+                    assertThat(row.getRequesterPetId()).isNotNull();
+                    assertThat(row.getTargetPetId()).isEqualTo(activePetId);
+                });
+
+        List<FriendRequestListRow> secondPage =
+                friendRequestRepository.findReceivedPendingPage(
+                        activePetId,
+                        NOW,
+                        firstPage.get(1).getRequestedAt(),
+                        firstPage.get(1).getRequestId(),
+                        2
+                );
+        assertThat(secondPage)
+                .extracting(FriendRequestListRow::getRequestId)
+                .containsExactly(olderRequestId);
+
+        List<FriendRequestListRow> sent =
+                friendRequestRepository.findSentPendingPage(
+                        activePetId,
+                        NOW,
+                        null,
+                        null,
+                        10
+                );
+        assertThat(sent)
+                .extracting(FriendRequestListRow::getRequestId)
+                .doesNotContain(equalExpiryId);
+        assertThat(status(equalExpiryId)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void pagesFriendshipsAcrossLowAndHighDirectionsWithStableCursor() {
+        Long ownerId = createUser();
+        Long lowPetId = createPet(ownerId);
+        Long sourcePetId = createPet(ownerId);
+        Long highPetId = createPet(ownerId);
+        Long unrelatedPetId = createPet(ownerId);
+        Instant createdAt = NOW.minusSeconds(60);
+
+        Long firstId = insertFriendshipAt(
+                lowPetId,
+                sourcePetId,
+                createdAt
+        );
+        Long secondId = insertFriendshipAt(
+                sourcePetId,
+                highPetId,
+                createdAt
+        );
+        insertFriendshipAt(
+                highPetId,
+                unrelatedPetId,
+                NOW
+        );
+
+        List<FriendshipListRow> firstPage =
+                friendshipRepository.findFriendPage(
+                        sourcePetId,
+                        null,
+                        null,
+                        1
+                );
+        assertThat(firstPage).hasSize(1);
+        assertThat(firstPage.get(0).getFriendshipId()).isEqualTo(secondId);
+        assertThat(firstPage.get(0).getCounterpartPetId())
+                .isEqualTo(highPetId);
+
+        List<FriendshipListRow> secondPage =
+                friendshipRepository.findFriendPage(
+                        sourcePetId,
+                        firstPage.get(0).getCreatedAt(),
+                        firstPage.get(0).getFriendshipId(),
+                        2
+                );
+        assertThat(secondPage)
+                .extracting(FriendshipListRow::getFriendshipId)
+                .containsExactly(firstId);
+        assertThat(secondPage.get(0).getCounterpartPetId())
+                .isEqualTo(lowPetId);
+    }
+
+    @Test
     void blockCleanupCoversEveryPetPairAndPreservesHistoryAndUnrelatedRelations() {
         Long userA = createUser();
         Long userB = createUser();
@@ -461,11 +605,57 @@ class FriendRepositoryPostgreSqlIntegrationTest {
         );
     }
 
+    private Long insertFriendRequestAt(
+            Long requesterPetId,
+            Long targetPetId,
+            String status,
+            Instant requestedAt,
+            Instant expiresAt
+    ) {
+        return jdbcTemplate.queryForObject("""
+                insert into friend_requests (
+                    requester_pet_id,
+                    target_pet_id,
+                    status,
+                    requested_at,
+                    expires_at
+                ) values (?, ?, ?, ?, ?)
+                returning id
+                """,
+                Long.class,
+                requesterPetId,
+                targetPetId,
+                status,
+                requestedAt.atOffset(ZoneOffset.UTC),
+                expiresAt.atOffset(ZoneOffset.UTC)
+        );
+    }
+
     private void insertFriendship(Long petLowId, Long petHighId) {
         jdbcTemplate.update("""
                 insert into friendships (pet_low_id, pet_high_id)
                 values (?, ?)
                 """, Math.min(petLowId, petHighId), Math.max(petLowId, petHighId));
+    }
+
+    private Long insertFriendshipAt(
+            Long petAId,
+            Long petBId,
+            Instant createdAt
+    ) {
+        return jdbcTemplate.queryForObject("""
+                insert into friendships (
+                    pet_low_id,
+                    pet_high_id,
+                    created_at
+                ) values (?, ?, ?)
+                returning id
+                """,
+                Long.class,
+                Math.min(petAId, petBId),
+                Math.max(petAId, petBId),
+                createdAt.atOffset(ZoneOffset.UTC)
+        );
     }
 
     private String status(Long requestId) {
