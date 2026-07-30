@@ -1760,7 +1760,7 @@ components:
           format: int64
         cardType:
           type: [string, 'null']
-          enum: [WALK, PLAY, OTHER, null]
+          enum: [WALK, PLAY, HOSPITAL, OTHER, null]
         placeText:
           type: [string, 'null']
           maxLength: 500
@@ -1787,7 +1787,7 @@ components:
           format: int64
         cardType:
           type: string
-          enum: [WALK, PLAY, OTHER]
+          enum: [WALK, PLAY, HOSPITAL, OTHER]
           example: WALK
         placeText:
           type: string
@@ -1818,7 +1818,7 @@ components:
             format: int64
         cardType:
           type: string
-          enum: [WALK, PLAY, OTHER]
+          enum: [WALK, PLAY, HOSPITAL, OTHER]
         placeText:
           type: string
         meetAt:
