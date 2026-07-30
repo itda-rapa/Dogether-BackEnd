@@ -3,12 +3,14 @@ package itda.friend.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.chat.service.ChatRoomService;
 import itda.pet.service.query.PetDisplayQueryService;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -47,29 +49,38 @@ class FriendResponseRollbackPostgreSqlIntegrationTest {
     @MockitoSpyBean
     private PetDisplayQueryService petDisplayQueryService;
 
+    @MockitoSpyBean
+    private ChatRoomService chatRoomService;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private Long sourceUserId;
+    private Long targetUserId;
     private Long sourcePetId;
     private Long targetPetId;
 
     @BeforeEach
     void setUp() {
-        reset(petDisplayQueryService);
+        reset(petDisplayQueryService, chatRoomService);
         jdbcTemplate.execute("""
                 TRUNCATE chat_room_participants, chat_rooms, user_blocks,
                     friendships, friend_requests, pets, users
                 RESTART IDENTITY CASCADE
                 """);
         sourceUserId = createUser("source");
-        Long targetUserId = createUser("target");
+        targetUserId = createUser("target");
         sourcePetId = createPet(sourceUserId, "sourcePet");
         targetPetId = createPet(targetUserId, "targetPet");
         jdbcTemplate.update(
                 "UPDATE users SET active_pet_id=? WHERE id=?",
                 sourcePetId,
                 sourceUserId
+        );
+        jdbcTemplate.update(
+                "UPDATE users SET active_pet_id=? WHERE id=?",
+                targetPetId,
+                targetUserId
         );
     }
 
@@ -142,6 +153,97 @@ class FriendResponseRollbackPostgreSqlIntegrationTest {
         )).isZero();
     }
 
+    @Test
+    void rollsBackExplicitAcceptanceAndRoomWhenResponseLookupFails() {
+        Long requestId = insertForwardPending();
+        doThrow(new BusinessException(ErrorCode.INTERNAL_ERROR))
+                .when(petDisplayQueryService)
+                .getPetDisplaySummaries(any());
+
+        assertThatThrownBy(() ->
+                commandService.accept(targetUserId, requestId)
+        ).isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INTERNAL_ERROR);
+
+        verify(petDisplayQueryService).getPetDisplaySummaries(any());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        )).isEqualTo("PENDING");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM friendships",
+                Integer.class
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM chat_rooms",
+                Integer.class
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM chat_room_participants",
+                Integer.class
+        )).isZero();
+    }
+
+    @Test
+    void rollsBackExplicitAcceptanceWhenDirectRoomCreationFails() {
+        Long requestId = insertForwardPending();
+        doThrow(new BusinessException(ErrorCode.INTERNAL_ERROR))
+                .when(chatRoomService)
+                .ensureDirectRoom(anyLong(), anyLong(), any());
+
+        assertThatThrownBy(() ->
+                commandService.accept(targetUserId, requestId)
+        ).isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INTERNAL_ERROR);
+
+        verify(chatRoomService).ensureDirectRoom(
+                anyLong(),
+                anyLong(),
+                any()
+        );
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        )).isEqualTo("PENDING");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM friendships",
+                Integer.class
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM chat_rooms",
+                Integer.class
+        )).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM chat_room_participants",
+                Integer.class
+        )).isZero();
+    }
+
+    @Test
+    void rollsBackRejectionWhenResponseLookupFails() {
+        Long requestId = insertForwardPending();
+        doThrow(new BusinessException(ErrorCode.INTERNAL_ERROR))
+                .when(petDisplayQueryService)
+                .getPetDisplaySummaries(any());
+
+        assertThatThrownBy(() ->
+                commandService.reject(targetUserId, requestId)
+        ).isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.INTERNAL_ERROR);
+
+        verify(petDisplayQueryService).getPetDisplaySummaries(any());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        )).isEqualTo("PENDING");
+    }
+
     private void insertReversePending() {
         jdbcTemplate.update("""
                 INSERT INTO friend_requests (
@@ -150,6 +252,20 @@ class FriendResponseRollbackPostgreSqlIntegrationTest {
                 """,
                 targetPetId,
                 sourcePetId,
+                Instant.now().plusSeconds(3600).atOffset(ZoneOffset.UTC)
+        );
+    }
+
+    private Long insertForwardPending() {
+        return jdbcTemplate.queryForObject("""
+                INSERT INTO friend_requests (
+                    requester_pet_id, target_pet_id, status, expires_at
+                ) VALUES (?, ?, 'PENDING', ?)
+                RETURNING id
+                """,
+                Long.class,
+                sourcePetId,
+                targetPetId,
                 Instant.now().plusSeconds(3600).atOffset(ZoneOffset.UTC)
         );
     }

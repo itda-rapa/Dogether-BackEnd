@@ -1,6 +1,7 @@
 package itda.friend;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -48,6 +49,7 @@ class FriendRequestApiContractPostgreSqlIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     private Long sourceUserId;
+    private Long targetUserId;
     private Long sourcePetId;
     private Long targetPetId;
 
@@ -59,13 +61,18 @@ class FriendRequestApiContractPostgreSqlIntegrationTest {
                 RESTART IDENTITY CASCADE
                 """);
         sourceUserId = createUser("source");
-        Long targetUserId = createUser("target");
+        targetUserId = createUser("target");
         sourcePetId = createPet(sourceUserId, "sourcePet");
         targetPetId = createPet(targetUserId, "targetPet");
         jdbcTemplate.update(
                 "UPDATE users SET active_pet_id = ? WHERE id = ?",
                 sourcePetId,
                 sourceUserId
+        );
+        jdbcTemplate.update(
+                "UPDATE users SET active_pet_id = ? WHERE id = ?",
+                targetPetId,
+                targetUserId
         );
     }
 
@@ -143,14 +150,102 @@ class FriendRequestApiContractPostgreSqlIntegrationTest {
                         .value("NONE"))
                 .andExpect(jsonPath("$.data.status").value("ACCEPTED"))
                 .andExpect(jsonPath("$.data.respondedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.requesterPet.relationship")
+                        .value("FRIEND"))
+                .andExpect(jsonPath("$.data.targetPet.relationship")
+                        .value("NONE"))
                 .andExpect(jsonPath("$.data.directRoomId").isNumber());
     }
 
+    @Test
+    void acceptsPendingWith200Contract() throws Exception {
+        Long requestId = insertPending();
+
+        mockMvc.perform(post("/friend-requests/{requestId}/accept", requestId)
+                        .with(user(principal(targetUserId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.requestId").value(requestId))
+                .andExpect(jsonPath("$.data.status").value("ACCEPTED"))
+                .andExpect(jsonPath("$.data.requesterPet.relationship")
+                        .value("FRIEND"))
+                .andExpect(jsonPath("$.data.targetPet.relationship")
+                        .value("NONE"))
+                .andExpect(jsonPath("$.data.respondedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.directRoomId").isNumber());
+    }
+
+    @Test
+    void rejectsPendingWith200Contract() throws Exception {
+        Long requestId = insertPending();
+
+        mockMvc.perform(post("/friend-requests/{requestId}/reject", requestId)
+                        .with(user(principal(targetUserId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requestId").value(requestId))
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.requesterPet.relationship")
+                        .value("NONE"))
+                .andExpect(jsonPath("$.data.targetPet.relationship")
+                        .value("NONE"))
+                .andExpect(jsonPath("$.data.respondedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.directRoomId").isEmpty());
+    }
+
+    @Test
+    void cancelsPendingWith204Contract() throws Exception {
+        Long requestId = insertPending();
+
+        mockMvc.perform(delete("/friend-requests/{requestId}", requestId)
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isNoContent())
+                .andExpect(jsonPath("$").doesNotExist());
+    }
+
+    @Test
+    void hidesUnrelatedRequestWith404Contract() throws Exception {
+        Long requestId = insertPending();
+        Long unrelatedUserId = createUser("unrelated");
+        Long unrelatedPetId = createPet(unrelatedUserId, "unrelatedPet");
+        jdbcTemplate.update(
+                "UPDATE users SET active_pet_id = ? WHERE id = ?",
+                unrelatedPetId,
+                unrelatedUserId
+        );
+
+        mockMvc.perform(post("/friend-requests/{requestId}/accept", requestId)
+                        .with(user(principal(unrelatedUserId))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code")
+                        .value("FRIEND_REQUEST_NOT_FOUND"));
+    }
+
     private CurrentUser principal() {
+        return principal(sourceUserId);
+    }
+
+    private CurrentUser principal(Long userId) {
         return new CurrentUser(
-                sourceUserId,
-                "source@example.com",
+                userId,
+                "user@example.com",
                 Role.USER
+        );
+    }
+
+    private Long insertPending() {
+        return jdbcTemplate.queryForObject("""
+                INSERT INTO friend_requests (
+                    requester_pet_id,
+                    target_pet_id,
+                    status,
+                    expires_at
+                ) VALUES (?, ?, 'PENDING', ?)
+                RETURNING id
+                """,
+                Long.class,
+                sourcePetId,
+                targetPetId,
+                Instant.now().plusSeconds(3600).atOffset(ZoneOffset.UTC)
         );
     }
 

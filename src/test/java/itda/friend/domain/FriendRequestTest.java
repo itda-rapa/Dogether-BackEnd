@@ -74,6 +74,28 @@ class FriendRequestTest {
     }
 
     @Test
+    void rejectsPendingRequestAtProvidedTime() {
+        FriendRequest request = pending();
+        Instant respondedAt = REQUESTED_AT.plusSeconds(60);
+
+        request.reject(respondedAt);
+
+        assertThat(request.getStatus()).isEqualTo(FriendRequestStatus.REJECTED);
+        assertThat(request.getRespondedAt()).isEqualTo(respondedAt);
+    }
+
+    @Test
+    void cancelsPendingRequestAtProvidedTime() {
+        FriendRequest request = pending();
+        Instant respondedAt = REQUESTED_AT.plusSeconds(60);
+
+        request.cancel(respondedAt);
+
+        assertThat(request.getStatus()).isEqualTo(FriendRequestStatus.CANCELED);
+        assertThat(request.getRespondedAt()).isEqualTo(respondedAt);
+    }
+
+    @Test
     void treatsExpirationBoundaryAsExpired() {
         FriendRequest request = pending();
 
@@ -96,6 +118,20 @@ class FriendRequestTest {
 
         assertThatThrownBy(() -> expired.accept(REQUESTED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalStateException.class);
+
+        FriendRequest rejected = pending();
+        rejected.reject(REQUESTED_AT.plusSeconds(1));
+
+        assertThatThrownBy(() -> rejected.cancel(
+                REQUESTED_AT.plusSeconds(2)
+        )).isInstanceOf(IllegalStateException.class);
+
+        FriendRequest canceled = pending();
+        canceled.cancel(REQUESTED_AT.plusSeconds(1));
+
+        assertThatThrownBy(() -> canceled.reject(
+                REQUESTED_AT.plusSeconds(2)
+        )).isInstanceOf(IllegalStateException.class);
     }
 
     private FriendRequest pending() {

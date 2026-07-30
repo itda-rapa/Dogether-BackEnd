@@ -144,6 +144,34 @@ class FriendBlockRacePostgreSqlIntegrationTest {
         assertThat(count("chat_rooms")).isZero();
     }
 
+    @Test
+    void explicitAcceptFirstIsCleanedByFollowingBlock() throws Exception {
+        Long requestId = insertPending(petA, petB);
+
+        ActionRaceResult race = runAcceptFirst(requestId);
+
+        assertThat(race.acceptFailure()).isNull();
+        assertThat(race.blockFailure()).isNull();
+        assertBlockedWithoutActiveFriendState();
+        assertThat(statusCounts("ACCEPTED")).isEqualTo(1);
+        assertThat(count("chat_rooms")).isEqualTo(1);
+        assertThat(count("chat_room_participants")).isEqualTo(2);
+    }
+
+    @Test
+    void blockFirstPreventsExplicitAccept() throws Exception {
+        Long requestId = insertPending(petA, petB);
+
+        ActionRaceResult race = runBlockBeforeAccept(requestId);
+
+        assertThat(race.blockFailure()).isNull();
+        assertThat(businessError(race.acceptFailure()))
+                .isEqualTo(ErrorCode.FRIEND_REQUEST_NOT_PENDING);
+        assertBlockedWithoutActiveFriendState();
+        assertThat(statusCounts("CANCELED")).isEqualTo(1);
+        assertThat(count("chat_rooms")).isZero();
+    }
+
     private RaceResult runFriendFirst(boolean autoAccept) throws Exception {
         CountDownLatch friendPaused = new CountDownLatch(1);
         CountDownLatch releaseFriend = new CountDownLatch(1);
@@ -230,6 +258,79 @@ class FriendBlockRacePostgreSqlIntegrationTest {
         );
     }
 
+    private ActionRaceResult runAcceptFirst(Long requestId) throws Exception {
+        CountDownLatch acceptPaused = new CountDownLatch(1);
+        CountDownLatch releaseAccept = new CountDownLatch(1);
+        CountDownLatch blockStarted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            if (Thread.currentThread().getName().equals("accept-first")) {
+                acceptPaused.countDown();
+                await(releaseAccept);
+            }
+            return invocation.callRealMethod();
+        }).when(blockRelationshipQueryService)
+                .existsBlockBetween(anyLong(), anyLong());
+
+        Future<Throwable> acceptFuture = executor.submit(() -> {
+            Thread.currentThread().setName("accept-first");
+            return invokeAccept(requestId);
+        });
+        assertThat(acceptPaused.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Throwable> blockFuture = executor.submit(() -> {
+            Thread.currentThread().setName("block-after-accept");
+            blockStarted.countDown();
+            return invokeBlock();
+        });
+        assertThat(blockStarted.await(10, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(() -> blockFuture.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+
+        releaseAccept.countDown();
+        return new ActionRaceResult(
+                acceptFuture.get(20, TimeUnit.SECONDS),
+                blockFuture.get(20, TimeUnit.SECONDS)
+        );
+    }
+
+    private ActionRaceResult runBlockBeforeAccept(Long requestId)
+            throws Exception {
+        CountDownLatch blockPaused = new CountDownLatch(1);
+        CountDownLatch releaseBlock = new CountDownLatch(1);
+        CountDownLatch acceptStarted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            if (Thread.currentThread().getName().equals("block-first")) {
+                blockPaused.countDown();
+                await(releaseBlock);
+            }
+            return invocation.callRealMethod();
+        }).when(friendBlockCleanupService)
+                .cleanupBetweenUsers(anyLong(), anyLong());
+
+        Future<Throwable> blockFuture = executor.submit(() -> {
+            Thread.currentThread().setName("block-first");
+            return invokeBlock();
+        });
+        assertThat(blockPaused.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Throwable> acceptFuture = executor.submit(() -> {
+            Thread.currentThread().setName("accept-after-block");
+            acceptStarted.countDown();
+            return invokeAccept(requestId);
+        });
+        assertThat(acceptStarted.await(10, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(() -> acceptFuture.get(
+                300,
+                TimeUnit.MILLISECONDS
+        )).isInstanceOf(TimeoutException.class);
+
+        releaseBlock.countDown();
+        return new ActionRaceResult(
+                acceptFuture.get(20, TimeUnit.SECONDS),
+                blockFuture.get(20, TimeUnit.SECONDS)
+        );
+    }
+
     private FriendCall invokeFriend() {
         try {
             return new FriendCall(
@@ -244,6 +345,15 @@ class FriendBlockRacePostgreSqlIntegrationTest {
     private Throwable invokeBlock() {
         try {
             blockService.block(userA, new BlockCreateRequest(petB));
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        }
+    }
+
+    private Throwable invokeAccept(Long requestId) {
+        try {
+            commandService.accept(userB, requestId);
             return null;
         } catch (Throwable failure) {
             return failure;
@@ -300,12 +410,14 @@ class FriendBlockRacePostgreSqlIntegrationTest {
         );
     }
 
-    private void insertPending(Long requesterPetId, Long targetPetId) {
-        jdbcTemplate.update("""
+    private Long insertPending(Long requesterPetId, Long targetPetId) {
+        return jdbcTemplate.queryForObject("""
                 INSERT INTO friend_requests (
                     requester_pet_id, target_pet_id, status, expires_at
                 ) VALUES (?, ?, 'PENDING', ?)
+                RETURNING id
                 """,
+                Long.class,
                 requesterPetId,
                 targetPetId,
                 Instant.now().plusSeconds(3600).atOffset(ZoneOffset.UTC)
@@ -361,6 +473,12 @@ class FriendBlockRacePostgreSqlIntegrationTest {
     private record RaceResult(
             FriendRequestCommandResult friend,
             ErrorCode friendFailure,
+            Throwable blockFailure
+    ) {
+    }
+
+    private record ActionRaceResult(
+            Throwable acceptFailure,
             Throwable blockFailure
     ) {
     }

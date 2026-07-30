@@ -1,9 +1,14 @@
 package itda.friend.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.interaction.service.InteractionPairLockService;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -14,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -23,6 +29,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.util.AopTestUtils;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -45,6 +53,9 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
     @Autowired
     private FriendRequestCommandService commandService;
 
+    @MockitoSpyBean
+    private InteractionPairLockService interactionPairLockService;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -56,6 +67,7 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        reset(lockServiceSpyTarget());
         jdbcTemplate.execute("""
                 TRUNCATE chat_room_participants, chat_rooms, user_blocks,
                     friendships, friend_requests, pets, users
@@ -148,6 +160,149 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
         )).isEqualTo(1);
     }
 
+    @Test
+    void concurrentExplicitAcceptsCommitOnlyOnce() throws Exception {
+        Long requestId = insertPending(petB, petA);
+
+        List<ActionOutcome> outcomes =
+                runAcceptsWithFirstPairLockPaused(
+                        requestId,
+                        requestId
+                );
+
+        assertThat(outcomes.stream().filter(ActionOutcome::succeeded).count())
+                .isEqualTo(1);
+        assertThat(outcomes.stream().map(ActionOutcome::errorCode))
+                .containsExactlyInAnyOrder(
+                        null,
+                        ErrorCode.FRIEND_REQUEST_NOT_PENDING
+                );
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        )).isEqualTo("ACCEPTED");
+        assertThat(count("friendships")).isEqualTo(1);
+        assertThat(count("chat_rooms")).isEqualTo(1);
+        assertThat(count("chat_room_participants")).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentAcceptAndRejectCommitOneTerminalState() throws Exception {
+        Long requestId = insertPending(petB, petA);
+
+        List<ActionOutcome> outcomes = runActionsTogether(
+                () -> accept(userA, requestId),
+                () -> reject(userA, requestId)
+        );
+
+        assertThat(outcomes.stream().filter(ActionOutcome::succeeded).count())
+                .isEqualTo(1);
+        assertThat(outcomes.stream().map(ActionOutcome::errorCode))
+                .containsExactlyInAnyOrder(
+                        null,
+                        ErrorCode.FRIEND_REQUEST_NOT_PENDING
+                );
+        String status = jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        );
+        assertThat(status).isIn("ACCEPTED", "REJECTED");
+        if ("ACCEPTED".equals(status)) {
+            assertThat(count("friendships")).isEqualTo(1);
+            assertThat(count("chat_rooms")).isEqualTo(1);
+        } else {
+            assertThat(count("friendships")).isZero();
+            assertThat(count("chat_rooms")).isZero();
+        }
+    }
+
+    @Test
+    void concurrentAcceptAndCancelCommitOneTerminalState() throws Exception {
+        Long requestId = insertPending(petB, petA);
+
+        List<ActionOutcome> outcomes = runActionsTogether(
+                () -> accept(userA, requestId),
+                () -> cancel(userB, requestId)
+        );
+
+        assertThat(outcomes.stream().filter(ActionOutcome::succeeded).count())
+                .isEqualTo(1);
+        assertThat(outcomes.stream().map(ActionOutcome::errorCode))
+                .containsExactlyInAnyOrder(
+                        null,
+                        ErrorCode.FRIEND_REQUEST_NOT_PENDING
+                );
+        String status = jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        );
+        assertThat(status).isIn("ACCEPTED", "CANCELED");
+        if ("ACCEPTED".equals(status)) {
+            assertThat(count("friendships")).isEqualTo(1);
+            assertThat(count("chat_rooms")).isEqualTo(1);
+        } else {
+            assertThat(count("friendships")).isZero();
+            assertThat(count("chat_rooms")).isZero();
+        }
+    }
+
+    @Test
+    void concurrentRejectAndCancelCommitOneTerminalState() throws Exception {
+        Long requestId = insertPending(petB, petA);
+
+        List<ActionOutcome> outcomes = runActionsTogether(
+                () -> reject(userA, requestId),
+                () -> cancel(userB, requestId)
+        );
+
+        assertThat(outcomes.stream().filter(ActionOutcome::succeeded).count())
+                .isEqualTo(1);
+        assertThat(outcomes.stream().map(ActionOutcome::errorCode))
+                .containsExactlyInAnyOrder(
+                        null,
+                        ErrorCode.FRIEND_REQUEST_NOT_PENDING
+                );
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM friend_requests WHERE id = ?",
+                String.class,
+                requestId
+        )).isIn("REJECTED", "CANCELED");
+        assertThat(count("friendships")).isZero();
+        assertThat(count("chat_rooms")).isZero();
+    }
+
+    @Test
+    void concurrentExplicitAcceptsAtFortyNineAllowOnlyOne()
+            throws Exception {
+        createFriendshipsForPetA(49);
+        Long userC = createUser("userC");
+        Long petC = createPet(userC, "petC");
+        Long firstRequestId = insertPending(petB, petA);
+        Long secondRequestId = insertPending(petC, petA);
+
+        List<ActionOutcome> outcomes =
+                runAcceptsWithFirstPairLockPaused(
+                        firstRequestId,
+                        secondRequestId
+                );
+
+        assertThat(outcomes.stream().filter(ActionOutcome::succeeded).count())
+                .isEqualTo(1);
+        assertThat(outcomes.stream().map(ActionOutcome::errorCode))
+                .containsExactlyInAnyOrder(
+                        null,
+                        ErrorCode.FRIEND_LIMIT_EXCEEDED
+                );
+        assertThat(friendCount(petA)).isEqualTo(50);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM friend_requests WHERE status='PENDING'",
+                Integer.class
+        )).isEqualTo(1);
+    }
+
     private List<CommandOutcome> runTogether(
             Callable<CommandOutcome> first,
             Callable<CommandOutcome> second
@@ -172,6 +327,77 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
         );
     }
 
+    private List<ActionOutcome> runActionsTogether(
+            Callable<ActionOutcome> first,
+            Callable<ActionOutcome> second
+    ) throws Exception {
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Future<ActionOutcome> firstFuture = executor.submit(() -> {
+            ready.countDown();
+            await(start);
+            return first.call();
+        });
+        Future<ActionOutcome> secondFuture = executor.submit(() -> {
+            ready.countDown();
+            await(start);
+            return second.call();
+        });
+        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        return List.of(
+                firstFuture.get(20, TimeUnit.SECONDS),
+                secondFuture.get(20, TimeUnit.SECONDS)
+        );
+    }
+
+    private List<ActionOutcome> runAcceptsWithFirstPairLockPaused(
+            Long firstRequestId,
+            Long secondRequestId
+    ) throws Exception {
+        CountDownLatch firstPairLocked = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondPairAttempted = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            if (Thread.currentThread().getName()
+                    .equals("second-explicit-accept")) {
+                secondPairAttempted.countDown();
+            }
+            Object context = invocation.callRealMethod();
+            if (Thread.currentThread().getName()
+                    .equals("first-explicit-accept")) {
+                firstPairLocked.countDown();
+                await(releaseFirst);
+            }
+            return context;
+        }).when(lockServiceSpyTarget())
+                .lockInteractionPair(anyLong(), anyLong());
+
+        Future<ActionOutcome> firstFuture = executor.submit(() -> {
+            Thread.currentThread().setName("first-explicit-accept");
+            return accept(userA, firstRequestId);
+        });
+        assertThat(firstPairLocked.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<ActionOutcome> secondFuture = executor.submit(() -> {
+            Thread.currentThread().setName("second-explicit-accept");
+            return accept(userA, secondRequestId);
+        });
+        try {
+            assertThat(secondPairAttempted.await(10, TimeUnit.SECONDS))
+                    .isTrue();
+            assertThatThrownBy(() ->
+                    secondFuture.get(300, TimeUnit.MILLISECONDS)
+            ).isInstanceOf(TimeoutException.class);
+        } finally {
+            releaseFirst.countDown();
+        }
+        return List.of(
+                firstFuture.get(20, TimeUnit.SECONDS),
+                secondFuture.get(20, TimeUnit.SECONDS)
+        );
+    }
+
     private CommandOutcome invoke(Long userId, Long targetPetId) {
         try {
             FriendRequestCommandResult result =
@@ -187,6 +413,33 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
                     false,
                     exception.getErrorCode()
             );
+        }
+    }
+
+    private ActionOutcome accept(Long userId, Long requestId) {
+        try {
+            commandService.accept(userId, requestId);
+            return new ActionOutcome(true, null);
+        } catch (BusinessException exception) {
+            return new ActionOutcome(false, exception.getErrorCode());
+        }
+    }
+
+    private ActionOutcome reject(Long userId, Long requestId) {
+        try {
+            commandService.reject(userId, requestId);
+            return new ActionOutcome(true, null);
+        } catch (BusinessException exception) {
+            return new ActionOutcome(false, exception.getErrorCode());
+        }
+    }
+
+    private ActionOutcome cancel(Long userId, Long requestId) {
+        try {
+            commandService.cancel(userId, requestId);
+            return new ActionOutcome(true, null);
+        } catch (BusinessException exception) {
+            return new ActionOutcome(false, exception.getErrorCode());
         }
     }
 
@@ -237,12 +490,14 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
         );
     }
 
-    private void insertPending(Long requesterPetId, Long targetPetId) {
-        jdbcTemplate.update("""
+    private Long insertPending(Long requesterPetId, Long targetPetId) {
+        return jdbcTemplate.queryForObject("""
                 INSERT INTO friend_requests (
                     requester_pet_id, target_pet_id, status, expires_at
                 ) VALUES (?, ?, 'PENDING', ?)
+                RETURNING id
                 """,
+                Long.class,
                 requesterPetId,
                 targetPetId,
                 Instant.now().plusSeconds(3600).atOffset(ZoneOffset.UTC)
@@ -304,6 +559,12 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
         }
     }
 
+    private InteractionPairLockService lockServiceSpyTarget() {
+        return AopTestUtils.getUltimateTargetObject(
+                interactionPairLockService
+        );
+    }
+
     private String unique() {
         return UUID.randomUUID().toString().replace("-", "");
     }
@@ -311,6 +572,12 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
     private record CommandOutcome(
             boolean created,
             boolean accepted,
+            ErrorCode errorCode
+    ) {
+    }
+
+    private record ActionOutcome(
+            boolean succeeded,
             ErrorCode errorCode
     ) {
     }

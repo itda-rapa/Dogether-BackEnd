@@ -1,7 +1,9 @@
 package itda.friend.controller;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -91,6 +93,10 @@ class FriendRequestControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("ACCEPTED"))
                 .andExpect(jsonPath("$.data.respondedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.requesterPet.relationship")
+                        .value("FRIEND"))
+                .andExpect(jsonPath("$.data.targetPet.relationship")
+                        .value("NONE"))
                 .andExpect(jsonPath("$.data.directRoomId").value(99));
     }
 
@@ -136,42 +142,128 @@ class FriendRequestControllerTest {
                         .value("FRIENDSHIP_ALREADY_EXISTS"));
     }
 
+    @Test
+    void acceptsRequestWithOkResponse() throws Exception {
+        given(commandService.accept(USER_ID, 1L))
+                .willReturn(response(true, 99L));
+
+        mockMvc.perform(post("/friend-requests/1/accept"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ACCEPTED"))
+                .andExpect(jsonPath("$.data.requesterPet.relationship")
+                        .value("FRIEND"))
+                .andExpect(jsonPath("$.data.targetPet.relationship")
+                        .value("NONE"))
+                .andExpect(jsonPath("$.data.directRoomId").value(99));
+    }
+
+    @Test
+    void rejectsRequestWithOkResponse() throws Exception {
+        FriendRequestResponse rejected = new FriendRequestResponse(
+                1L,
+                pet(10L, FriendRelationship.NONE),
+                pet(TARGET_PET_ID, FriendRelationship.NONE),
+                FriendRequestStatus.REJECTED,
+                Instant.parse("2026-07-30T00:00:00Z"),
+                Instant.parse("2026-07-30T00:01:00Z"),
+                Instant.parse("2026-08-06T00:00:00Z"),
+                null
+        );
+        given(commandService.reject(USER_ID, 1L)).willReturn(rejected);
+
+        mockMvc.perform(post("/friend-requests/1/reject"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("REJECTED"))
+                .andExpect(jsonPath("$.data.requesterPet.relationship")
+                        .value("NONE"))
+                .andExpect(jsonPath("$.data.targetPet.relationship")
+                        .value("NONE"))
+                .andExpect(jsonPath("$.data.directRoomId").isEmpty());
+    }
+
+    @Test
+    void cancelsRequestWithoutResponseBody() throws Exception {
+        mockMvc.perform(delete("/friend-requests/1"))
+                .andExpect(status().isNoContent())
+                .andExpect(jsonPath("$").doesNotExist());
+
+        verify(commandService).cancel(USER_ID, 1L);
+    }
+
+    @Test
+    void hidesUnknownRequestAsNotFound() throws Exception {
+        given(commandService.accept(USER_ID, 404L))
+                .willThrow(new BusinessException(
+                        ErrorCode.FRIEND_REQUEST_NOT_FOUND
+                ));
+
+        mockMvc.perform(post("/friend-requests/404/accept"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code")
+                        .value("FRIEND_REQUEST_NOT_FOUND"));
+    }
+
+    @Test
+    void returnsBadRequestForSameOwnerAccept() throws Exception {
+        given(commandService.accept(USER_ID, 1L))
+                .willThrow(new BusinessException(
+                        ErrorCode.SAME_OWNER_INTERACTION_FORBIDDEN
+                ));
+
+        mockMvc.perform(post("/friend-requests/1/accept"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("SAME_OWNER_INTERACTION_FORBIDDEN"));
+    }
+
     private FriendRequestCommandResult result(
             Outcome outcome,
             Long roomId
     ) {
         boolean accepted = outcome == Outcome.AUTO_ACCEPTED;
-        Instant requestedAt = Instant.parse("2026-07-30T00:00:00Z");
         return new FriendRequestCommandResult(
-                new FriendRequestResponse(
-                        1L,
-                        new FriendRequestPetResponse(
-                                10L,
-                                "source#TAG1",
-                                "source",
-                                null,
-                                true,
-                                FriendRelationship.NONE
-                        ),
-                        new FriendRequestPetResponse(
-                                TARGET_PET_ID,
-                                "target#TAG2",
-                                "target",
-                                null,
-                                true,
-                                accepted
-                                        ? FriendRelationship.FRIEND
-                                        : FriendRelationship.REQUEST_SENT
-                        ),
-                        accepted
-                                ? FriendRequestStatus.ACCEPTED
-                                : FriendRequestStatus.PENDING,
-                        requestedAt,
-                        accepted ? requestedAt.plusSeconds(60) : null,
-                        requestedAt.plusSeconds(7 * 24 * 60 * 60),
-                        roomId
-                ),
+                response(accepted, roomId),
                 outcome
+        );
+    }
+
+    private FriendRequestResponse response(boolean accepted, Long roomId) {
+        Instant requestedAt = Instant.parse("2026-07-30T00:00:00Z");
+        return new FriendRequestResponse(
+                1L,
+                pet(
+                        10L,
+                        accepted
+                                ? FriendRelationship.FRIEND
+                                : FriendRelationship.NONE
+                ),
+                pet(
+                        TARGET_PET_ID,
+                        accepted
+                                ? FriendRelationship.NONE
+                                : FriendRelationship.REQUEST_SENT
+                ),
+                accepted
+                        ? FriendRequestStatus.ACCEPTED
+                        : FriendRequestStatus.PENDING,
+                requestedAt,
+                accepted ? requestedAt.plusSeconds(60) : null,
+                requestedAt.plusSeconds(7 * 24 * 60 * 60),
+                roomId
+        );
+    }
+
+    private FriendRequestPetResponse pet(
+            Long petId,
+            FriendRelationship relationship
+    ) {
+        return new FriendRequestPetResponse(
+                petId,
+                "pet#TAG1",
+                "pet",
+                null,
+                true,
+                relationship
         );
     }
 }

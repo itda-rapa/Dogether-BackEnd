@@ -1392,6 +1392,10 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `acceptFriendRequest`
 - 인증: Bearer Token 필요
+- 설명: 현재 Active Pet이 수신 Pet인 PENDING 요청만 수락한다. 양방향 Block,
+  양쪽 Pet의 친구 수와 기존 Friendship을 재검증하며 Friendship과 DIRECT 방을
+  같은 트랜잭션에서 보장한다. 권한이 없는 requestId는 존재를 숨겨 404로
+  응답한다. `expiresAt <= now`이면 EXPIRED 전이를 먼저 커밋하고 409를 반환한다.
 
 **파라미터**
 
@@ -1418,25 +1422,25 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
   "data": {
     "requestId": 1,
     "requesterPet": {
-      "petId": 1,
+      "petId": 11,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
       "profileUrl": null,
       "verified": true,
-      "relationship": "NONE"
+      "relationship": "FRIEND"
     },
     "targetPet": {
-      "petId": 1,
-      "publicTag": "몽이#A7K2",
-      "nickname": "몽이",
+      "petId": 22,
+      "publicTag": "초코#B8L3",
+      "nickname": "초코",
       "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
     "status": "ACCEPTED",
     "requestedAt": "2026-07-24T09:00:00Z",
-    "respondedAt": "2026-07-24T09:00:00Z",
-    "expiresAt": "2026-07-24T09:00:00Z",
+    "respondedAt": "2026-07-24T09:10:00Z",
+    "expiresAt": "2026-07-31T09:00:00Z",
     "directRoomId": 1
   },
   "error": null
@@ -1447,17 +1451,23 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | HTTP | 대표 ErrorCode |
 |---:|---|
+| `400` | `SAME_OWNER_INTERACTION_FORBIDDEN` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
-| `409` | `FRIEND_REQUEST_NOT_PENDING` |
+| `403` | `ACTIVE_PET_REQUIRED`, `PET_NOT_ACTIVE`, `BLOCKED_USER` |
+| `404` | `FRIEND_REQUEST_NOT_FOUND`, `PET_NOT_FOUND` |
+| `409` | `FRIEND_REQUEST_NOT_PENDING`, `FRIENDSHIP_ALREADY_EXISTS`, `FRIEND_LIMIT_EXCEEDED`, `CONCURRENT_UPDATE_CONFLICT` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
+같은 User가 소유한 Pet pair의 요청을 수락하려 하면 `400
+SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 #### `POST /friend-requests/{requestId}/reject`
 
 - operationId: `rejectFriendRequest`
 - 인증: Bearer Token 필요
+- 설명: 현재 Active Pet이 수신 Pet인 PENDING 요청을 REJECTED로 전이한다.
+  Block·친구 수·Friendship·Chat은 조회하지 않는다. 권한이 없는 requestId는
+  404로 숨기며, `expiresAt <= now`이면 EXPIRED 전이를 커밋하고 409를 반환한다.
 
 **파라미터**
 
@@ -1484,7 +1494,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
   "data": {
     "requestId": 1,
     "requesterPet": {
-      "petId": 1,
+      "petId": 11,
       "publicTag": "몽이#A7K2",
       "nickname": "몽이",
       "profileUrl": null,
@@ -1492,18 +1502,18 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "relationship": "NONE"
     },
     "targetPet": {
-      "petId": 1,
-      "publicTag": "몽이#A7K2",
-      "nickname": "몽이",
+      "petId": 22,
+      "publicTag": "초코#B8L3",
+      "nickname": "초코",
       "profileUrl": null,
       "verified": true,
       "relationship": "NONE"
     },
     "status": "REJECTED",
     "requestedAt": "2026-07-24T09:00:00Z",
-    "respondedAt": "2026-07-24T09:00:00Z",
-    "expiresAt": "2026-07-24T09:00:00Z",
-    "directRoomId": 1
+    "respondedAt": "2026-07-24T09:10:00Z",
+    "expiresAt": "2026-07-31T09:00:00Z",
+    "directRoomId": null
   },
   "error": null
 }
@@ -1514,8 +1524,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `FRIEND_REQUEST_NOT_FOUND` |
 | `409` | `FRIEND_REQUEST_NOT_PENDING` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
@@ -1524,6 +1534,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `cancelFriendRequest`
 - 인증: Bearer Token 필요
+- 설명: 현재 Active Pet이 발신 Pet인 PENDING 요청을 CANCELED로 전이한다.
+  성공 시 응답 Body가 없는 204를 반환한다. Block·친구 수·Friendship·Chat·Pet
+  표시 정보는 조회하지 않는다. 권한이 없는 requestId는 404로 숨긴다.
 
 **파라미터**
 
@@ -1535,7 +1548,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
-| `204` | 취소 완료 | object |
+| `204` | 취소 완료, 응답 Body 없음 | 없음 |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
@@ -1546,8 +1559,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `ACTIVE_PET_REQUIRED` |
+| `404` | `FRIEND_REQUEST_NOT_FOUND` |
 | `409` | `FRIEND_REQUEST_NOT_PENDING` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.

@@ -637,9 +637,17 @@ paths:
       tags: [Friend]
       summary: 친구 요청 수락
       operationId: acceptFriendRequest
+      description: |
+        현재 Active Pet이 수신 Pet인 PENDING 요청만 수락한다. 요청자·수신자
+        상태와 양방향 Block을 재검증하고 Friendship과 DIRECT 방을 같은
+        트랜잭션에서 생성 또는 재사용한다. expiresAt <= now이면 요청을
+        EXPIRED로 반영한 뒤 409를 반환한다. 권한이 없는 requestId는 404로
+        존재를 숨긴다.
       parameters:
         - $ref: '#/components/parameters/FriendRequestId'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '200':
@@ -660,6 +668,11 @@ paths:
       tags: [Friend]
       summary: 친구 요청 거절
       operationId: rejectFriendRequest
+      description: |
+        현재 Active Pet이 수신 Pet인 PENDING 요청을 REJECTED로 전이한다.
+        관계 종료 작업이므로 Block·친구 수·Friendship·Chat을 조회하지 않는다.
+        expiresAt <= now이면 EXPIRED로 반영한 뒤 409를 반환한다. 권한이 없는
+        requestId는 404로 존재를 숨긴다.
       parameters:
         - $ref: '#/components/parameters/FriendRequestId'
       responses:
@@ -683,6 +696,11 @@ paths:
       tags: [Friend]
       summary: 보낸 친구 요청 취소
       operationId: cancelFriendRequest
+      description: |
+        현재 Active Pet이 발신 Pet인 PENDING 요청을 CANCELED로 전이한다.
+        관계 종료 작업이므로 Block·친구 수·Friendship·Chat·Pet 표시 정보를
+        조회하지 않는다. expiresAt <= now이면 EXPIRED로 반영한 뒤 409를
+        반환한다. 권한이 없는 requestId는 404로 존재를 숨긴다.
       parameters:
         - $ref: '#/components/parameters/FriendRequestId'
       responses:
