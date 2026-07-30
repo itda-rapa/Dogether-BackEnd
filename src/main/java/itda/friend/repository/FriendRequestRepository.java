@@ -4,12 +4,27 @@ import itda.friend.domain.FriendRequest;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface FriendRequestRepository extends JpaRepository<FriendRequest, Long> {
+
+    @Query(value = """
+            SELECT request.*
+            FROM friend_requests request
+            WHERE request.pair_low_id = :petLowId
+              AND request.pair_high_id = :petHighId
+              AND request.status = 'PENDING'
+            ORDER BY request.id ASC
+            FOR UPDATE
+            """, nativeQuery = true)
+    Optional<FriendRequest> findPendingPairForUpdate(
+            @Param("petLowId") Long petLowId,
+            @Param("petHighId") Long petHighId
+    );
 
     @Query(value = """
             SELECT

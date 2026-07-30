@@ -10,6 +10,30 @@ import org.springframework.data.repository.query.Param;
 
 public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 
+    boolean existsByPetLowIdAndPetHighId(
+            Long petLowId,
+            Long petHighId
+    );
+
+    @Query(value = """
+            SELECT
+                relationship.pet_id AS petId,
+                COUNT(*) AS friendCount
+            FROM (
+                SELECT friendship.pet_low_id AS pet_id
+                FROM friendships friendship
+                WHERE friendship.pet_low_id IN (:petIds)
+                UNION ALL
+                SELECT friendship.pet_high_id AS pet_id
+                FROM friendships friendship
+                WHERE friendship.pet_high_id IN (:petIds)
+            ) relationship
+            GROUP BY relationship.pet_id
+            """, nativeQuery = true)
+    List<FriendshipCountRow> countRelationshipsByPetIds(
+            @Param("petIds") Collection<Long> petIds
+    );
+
     @Query(value = """
             SELECT
                 friendship.pet_low_id AS petLowId,
@@ -52,5 +76,12 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
         Long getPetLowId();
 
         Long getPetHighId();
+    }
+
+    interface FriendshipCountRow {
+
+        Long getPetId();
+
+        Long getFriendCount();
     }
 }

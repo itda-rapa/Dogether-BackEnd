@@ -3,6 +3,7 @@ package itda.friend.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import itda.friend.repository.FriendRequestRepository.PendingFriendRequestRelationshipRow;
+import itda.friend.repository.FriendshipRepository.FriendshipCountRow;
 import itda.friend.repository.FriendshipRepository.FriendshipRelationshipRow;
 import itda.friend.service.FriendBlockCleanupService;
 import java.time.Instant;
@@ -19,6 +20,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -52,6 +55,9 @@ class FriendRepositoryPostgreSqlIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void cleanDatabase() {
@@ -172,6 +178,60 @@ class FriendRepositoryPostgreSqlIntegrationTest {
         );
         assertThat(status(equalExpiryRequestId)).isEqualTo("PENDING");
         assertThat(status(expiredRequestId)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void locksPendingPairRegardlessOfDirectionAndExpiry() {
+        Long ownerId = createUser();
+        Long firstPetId = createPet(ownerId);
+        Long secondPetId = createPet(ownerId);
+        Long requestId = insertFriendRequest(
+                secondPetId,
+                firstPetId,
+                "PENDING",
+                NOW.minusSeconds(1)
+        );
+
+        var locked = new TransactionTemplate(transactionManager).execute(
+                status -> friendRequestRepository.findPendingPairForUpdate(
+                        Math.min(firstPetId, secondPetId),
+                        Math.max(firstPetId, secondPetId)
+                )
+        );
+
+        assertThat(locked).isPresent();
+        assertThat(locked.orElseThrow().getId()).isEqualTo(requestId);
+        assertThat(locked.orElseThrow().getRequesterPetId())
+                .isEqualTo(secondPetId);
+        assertThat(locked.orElseThrow().getTargetPetId())
+                .isEqualTo(firstPetId);
+    }
+
+    @Test
+    void countsBothFriendshipDirectionsInOneProjectionQuery() {
+        Long ownerId = createUser();
+        Long firstPetId = createPet(ownerId);
+        Long secondPetId = createPet(ownerId);
+        Long counterpartOne = createPet(ownerId);
+        Long counterpartTwo = createPet(ownerId);
+        insertFriendship(firstPetId, counterpartOne);
+        insertFriendship(counterpartTwo, firstPetId);
+        insertFriendship(secondPetId, counterpartOne);
+
+        List<FriendshipCountRow> rows =
+                friendshipRepository.countRelationshipsByPetIds(
+                        List.of(firstPetId, secondPetId)
+                );
+
+        assertThat(rows)
+                .extracting(
+                        FriendshipCountRow::getPetId,
+                        FriendshipCountRow::getFriendCount
+                )
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(firstPetId, 2L),
+                        org.assertj.core.groups.Tuple.tuple(secondPetId, 1L)
+                );
     }
 
     @Test
