@@ -6,43 +6,73 @@ import itda.user.domain.Role;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import itda.user.service.PublicTagGenerator;
-import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.RequestMapping;
 
-@Configuration
-@RequiredArgsConstructor
-public class AdminBootstrapRunner {
+@Component
+public class AdminBootstrapRunner implements ApplicationRunner {
 
+    private final AdminBootstrapProperties properties;
     private final UserRepository userRepository;
+    private final NeighborhoodRepository neighborhoodRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PublicTagGenerator publicTagGenerator;
 
-    @Bean
+    public AdminBootstrapRunner(
+            AdminBootstrapProperties properties,
+            UserRepository userRepository,
+            NeighborhoodRepository neighborhoodRepository,
+            PasswordEncoder passwordEncoder,
+            PublicTagGenerator publicTagGenerator
+    ) {
+        this.properties = properties;
+        this.userRepository = userRepository;
+        this.neighborhoodRepository = neighborhoodRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.publicTagGenerator = publicTagGenerator;
+    }
+
+    @Override
     @Transactional
-    CommandLineRunner init(UserRepository userRepository) {
-        return args -> {
-            if (userRepository.count() < 1) { // 중복 방지
+    public void run(ApplicationArguments arguments) {
+        if (!properties.enabled()) {
+            return;
+        }
+        validateRequiredProperties();
+        if (userRepository.findByEmailIgnoreCase(properties.email()).isPresent()) {
+            return;
+        }
+        if (!neighborhoodRepository.existsByCodeAndActiveTrue(
+                properties.neighborhoodCode()
+        )) {
+            throw new IllegalStateException(
+                    "Initial admin neighborhood does not exist or is inactive"
+            );
+        }
 
-                userRepository.save(
-                        User.register(
-                                "nodongdong@naver.com",
-                                passwordEncoder.encode("12345678910"),
-                                "노동동",
-                                "태그",
-                                "4234122132"
-                        )
-                );
+        User admin = User.register(
+                properties.email(),
+                passwordEncoder.encode(properties.password()),
+                properties.nickname(),
+                publicTagGenerator.generate(properties.nickname()),
+                properties.neighborhoodCode()
+        );
+        admin.changeRole(Role.SUPER_ADMIN);
+        userRepository.save(admin);
+    }
 
-            }
-        };
+    private void validateRequiredProperties() {
+        if (!StringUtils.hasText(properties.email())
+                || !StringUtils.hasText(properties.password())
+                || !StringUtils.hasText(properties.nickname())
+                || !StringUtils.hasText(properties.neighborhoodCode())) {
+            throw new IllegalStateException(
+                    "Initial admin is enabled but required environment values are missing"
+            );
+        }
     }
 }

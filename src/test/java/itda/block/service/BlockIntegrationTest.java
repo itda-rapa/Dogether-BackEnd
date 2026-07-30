@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
@@ -166,6 +167,104 @@ class BlockIntegrationTest {
                     .isInstanceOf(BusinessException.class)
                     .extracting("errorCode")
                     .isEqualTo(ErrorCode.PET_NOT_FOUND);
+        }
+
+        @Test
+        @DisplayName("allows blocking a suspended target user")
+        void allowsSuspendedTargetUser() {
+            jdbcTemplate.update(
+                    "UPDATE users SET account_status = 'SUSPENDED' WHERE id = ?",
+                    userIdB
+            );
+
+            BlockResult result =
+                    blockService.block(userIdA, new BlockCreateRequest(petIdB1));
+
+            assertThat(result.created()).isTrue();
+            assertThat(result.block().blockedUserId()).isEqualTo(userIdB);
+        }
+
+        @Test
+        @DisplayName("allows blocking a suspended target pet")
+        void allowsSuspendedTargetPet() {
+            jdbcTemplate.update(
+                    "UPDATE pets SET status = 'SUSPENDED' WHERE id = ?",
+                    petIdB1
+            );
+
+            BlockResult result =
+                    blockService.block(userIdA, new BlockCreateRequest(petIdB1));
+
+            assertThat(result.created()).isTrue();
+            assertThat(result.block().blockedUserId()).isEqualTo(userIdB);
+        }
+
+        @Test
+        @DisplayName("allows blocking a soft-deleted target pet")
+        void allowsSoftDeletedTargetPet() {
+            jdbcTemplate.update(
+                    """
+                    UPDATE pets
+                    SET status = 'DELETED', deleted_at = now()
+                    WHERE id = ?
+                    """,
+                    petIdB1
+            );
+
+            BlockResult result =
+                    blockService.block(userIdA, new BlockCreateRequest(petIdB1));
+
+            assertThat(result.created()).isTrue();
+            assertThat(result.block().blockedUserId()).isEqualTo(userIdB);
+        }
+
+        @Test
+        @DisplayName("rolls back block insert when friend cleanup fails")
+        void rollsBackBlockWhenCleanupFails() {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO friendships (pet_low_id, pet_high_id)
+                    VALUES (?, ?)
+                    """,
+                    Math.min(petIdA1, petIdB1),
+                    Math.max(petIdA1, petIdB1)
+            );
+            jdbcTemplate.execute("""
+                    CREATE FUNCTION fail_friendship_delete()
+                    RETURNS trigger
+                    LANGUAGE plpgsql
+                    AS $$
+                    BEGIN
+                        RAISE EXCEPTION 'forced cleanup failure';
+                    END;
+                    $$
+                    """);
+            jdbcTemplate.execute("""
+                    CREATE TRIGGER trg_fail_friendship_delete
+                    BEFORE DELETE ON friendships
+                    FOR EACH ROW
+                    EXECUTE FUNCTION fail_friendship_delete()
+                    """);
+
+            try {
+                assertThatThrownBy(() ->
+                        blockService.block(userIdA, new BlockCreateRequest(petIdB1))
+                ).isInstanceOf(DataAccessException.class);
+
+                assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM user_blocks",
+                        Integer.class
+                )).isZero();
+                assertThat(jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM friendships",
+                        Integer.class
+                )).isEqualTo(1);
+            } finally {
+                jdbcTemplate.execute(
+                        "DROP TRIGGER IF EXISTS trg_fail_friendship_delete ON friendships"
+                );
+                jdbcTemplate.execute("DROP FUNCTION IF EXISTS fail_friendship_delete()");
+            }
         }
     }
 

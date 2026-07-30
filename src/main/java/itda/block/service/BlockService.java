@@ -11,15 +11,20 @@ import itda.chat.dto.response.CursorPage;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.friend.service.FriendBlockCleanupService;
-import itda.pet.domain.Pet;
-import itda.pet.repository.PetRepository;
+import itda.interaction.dto.InteractionPairContext;
+import itda.interaction.dto.LockedPetContext;
+import itda.interaction.dto.LockedUserContext;
+import itda.interaction.service.InteractionPairLockService;
+import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,21 +37,21 @@ public class BlockService {
 
     private final UserBlockRepository userBlockRepository;
     private final UserRepository userRepository;
-    private final PetRepository petRepository;
     private final ActivePetQueryService activePetQueryService;
+    private final InteractionPairLockService interactionPairLockService;
     private final FriendBlockCleanupService friendBlockCleanupService;
 
     public BlockService(
             UserBlockRepository userBlockRepository,
             UserRepository userRepository,
-            PetRepository petRepository,
             ActivePetQueryService activePetQueryService,
+            InteractionPairLockService interactionPairLockService,
             FriendBlockCleanupService friendBlockCleanupService
     ) {
         this.userBlockRepository = userBlockRepository;
         this.userRepository = userRepository;
-        this.petRepository = petRepository;
         this.activePetQueryService = activePetQueryService;
+        this.interactionPairLockService = interactionPairLockService;
         this.friendBlockCleanupService = friendBlockCleanupService;
     }
 
@@ -61,39 +66,55 @@ public class BlockService {
      */
     @Transactional
     public BlockResult block(Long userId, BlockCreateRequest request) {
-        // validate caller's active pet
         ActivePetContext callerPet = activePetQueryService.requireActivePet(userId);
+        InteractionPairContext pair = interactionPairLockService.lockInteractionPair(
+                callerPet.petId(),
+                request.targetPetId()
+        );
 
-        // resolve target pet and owner
-        Pet targetPet = petRepository.findById(request.targetPetId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.PET_NOT_FOUND));
+        validateSourceState(userId, callerPet, pair);
 
-        Long targetOwnerId = targetPet.getOwner().getId();
-        String targetOwnerPublicTag = targetPet.getOwner().getPublicTag();
-
-        if (callerPet.ownerUserId().equals(targetOwnerId)) {
+        Long targetOwnerId = pair.targetUser().userId();
+        if (pair.sourcePet().ownerUserId().equals(targetOwnerId)) {
             throw new BusinessException(ErrorCode.SAME_OWNER_INTERACTION_FORBIDDEN);
         }
 
         int inserted = userBlockRepository.insertOnConflict(
-                callerPet.ownerUserId(),
+                pair.sourceUser().userId(),
                 targetOwnerId,
-                callerPet.petId(),
-                targetPet.getId()
+                pair.sourcePet().petId(),
+                pair.targetPet().petId()
         );
         UserBlock stored = userBlockRepository
-                .findByBlockerUserIdAndBlockedUserId(callerPet.ownerUserId(), targetOwnerId)
+                .findByBlockerUserIdAndBlockedUserId(pair.sourceUser().userId(), targetOwnerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR));
+        BlockResponse response = toBlockResponse(stored, pair.targetUser().publicTag());
 
         friendBlockCleanupService.cleanupBetweenUsers(
-                callerPet.ownerUserId(),
+                pair.sourceUser().userId(),
                 targetOwnerId
         );
 
-        return new BlockResult(
-                toBlockResponse(stored, targetOwnerPublicTag),
-                inserted == 1
-        );
+        return new BlockResult(response, inserted == 1);
+    }
+
+    private void validateSourceState(
+            Long userId,
+            ActivePetContext callerPet,
+            InteractionPairContext pair
+    ) {
+        LockedUserContext sourceUser = pair.sourceUser();
+        LockedPetContext sourcePet = pair.sourcePet();
+        if (!Objects.equals(userId, sourceUser.userId())
+                || !Objects.equals(callerPet.ownerUserId(), sourceUser.userId())) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+        if (sourceUser.accountStatus() != AccountStatus.ACTIVE
+                || !Objects.equals(sourceUser.activePetId(), callerPet.petId())
+                || sourcePet.status() != PetStatus.ACTIVE
+                || sourcePet.deletedAt() != null) {
+            throw new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
+        }
     }
 
     /**
