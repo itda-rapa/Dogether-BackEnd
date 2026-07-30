@@ -13,6 +13,29 @@ import org.springframework.data.repository.query.Param;
 public interface FriendRequestRepository extends JpaRepository<FriendRequest, Long> {
 
     @Query(value = """
+            SELECT
+                request.id AS requestId,
+                request.requester_pet_id AS requesterPetId,
+                request.target_pet_id AS targetPetId
+            FROM friend_requests request
+            WHERE request.id = :requestId
+            """, nativeQuery = true)
+    Optional<FriendRequestPairRow> findPairById(
+            @Param("requestId") Long requestId
+    );
+
+    @Query(value = """
+            SELECT request.*
+            FROM friend_requests request
+            WHERE request.id = :requestId
+            ORDER BY request.id ASC
+            FOR UPDATE
+            """, nativeQuery = true)
+    Optional<FriendRequest> findByIdForUpdate(
+            @Param("requestId") Long requestId
+    );
+
+    @Query(value = """
             SELECT request.*
             FROM friend_requests request
             WHERE request.pair_low_id = :petLowId
@@ -76,6 +99,15 @@ public interface FriendRequestRepository extends JpaRepository<FriendRequest, Lo
     );
 
     interface PendingFriendRequestRelationshipRow {
+
+        Long getRequesterPetId();
+
+        Long getTargetPetId();
+    }
+
+    interface FriendRequestPairRow {
+
+        Long getRequestId();
 
         Long getRequesterPetId();
 

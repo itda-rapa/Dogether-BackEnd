@@ -2,15 +2,22 @@ package itda.friend.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import itda.friend.repository.FriendRequestRepository.FriendRequestPairRow;
 import itda.friend.repository.FriendRequestRepository.PendingFriendRequestRelationshipRow;
 import itda.friend.repository.FriendshipRepository.FriendshipCountRow;
 import itda.friend.repository.FriendshipRepository.FriendshipRelationshipRow;
 import itda.friend.service.FriendBlockCleanupService;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -208,6 +215,129 @@ class FriendRepositoryPostgreSqlIntegrationTest {
     }
 
     @Test
+    void pairProjectionDoesNotWaitForRequestRowLock() throws Exception {
+        Long ownerId = createUser();
+        Long requesterPetId = createPet(ownerId);
+        Long targetPetId = createPet(ownerId);
+        Long requestId = insertFriendRequest(
+                requesterPetId,
+                targetPetId,
+                "PENDING",
+                NOW.plusSeconds(60)
+        );
+        TransactionTemplate transaction =
+                new TransactionTemplate(transactionManager);
+        CountDownLatch ownerLocked = new CountDownLatch(1);
+        CountDownLatch releaseOwner = new CountDownLatch(1);
+        CountDownLatch projectionCompleted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> owner = executor.submit(() -> transaction.executeWithoutResult(
+                    status -> {
+                        assertThat(friendRequestRepository.findByIdForUpdate(
+                                requestId
+                        )).isPresent();
+                        ownerLocked.countDown();
+                        await(releaseOwner);
+                    }
+            ));
+            assertThat(ownerLocked.await(10, TimeUnit.SECONDS)).isTrue();
+
+            Future<FriendRequestPairRow> projection = executor.submit(() ->
+                    transaction.execute(status -> {
+                        FriendRequestPairRow row = friendRequestRepository
+                                .findPairById(requestId)
+                                .orElseThrow();
+                        projectionCompleted.countDown();
+                        return row;
+                    })
+            );
+
+            assertThat(projectionCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(releaseOwner.getCount()).isEqualTo(1);
+            FriendRequestPairRow row =
+                    projection.get(10, TimeUnit.SECONDS);
+            assertThat(row.getRequestId()).isEqualTo(requestId);
+            assertThat(row.getRequesterPetId()).isEqualTo(requesterPetId);
+            assertThat(row.getTargetPetId()).isEqualTo(targetPetId);
+
+            releaseOwner.countDown();
+            owner.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseOwner.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS))
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void requestIdForUpdateWaitsForExistingRowLock() throws Exception {
+        Long ownerId = createUser();
+        Long requesterPetId = createPet(ownerId);
+        Long targetPetId = createPet(ownerId);
+        Long requestId = insertFriendRequest(
+                requesterPetId,
+                targetPetId,
+                "PENDING",
+                NOW.plusSeconds(60)
+        );
+        TransactionTemplate transaction =
+                new TransactionTemplate(transactionManager);
+        CountDownLatch ownerLocked = new CountDownLatch(1);
+        CountDownLatch releaseOwner = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+
+        try {
+            Future<?> owner = executor.submit(() -> transaction.executeWithoutResult(
+                    status -> {
+                        assertThat(friendRequestRepository.findByIdForUpdate(
+                                requestId
+                        )).isPresent();
+                        ownerLocked.countDown();
+                        await(releaseOwner);
+                    }
+            ));
+            assertThat(ownerLocked.await(10, TimeUnit.SECONDS)).isTrue();
+
+            Future<Throwable> competitor = executor.submit(() -> {
+                try {
+                    transaction.executeWithoutResult(status -> {
+                        jdbcTemplate.execute(
+                                "SET LOCAL lock_timeout = '500ms'"
+                        );
+                        friendRequestRepository.findByIdForUpdate(requestId);
+                    });
+                    return null;
+                } catch (Throwable failure) {
+                    return failure;
+                }
+            });
+
+            Throwable failure = competitor.get(10, TimeUnit.SECONDS);
+            SQLException postgresFailure = findPostgresFailure(failure);
+            assertThat(postgresFailure.getClass().getName())
+                    .isEqualTo("org.postgresql.util.PSQLException");
+            assertThat(postgresFailure.getSQLState()).isEqualTo("55P03");
+
+            releaseOwner.countDown();
+            owner.get(10, TimeUnit.SECONDS);
+
+            Boolean lockedAfterRelease = transaction.execute(status ->
+                    friendRequestRepository.findByIdForUpdate(requestId)
+                            .isPresent()
+            );
+            assertThat(lockedAfterRelease).isTrue();
+        } finally {
+            releaseOwner.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS))
+                    .isTrue();
+        }
+    }
+
+    @Test
     void countsBothFriendshipDirectionsInOneProjectionQuery() {
         Long ownerId = createUser();
         Long firstPetId = createPet(ownerId);
@@ -348,5 +478,32 @@ class FriendRepositoryPostgreSqlIntegrationTest {
 
     private String unique() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private SQLException findPostgresFailure(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof SQLException sqlException
+                    && current.getClass().getName()
+                            .equals("org.postgresql.util.PSQLException")) {
+                return sqlException;
+            }
+            current = current.getCause();
+        }
+        throw new AssertionError(
+                "Expected PostgreSQL PSQLException in cause chain",
+                failure
+        );
+    }
+
+    private void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for latch");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
     }
 }

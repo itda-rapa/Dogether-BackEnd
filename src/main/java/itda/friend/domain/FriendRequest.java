@@ -118,6 +118,24 @@ public class FriendRequest extends BaseEntity {
         this.status = FriendRequestStatus.ACCEPTED;
     }
 
+    public void reject(Instant respondedAt) {
+        requirePending();
+        this.respondedAt = Objects.requireNonNull(
+                respondedAt,
+                "respondedAt must not be null"
+        );
+        this.status = FriendRequestStatus.REJECTED;
+    }
+
+    public void cancel(Instant respondedAt) {
+        requirePending();
+        this.respondedAt = Objects.requireNonNull(
+                respondedAt,
+                "respondedAt must not be null"
+        );
+        this.status = FriendRequestStatus.CANCELED;
+    }
+
     public void expire() {
         requirePending();
         this.status = FriendRequestStatus.EXPIRED;
