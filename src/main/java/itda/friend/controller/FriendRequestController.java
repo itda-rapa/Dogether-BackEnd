@@ -3,18 +3,22 @@ package itda.friend.controller;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.friend.dto.FriendRequestCreateRequest;
+import itda.friend.dto.response.FriendRequestListResponse;
 import itda.friend.dto.response.FriendRequestResponse;
 import itda.friend.service.FriendRequestCommandResult;
 import itda.friend.service.FriendRequestCommandService;
+import itda.friend.service.query.FriendRequestQueryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -23,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class FriendRequestController {
 
     private final FriendRequestCommandService commandService;
+    private final FriendRequestQueryService queryService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<FriendRequestResponse>> create(
@@ -84,5 +89,29 @@ public class FriendRequestController {
     ) {
         commandService.cancel(currentUser.id(), requestId);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/received")
+    public ResponseEntity<ApiResponse<FriendRequestListResponse>> listReceived(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                queryService.listReceived(currentUser.id(), cursor, limit),
+                "받은 친구 요청 목록이 조회되었습니다."
+        ));
+    }
+
+    @GetMapping("/sent")
+    public ResponseEntity<ApiResponse<FriendRequestListResponse>> listSent(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                queryService.listSent(currentUser.id(), cursor, limit),
+                "보낸 친구 요청 목록이 조회되었습니다."
+        ));
     }
 }
