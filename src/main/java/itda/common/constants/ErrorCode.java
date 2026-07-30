@@ -54,6 +54,8 @@ public enum ErrorCode {
     GREETING_SELF_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견에게 인사할 수 없습니다."),
     GREETING_REPLY_REQUIRED(HttpStatus.CONFLICT, "상대가 답변한 뒤 추가 메시지를 보낼 수 있습니다."),
     FRIEND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "친구는 반려견당 최대 50명까지 등록할 수 있습니다."),
+    FRIEND_REQUEST_ALREADY_PENDING(HttpStatus.CONFLICT, "이미 친구 요청을 보낸 상대입니다."),
+    FRIENDSHIP_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 친구 관계입니다."),
     FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
 
