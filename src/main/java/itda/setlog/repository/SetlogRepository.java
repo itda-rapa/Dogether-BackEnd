@@ -13,6 +13,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface SetlogRepository extends JpaRepository<Setlog, Long> {
 
+    boolean existsByMedia_Id(Long mediaId);
+
     @Query("""
             select setlog
               from Setlog setlog

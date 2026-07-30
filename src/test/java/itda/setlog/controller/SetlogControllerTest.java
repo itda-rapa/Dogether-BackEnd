@@ -18,8 +18,12 @@ import itda.greeting.dto.GreetingResponse;
 import itda.greeting.service.GreetingService;
 import itda.setlog.domain.ReactionType;
 import itda.setlog.dto.SetlogAuthorPetResponse;
+import itda.setlog.dto.SetlogCreateRequest;
+import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogReactionResponse;
 import itda.setlog.dto.SetlogResponse;
+import itda.setlog.domain.SetlogStatus;
+import itda.setlog.service.SetlogCreationService;
 import itda.setlog.service.SetlogQueryService;
 import itda.setlog.service.SetlogReactionService;
 import itda.user.domain.Role;
@@ -32,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -53,6 +58,9 @@ class SetlogControllerTest {
 
     @MockitoBean
     private SetlogReactionService setlogReactionService;
+
+    @MockitoBean
+    private SetlogCreationService setlogCreationService;
 
     @MockitoBean
     private GreetingService greetingService;
@@ -79,6 +87,62 @@ class SetlogControllerTest {
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
+    }
+
+    @Test
+    @DisplayName("POST /setlogs는 업로드된 영상으로 셋로그를 생성한다")
+    void createSetlogReturnsCreated() throws Exception {
+        Instant createdAt = Instant.parse("2026-07-30T01:00:00Z");
+        given(setlogCreationService.create(
+                USER_ID,
+                new SetlogCreateRequest(30L, "같이 놀아요")
+        )).willReturn(new SetlogCreateResponse(
+                SETLOG_ID,
+                20L,
+                30L,
+                "같이 놀아요",
+                SetlogStatus.VISIBLE,
+                createdAt
+        ));
+
+        mockMvc.perform(post("/setlogs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "mediaId": 30,
+                                  "caption": "같이 놀아요"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.setlogId")
+                        .value(SETLOG_ID))
+                .andExpect(jsonPath("$.data.authorPetId").value(20L))
+                .andExpect(jsonPath("$.data.mediaId").value(30L))
+                .andExpect(jsonPath("$.data.status")
+                        .value("VISIBLE"));
+
+        then(setlogCreationService).should().create(
+                USER_ID,
+                new SetlogCreateRequest(30L, "같이 놀아요")
+        );
+    }
+
+    @Test
+    @DisplayName("POST /setlogs는 mediaId가 없으면 400을 반환한다")
+    void createSetlogRejectsMissingMediaId() throws Exception {
+        mockMvc.perform(post("/setlogs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "caption": "같이 놀아요"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value(ErrorCode.VALIDATION_FAILED.name()));
+
+        then(setlogCreationService).shouldHaveNoInteractions();
     }
 
     @Test

@@ -52,6 +52,29 @@ public class Setlog extends BaseEntity {
     @Column(name = "is_seed", nullable = false)
     private boolean seed;
 
+    private Setlog(
+            Pet authorPet,
+            Media media,
+            String caption,
+            boolean seed
+    ) {
+        this.authorPet = authorPet;
+        this.media = media;
+        this.caption = caption;
+        this.status = SetlogStatus.VISIBLE;
+        this.cuteCount = 0;
+        this.likeCount = 0;
+        this.seed = seed;
+    }
+
+    public static Setlog createSeed(
+            Pet authorPet,
+            Media media,
+            String caption
+    ) {
+        return new Setlog(authorPet, media, caption, true);
+    }
+
     public void incrementReaction(ReactionType type) {
         switch (type) {
             case CUTE -> cuteCount++;

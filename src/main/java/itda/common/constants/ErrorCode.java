@@ -35,6 +35,7 @@ public enum ErrorCode {
     MEDIA_SIZE_INVALID(HttpStatus.UNPROCESSABLE_CONTENT, "허용된 미디어 크기를 초과했습니다."),
     MEDIA_STATE_CONFLICT(HttpStatus.CONFLICT, "현재 미디어 상태에서는 요청을 처리할 수 없습니다."),
     MEDIA_PURPOSE_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 마일스톤에서 해당 미디어를 업로드할 수 없습니다."),
+    SETLOG_MEDIA_ALREADY_USED(HttpStatus.CONFLICT, "이미 셋로그에 사용된 미디어입니다."),
 
     PET_REQUIRED(HttpStatus.FORBIDDEN, "반려견 등록이 필요한 기능입니다."),
     ACTIVE_PET_REQUIRED(HttpStatus.FORBIDDEN, "활동할 반려견을 먼저 선택해주세요."),

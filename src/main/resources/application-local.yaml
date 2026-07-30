@@ -11,3 +11,4 @@ spring:
     locations:
       - classpath:db/migration
       - classpath:db/seed
+      - classpath:db/demo
