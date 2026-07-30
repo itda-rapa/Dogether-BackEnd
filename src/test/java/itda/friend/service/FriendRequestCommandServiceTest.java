@@ -6,6 +6,10 @@ import static org.mockito.Mockito.mock;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.friend.dto.response.FriendRequestResponse;
+import itda.friend.service.FriendRequestActionResult.Accepted;
+import itda.friend.service.FriendRequestActionResult.Rejected;
+import itda.friend.service.FriendRequestActionResult.Terminal;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,12 +23,17 @@ class FriendRequestCommandServiceTest {
 
     @Mock
     private FriendRequestCommandTransactionService transactionService;
+    @Mock
+    private FriendRequestActionTransactionService actionTransactionService;
 
     private FriendRequestCommandService service;
 
     @BeforeEach
     void setUp() {
-        service = new FriendRequestCommandService(transactionService);
+        service = new FriendRequestCommandService(
+                transactionService,
+                actionTransactionService
+        );
     }
 
     @Test
@@ -68,6 +77,71 @@ class FriendRequestCommandServiceTest {
 
         assertThatThrownBy(() -> service.create(1L, 2L))
                 .isSameAs(failure);
+    }
+
+    @Test
+    void returnsAcceptedAndRejectedResponses() {
+        FriendRequestResponse accepted = mock(FriendRequestResponse.class);
+        FriendRequestResponse rejected = mock(FriendRequestResponse.class);
+        given(actionTransactionService.accept(1L, 10L))
+                .willReturn(new Accepted(accepted));
+        given(actionTransactionService.reject(1L, 11L))
+                .willReturn(new Rejected(rejected));
+
+        org.assertj.core.api.Assertions.assertThat(service.accept(1L, 10L))
+                .isSameAs(accepted);
+        org.assertj.core.api.Assertions.assertThat(service.reject(1L, 11L))
+                .isSameAs(rejected);
+    }
+
+    @Test
+    void mapsCommittedExpiredOutcomeOutsideTransaction() {
+        given(actionTransactionService.accept(1L, 10L))
+                .willReturn(Terminal.EXPIRED);
+        given(actionTransactionService.reject(1L, 11L))
+                .willReturn(Terminal.EXPIRED);
+        given(actionTransactionService.cancel(1L, 12L))
+                .willReturn(Terminal.EXPIRED);
+
+        assertBusinessError(
+                () -> service.accept(1L, 10L),
+                ErrorCode.FRIEND_REQUEST_NOT_PENDING
+        );
+        assertBusinessError(
+                () -> service.reject(1L, 11L),
+                ErrorCode.FRIEND_REQUEST_NOT_PENDING
+        );
+        assertBusinessError(
+                () -> service.cancel(1L, 12L),
+                ErrorCode.FRIEND_REQUEST_NOT_PENDING
+        );
+    }
+
+    @Test
+    void mapsAcceptFriendshipConstraintOnly() {
+        DataIntegrityViolationException known =
+                constraintFailure("uk_friendship_pair");
+        DataIntegrityViolationException unknown =
+                constraintFailure("uk_unknown");
+        given(actionTransactionService.accept(1L, 10L))
+                .willThrow(known);
+        given(actionTransactionService.accept(1L, 11L))
+                .willThrow(unknown);
+
+        assertBusinessError(
+                () -> service.accept(1L, 10L),
+                ErrorCode.FRIENDSHIP_ALREADY_EXISTS
+        );
+        assertThatThrownBy(() -> service.accept(1L, 11L))
+                .isSameAs(unknown);
+    }
+
+    @Test
+    void completesCanceledOutcome() {
+        given(actionTransactionService.cancel(1L, 10L))
+                .willReturn(Terminal.CANCELED);
+
+        service.cancel(1L, 10L);
     }
 
     private DataIntegrityViolationException constraintFailure(String name) {

@@ -56,6 +56,7 @@ public enum ErrorCode {
     FRIEND_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "친구는 반려견당 최대 50명까지 등록할 수 있습니다."),
     FRIEND_REQUEST_ALREADY_PENDING(HttpStatus.CONFLICT, "이미 친구 요청을 보낸 상대입니다."),
     FRIENDSHIP_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 친구 관계입니다."),
+    FRIEND_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "친구 요청을 찾을 수 없습니다."),
     FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
 

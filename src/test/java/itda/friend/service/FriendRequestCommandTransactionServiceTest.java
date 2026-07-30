@@ -5,23 +5,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import itda.block.service.BlockRelationshipQueryService;
-import itda.chat.domain.RoomOrigin;
-import itda.chat.dto.EnsureDirectRoomResult;
-import itda.chat.service.ChatRoomService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.friend.domain.FriendRelationship;
 import itda.friend.domain.FriendRequest;
 import itda.friend.domain.FriendRequestStatus;
 import itda.friend.domain.Friendship;
+import itda.friend.dto.response.FriendRequestPetResponse;
+import itda.friend.dto.response.FriendRequestResponse;
 import itda.friend.repository.FriendRequestRepository;
 import itda.friend.repository.FriendshipRepository;
+import itda.friend.service.FriendRequestResponseAssembler.Snapshot;
 import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.dto.LockedPetContext;
 import itda.interaction.dto.LockedUserContext;
@@ -29,14 +30,10 @@ import itda.interaction.service.InteractionPairLockService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
-import itda.pet.service.query.PetDisplayQueryService;
-import itda.pet.service.query.PetDisplaySummary;
 import itda.user.domain.AccountStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,9 +63,9 @@ class FriendRequestCommandTransactionServiceTest {
     @Mock
     private FriendshipRepository friendshipRepository;
     @Mock
-    private ChatRoomService chatRoomService;
+    private FriendRequestAcceptanceService acceptanceService;
     @Mock
-    private PetDisplayQueryService petDisplayQueryService;
+    private FriendRequestResponseAssembler responseAssembler;
 
     private Clock clock;
     private FriendRequestCommandTransactionService service;
@@ -82,8 +79,8 @@ class FriendRequestCommandTransactionServiceTest {
                 blockRelationshipQueryService,
                 friendRequestRepository,
                 friendshipRepository,
-                chatRoomService,
-                petDisplayQueryService,
+                acceptanceService,
+                responseAssembler,
                 clock
         );
         given(activePetQueryService.requireActivePet(USER_ID))
@@ -96,8 +93,22 @@ class FriendRequestCommandTransactionServiceTest {
                 SOURCE_PET_ID,
                 TARGET_PET_ID
         )).thenReturn(false);
-        lenient().when(petDisplayQueryService.getPetDisplaySummaries(any()))
-                .thenReturn(displaySummaries());
+        lenient().when(responseAssembler.created(any(), any()))
+                .thenAnswer(invocation -> response(
+                        invocation.getArgument(0),
+                        null,
+                        FriendRelationship.REQUEST_SENT
+                ));
+        lenient().when(acceptanceService.accept(any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    FriendRequest pending = invocation.getArgument(0);
+                    pending.accept(invocation.getArgument(2));
+                    return response(
+                            Snapshot.from(pending),
+                            99L,
+                            FriendRelationship.FRIEND
+                    );
+                });
     }
 
     @Test
@@ -128,8 +139,7 @@ class FriendRequestCommandTransactionServiceTest {
         verify(clock).instant();
         verify(friendshipRepository, never())
                 .countRelationshipsByPetIds(any());
-        verify(chatRoomService, never())
-                .ensureDirectRoom(any(Long.class), any(Long.class), any());
+        verify(acceptanceService, never()).accept(any(), any(), any());
     }
 
     @Test
@@ -175,30 +185,18 @@ class FriendRequestCommandTransactionServiceTest {
                 ErrorCode.FRIEND_REQUEST_ALREADY_PENDING
         );
 
-        verify(chatRoomService, never())
-                .ensureDirectRoom(any(Long.class), any(Long.class), any());
-        verify(petDisplayQueryService, never())
-                .getPetDisplaySummaries(any());
+        verify(acceptanceService, never()).accept(any(), any(), any());
+        verify(responseAssembler, never()).created(any(), any());
     }
 
     @Test
-    void autoAcceptsReversePendingAndFlushesBeforeChat() {
+    void delegatesReversePendingToSharedAcceptanceService() {
         FriendRequest reverse = pending(TARGET_PET_ID, SOURCE_PET_ID);
         given(friendRequestRepository.findPendingPairForUpdate(
                 SOURCE_PET_ID,
                 TARGET_PET_ID
         )).willReturn(Optional.of(reverse));
         given(clock.instant()).willReturn(NOW);
-        given(friendshipRepository.countRelationshipsByPetIds(any()))
-                .willReturn(List.of());
-        given(friendshipRepository.save(any(Friendship.class)))
-                .willAnswer(invocation -> invocation.getArgument(0));
-        given(chatRoomService.ensureDirectRoom(
-                SOURCE_PET_ID,
-                TARGET_PET_ID,
-                RoomOrigin.FRIEND
-        )).willReturn(new EnsureDirectRoomResult(99L, true));
-
         FriendRequestCommandResult result =
                 service.execute(USER_ID, TARGET_PET_ID);
 
@@ -215,30 +213,24 @@ class FriendRequestCommandTransactionServiceTest {
                 .isEqualTo(SOURCE_PET_ID);
         assertThat(result.response().targetPet().relationship())
                 .isEqualTo(FriendRelationship.NONE);
-        InOrder order = inOrder(friendshipRepository, chatRoomService);
-        order.verify(friendshipRepository).save(any(Friendship.class));
-        order.verify(friendshipRepository).flush();
-        order.verify(chatRoomService).ensureDirectRoom(
+        verify(acceptanceService).accept(
+                reverse,
                 SOURCE_PET_ID,
-                TARGET_PET_ID,
-                RoomOrigin.FRIEND
+                NOW
         );
     }
 
     @Test
-    void leavesReversePendingUntouchedAtFriendLimit() {
+    void propagatesFriendLimitFromSharedAcceptanceService() {
         FriendRequest reverse = pending(TARGET_PET_ID, SOURCE_PET_ID);
         given(friendRequestRepository.findPendingPairForUpdate(
                 SOURCE_PET_ID,
                 TARGET_PET_ID
         )).willReturn(Optional.of(reverse));
         given(clock.instant()).willReturn(NOW);
-        FriendshipRepository.FriendshipCountRow count =
-                mock(FriendshipRepository.FriendshipCountRow.class);
-        given(count.getPetId()).willReturn(SOURCE_PET_ID);
-        given(count.getFriendCount()).willReturn(50L);
-        given(friendshipRepository.countRelationshipsByPetIds(any()))
-                .willReturn(List.of(count));
+        doThrow(new BusinessException(ErrorCode.FRIEND_LIMIT_EXCEEDED))
+                .when(acceptanceService)
+                .accept(reverse, SOURCE_PET_ID, NOW);
 
         assertError(
                 () -> service.execute(USER_ID, TARGET_PET_ID),
@@ -247,8 +239,6 @@ class FriendRequestCommandTransactionServiceTest {
 
         assertThat(reverse.getStatus()).isEqualTo(FriendRequestStatus.PENDING);
         verify(friendshipRepository, never()).save(any(Friendship.class));
-        verify(chatRoomService, never())
-                .ensureDirectRoom(any(Long.class), any(Long.class), any());
     }
 
     @Test
@@ -413,10 +403,8 @@ class FriendRequestCommandTransactionServiceTest {
         verify(friendRequestRepository, never())
                 .findPendingPairForUpdate(any(), any());
         verify(clock, never()).instant();
-        verify(chatRoomService, never())
-                .ensureDirectRoom(any(Long.class), any(Long.class), any());
-        verify(petDisplayQueryService, never())
-                .getPetDisplaySummaries(any());
+        verify(acceptanceService, never()).accept(any(), any(), any());
+        verify(responseAssembler, never()).created(any(), any());
         verify(friendRequestRepository, never())
                 .save(any(FriendRequest.class));
         verify(friendRequestRepository, never())
@@ -522,30 +510,39 @@ class FriendRequestCommandTransactionServiceTest {
         );
     }
 
-    private Map<Long, PetDisplaySummary> displaySummaries() {
-        return Map.of(
-                SOURCE_PET_ID,
-                new PetDisplaySummary(
-                        SOURCE_PET_ID,
-                        USER_ID,
-                        "source#tag",
-                        "source",
+    private FriendRequestResponse response(
+            Snapshot snapshot,
+            Long roomId,
+            FriendRelationship counterpartRelationship
+    ) {
+        Long actorPetId = SOURCE_PET_ID;
+        return new FriendRequestResponse(
+                snapshot.requestId(),
+                new FriendRequestPetResponse(
+                        snapshot.requesterPetId(),
+                        "requester#tag",
+                        "requester",
                         null,
                         true,
-                        PetStatus.ACTIVE,
-                        null
+                        snapshot.requesterPetId().equals(actorPetId)
+                                ? FriendRelationship.NONE
+                                : counterpartRelationship
                 ),
-                TARGET_PET_ID,
-                new PetDisplaySummary(
-                        TARGET_PET_ID,
-                        TARGET_USER_ID,
+                new FriendRequestPetResponse(
+                        snapshot.targetPetId(),
                         "target#tag",
                         "target",
                         null,
                         true,
-                        PetStatus.ACTIVE,
-                        null
-                )
+                        snapshot.targetPetId().equals(actorPetId)
+                                ? FriendRelationship.NONE
+                                : counterpartRelationship
+                ),
+                snapshot.status(),
+                snapshot.requestedAt(),
+                snapshot.respondedAt(),
+                snapshot.expiresAt(),
+                roomId
         );
     }
 }
