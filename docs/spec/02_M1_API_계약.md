@@ -107,6 +107,12 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 조회하지 않는다. 만료된 PENDING은 EXPIRED를 먼저 커밋한 뒤
 `409 FRIEND_REQUEST_NOT_PENDING`을 반환한다.
 
+받은·보낸 요청 목록은 현재 Active Pet 기준으로 `status=PENDING AND
+expiresAt>now`인 요청만 `requestedAt DESC, requestId DESC` cursor로 반환한다.
+GET에서는 만료 상태를 변경하지 않는다. Pet 친구 목록은 본인 소유 미삭제 Pet을
+기준으로 하며 SUSPENDED 또는 비 Active Pet도 허용하고, 다른 User 소유 Pet은
+`403 PET_NOT_OWNED`, 없거나 삭제된 Pet은 `404 PET_NOT_FOUND`로 처리한다.
+
 ## 채팅·폴링
 
 | Method | Path | 설명 |

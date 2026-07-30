@@ -595,11 +595,16 @@ paths:
       tags: [Friend]
       summary: 받은 친구 요청 목록
       operationId: listReceivedFriendRequests
-      description: 현재 Active Pet이 받은 요청만 반환한다.
+      description: |
+        현재 Active Pet이 받은 유효한 PENDING 요청만 반환한다.
+        expiresAt <= now인 요청은 목록에서 제외하지만 상태를 변경하지 않는다.
+        requestedAt DESC, requestId DESC cursor를 사용한다.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '200':
@@ -610,17 +615,24 @@ paths:
                 $ref: '#/components/schemas/FriendRequestListEnvelope'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /friend-requests/sent:
     get:
       tags: [Friend]
       summary: 보낸 친구 요청 목록
       operationId: listSentFriendRequests
-      description: 현재 Active Pet이 보낸 요청만 반환한다.
+      description: |
+        현재 Active Pet이 보낸 유효한 PENDING 요청만 반환한다.
+        expiresAt <= now인 요청은 목록에서 제외하지만 상태를 변경하지 않는다.
+        requestedAt DESC, requestId DESC cursor를 사용한다.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '200':
@@ -631,6 +643,8 @@ paths:
                 $ref: '#/components/schemas/FriendRequestListEnvelope'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /friend-requests/{requestId}/accept:
     post:
@@ -720,11 +734,17 @@ paths:
       tags: [Friend]
       summary: Pet 친구 목록
       operationId: listPetFriends
+      description: |
+        인증 User가 소유한 미삭제 Pet의 친구를 최신 Friendship 순서로 반환한다.
+        현재 Active Pet이 아니거나 SUSPENDED 상태여도 조회할 수 있다.
+        다른 User 소유 Pet은 PET_NOT_OWNED, 없거나 삭제된 Pet은 PET_NOT_FOUND다.
       parameters:
         - $ref: '#/components/parameters/PetId'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '200':
@@ -1676,7 +1696,15 @@ components:
 
     FriendRequest:
       type: object
-      required: [requestId, requesterPet, targetPet, status, requestedAt, expiresAt]
+      required:
+        - requestId
+        - requesterPet
+        - targetPet
+        - status
+        - requestedAt
+        - respondedAt
+        - expiresAt
+        - directRoomId
       properties:
         requestId:
           type: integer
