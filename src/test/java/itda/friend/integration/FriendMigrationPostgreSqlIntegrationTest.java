@@ -36,6 +36,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class FriendMigrationPostgreSqlIntegrationTest {
 
     private static final String FRIEND_MIGRATION_VERSION = "9";
+    private static final String FRIEND_LIST_MIGRATION_VERSION = "15";
     private static final Instant FUTURE =
             Instant.parse("2026-08-05T00:00:00Z");
 
@@ -68,6 +69,15 @@ class FriendMigrationPostgreSqlIntegrationTest {
                 .anyMatch(migration ->
                         migration.getVersion() != null
                                 && FRIEND_MIGRATION_VERSION.equals(
+                                migration.getVersion().getVersion()
+                        )
+                                && migration.getState()
+                                == MigrationState.SUCCESS
+                );
+        assertThat(Arrays.stream(flyway.info().all()))
+                .anyMatch(migration ->
+                        migration.getVersion() != null
+                                && FRIEND_LIST_MIGRATION_VERSION.equals(
                                 migration.getVersion().getVersion()
                         )
                                 && migration.getState()
@@ -165,6 +175,18 @@ class FriendMigrationPostgreSqlIntegrationTest {
                 .containsIgnoringCase("PENDING");
         assertThat(indexDefinition("ix_friendship_pet_high_low"))
                 .contains("(pet_high_id, pet_low_id)");
+        assertThat(indexDefinition(
+                "ix_friend_request_pending_target_requested_id"
+        ))
+                .contains("(target_pet_id, requested_at DESC, id DESC)")
+                .containsIgnoringCase("WHERE")
+                .containsIgnoringCase("PENDING");
+        assertThat(indexDefinition(
+                "ix_friend_request_pending_requester_requested_id"
+        ))
+                .contains("(requester_pet_id, requested_at DESC, id DESC)")
+                .containsIgnoringCase("WHERE")
+                .containsIgnoringCase("PENDING");
     }
 
     @Test

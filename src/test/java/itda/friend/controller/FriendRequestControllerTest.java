@@ -4,6 +4,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,10 +16,14 @@ import itda.common.security.CurrentUser;
 import itda.friend.domain.FriendRelationship;
 import itda.friend.domain.FriendRequestStatus;
 import itda.friend.dto.response.FriendRequestPetResponse;
+import itda.friend.dto.response.FriendRequestListResponse;
 import itda.friend.dto.response.FriendRequestResponse;
 import itda.friend.service.FriendRequestCommandResult;
 import itda.friend.service.FriendRequestCommandResult.Outcome;
 import itda.friend.service.FriendRequestCommandService;
+import itda.friend.service.query.FriendRequestQueryService;
+import itda.chat.dto.response.CursorPage;
+import java.util.List;
 import itda.user.domain.Role;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
@@ -47,6 +52,9 @@ class FriendRequestControllerTest {
 
     @MockitoBean
     private FriendRequestCommandService commandService;
+
+    @MockitoBean
+    private FriendRequestQueryService queryService;
 
     @MockitoBean
     private JwtFilter jwtFilter;
@@ -216,6 +224,61 @@ class FriendRequestControllerTest {
                         .value("SAME_OWNER_INTERACTION_FORBIDDEN"));
     }
 
+    @Test
+    void listsReceivedRequests() throws Exception {
+        given(queryService.listReceived(USER_ID, null, 20))
+                .willReturn(listResponse(
+                        FriendRelationship.REQUEST_RECEIVED,
+                        FriendRelationship.NONE
+                ));
+
+        mockMvc.perform(get("/friend-requests/received")
+                        .queryParam("limit", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items[0].requestId").value(1))
+                .andExpect(jsonPath(
+                        "$.data.items[0].requesterPet.relationship"
+                ).value("REQUEST_RECEIVED"))
+                .andExpect(jsonPath(
+                        "$.data.items[0].targetPet.relationship"
+                ).value("NONE"))
+                .andExpect(jsonPath("$.data.items[0].respondedAt").isEmpty())
+                .andExpect(jsonPath("$.data.items[0].directRoomId").isEmpty())
+                .andExpect(jsonPath("$.data.page.hasNext").value(false));
+    }
+
+    @Test
+    void listsSentRequests() throws Exception {
+        given(queryService.listSent(USER_ID, "cursor", 10))
+                .willReturn(listResponse(
+                        FriendRelationship.NONE,
+                        FriendRelationship.REQUEST_SENT
+                ));
+
+        mockMvc.perform(get("/friend-requests/sent")
+                        .queryParam("cursor", "cursor")
+                        .queryParam("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(
+                        "$.data.items[0].requesterPet.relationship"
+                ).value("NONE"))
+                .andExpect(jsonPath(
+                        "$.data.items[0].targetPet.relationship"
+                ).value("REQUEST_SENT"));
+    }
+
+    @Test
+    void malformedLimitReturnsValidationFailed() throws Exception {
+        mockMvc.perform(get("/friend-requests/received")
+                        .queryParam("limit", "not-a-number"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("VALIDATION_FAILED"));
+
+        verifyNoInteractions(queryService);
+    }
+
     private FriendRequestCommandResult result(
             Outcome outcome,
             Long roomId
@@ -264,6 +327,26 @@ class FriendRequestControllerTest {
                 null,
                 true,
                 relationship
+        );
+    }
+
+    private FriendRequestListResponse listResponse(
+            FriendRelationship requesterRelationship,
+            FriendRelationship targetRelationship
+    ) {
+        Instant requestedAt = Instant.parse("2026-07-30T00:00:00Z");
+        return new FriendRequestListResponse(
+                List.of(new FriendRequestResponse(
+                        1L,
+                        pet(10L, requesterRelationship),
+                        pet(TARGET_PET_ID, targetRelationship),
+                        FriendRequestStatus.PENDING,
+                        requestedAt,
+                        null,
+                        requestedAt.plusSeconds(7 * 24 * 60 * 60),
+                        null
+                )),
+                CursorPage.of(null, false)
         );
     }
 }

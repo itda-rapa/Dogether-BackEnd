@@ -2,6 +2,7 @@ package itda.friend;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -220,6 +221,160 @@ class FriendRequestApiContractPostgreSqlIntegrationTest {
                         .value("FRIEND_REQUEST_NOT_FOUND"));
     }
 
+    @Test
+    void listsReceivedPendingRequestsForCurrentActivePet() throws Exception {
+        Long requestId = insertPending();
+
+        mockMvc.perform(get("/friend-requests/received")
+                        .with(user(principal(targetUserId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items[0].requestId")
+                        .value(requestId))
+                .andExpect(jsonPath(
+                        "$.data.items[0].requesterPet.petId"
+                ).value(sourcePetId))
+                .andExpect(jsonPath(
+                        "$.data.items[0].requesterPet.relationship"
+                ).value("REQUEST_RECEIVED"))
+                .andExpect(jsonPath(
+                        "$.data.items[0].targetPet.petId"
+                ).value(targetPetId))
+                .andExpect(jsonPath(
+                        "$.data.items[0].targetPet.relationship"
+                ).value("NONE"))
+                .andExpect(jsonPath("$.data.items[0].status")
+                        .value("PENDING"))
+                .andExpect(jsonPath("$.data.items[0].respondedAt")
+                        .isEmpty())
+                .andExpect(jsonPath("$.data.items[0].directRoomId")
+                        .isEmpty())
+                .andExpect(jsonPath("$.data.page.hasNext").value(false));
+    }
+
+    @Test
+    void requiresAuthenticationForFriendRequestLists() throws Exception {
+        mockMvc.perform(get("/friend-requests/received"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void rejectsMalformedFriendRequestCursor() throws Exception {
+        mockMvc.perform(get("/friend-requests/received")
+                        .with(user(principal(targetUserId)))
+                        .queryParam("cursor", "not-a-valid-cursor"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void requiresActivePetForFriendRequestLists() throws Exception {
+        Long userWithoutActivePet = createUser("noActivePet");
+
+        mockMvc.perform(get("/friend-requests/sent")
+                        .with(user(principal(userWithoutActivePet))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code")
+                        .value("ACTIVE_PET_REQUIRED"));
+    }
+
+    @Test
+    void listsSentPendingRequestsForCurrentActivePet() throws Exception {
+        Long requestId = insertPending();
+
+        mockMvc.perform(get("/friend-requests/sent")
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].requestId")
+                        .value(requestId))
+                .andExpect(jsonPath(
+                        "$.data.items[0].requesterPet.relationship"
+                ).value("NONE"))
+                .andExpect(jsonPath(
+                        "$.data.items[0].targetPet.relationship"
+                ).value("REQUEST_SENT"));
+    }
+
+    @Test
+    void listsFriendsForOwnedPet() throws Exception {
+        insertFriendship(sourcePetId, targetPetId);
+
+        mockMvc.perform(get("/pets/{petId}/friends", sourcePetId)
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items[0].petId")
+                        .value(targetPetId))
+                .andExpect(jsonPath("$.data.items[0].relationship")
+                        .value("FRIEND"))
+                .andExpect(jsonPath("$.data.page.nextCursor").isEmpty())
+                .andExpect(jsonPath("$.data.page.hasNext").value(false));
+    }
+
+    @Test
+    void rejectsFriendListForPetOwnedByAnotherUser() throws Exception {
+        mockMvc.perform(get("/pets/{petId}/friends", targetPetId)
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code")
+                        .value("PET_NOT_OWNED"));
+    }
+
+    @Test
+    void hidesMissingPetFriendList() throws Exception {
+        mockMvc.perform(get("/pets/{petId}/friends", Long.MAX_VALUE)
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code")
+                        .value("PET_NOT_FOUND"));
+    }
+
+    @Test
+    void hidesSoftDeletedPetFriendList() throws Exception {
+        jdbcTemplate.update("""
+                UPDATE pets
+                   SET status = 'DELETED',
+                       deleted_at = CURRENT_TIMESTAMP
+                 WHERE id = ?
+                """, sourcePetId);
+
+        mockMvc.perform(get("/pets/{petId}/friends", sourcePetId)
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code")
+                        .value("PET_NOT_FOUND"));
+    }
+
+    @Test
+    void allowsSuspendedNonActiveOwnedPetFriendList() throws Exception {
+        Long otherPetId = createPet(sourceUserId, "otherPet");
+        jdbcTemplate.update(
+                "UPDATE pets SET status = 'SUSPENDED' WHERE id = ?",
+                otherPetId
+        );
+        insertFriendship(otherPetId, targetPetId);
+
+        mockMvc.perform(get("/pets/{petId}/friends", otherPetId)
+                        .with(user(principal(sourceUserId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].petId")
+                        .value(targetPetId))
+                .andExpect(jsonPath("$.data.items[0].relationship")
+                        .value("FRIEND"));
+    }
+
+    @Test
+    void rejectsInvalidFriendListLimit() throws Exception {
+        mockMvc.perform(get("/pets/{petId}/friends", sourcePetId)
+                        .with(user(principal(sourceUserId)))
+                        .queryParam("limit", "101"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code")
+                        .value("VALIDATION_FAILED"));
+    }
+
     private CurrentUser principal() {
         return principal(sourceUserId);
     }
@@ -246,6 +401,16 @@ class FriendRequestApiContractPostgreSqlIntegrationTest {
                 sourcePetId,
                 targetPetId,
                 Instant.now().plusSeconds(3600).atOffset(ZoneOffset.UTC)
+        );
+    }
+
+    private void insertFriendship(Long petAId, Long petBId) {
+        jdbcTemplate.update("""
+                INSERT INTO friendships (pet_low_id, pet_high_id)
+                VALUES (?, ?)
+                """,
+                Math.min(petAId, petBId),
+                Math.max(petAId, petBId)
         );
     }
 
