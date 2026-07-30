@@ -166,7 +166,7 @@ class FriendBlockRacePostgreSqlIntegrationTest {
 
         assertThat(race.blockFailure()).isNull();
         assertThat(businessError(race.acceptFailure()))
-                .isEqualTo(ErrorCode.BLOCKED_USER);
+                .isEqualTo(ErrorCode.FRIEND_REQUEST_NOT_PENDING);
         assertBlockedWithoutActiveFriendState();
         assertThat(statusCounts("CANCELED")).isEqualTo(1);
         assertThat(count("chat_rooms")).isZero();

@@ -93,15 +93,16 @@ public class FriendRequestActionTransactionService {
                 requestId,
                 ActorRole.TARGET
         );
-        validateCounterpartForAcceptance(prepared.pair());
-        validateDifferentOwner(prepared.pair());
-        validateNotBlocked(prepared.pair());
         validatePending(prepared.request());
 
         Instant now = clock.instant();
         if (expireIfNecessary(prepared.request(), now)) {
             return Terminal.EXPIRED;
         }
+
+        validateCounterpartForAcceptance(prepared.pair());
+        validateDifferentOwner(prepared.pair());
+        validateNotBlocked(prepared.pair());
 
         Long requesterPetId = prepared.request().getRequesterPetId();
         Long targetPetId = prepared.request().getTargetPetId();

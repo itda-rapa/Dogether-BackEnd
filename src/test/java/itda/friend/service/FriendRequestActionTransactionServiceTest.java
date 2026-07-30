@@ -35,6 +35,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -102,6 +104,7 @@ class FriendRequestActionTransactionServiceTest {
                 activePetQueryService,
                 friendRequestRepository,
                 interactionPairLockService,
+                clock,
                 blockRelationshipQueryService,
                 friendshipRepository,
                 acceptanceService
@@ -114,6 +117,7 @@ class FriendRequestActionTransactionServiceTest {
                 TARGET_PET_ID
         );
         order.verify(friendRequestRepository).findByIdForUpdate(REQUEST_ID);
+        order.verify(clock).instant();
         order.verify(blockRelationshipQueryService).existsBlockBetween(
                 REQUESTER_USER_ID,
                 TARGET_USER_ID
@@ -128,7 +132,6 @@ class FriendRequestActionTransactionServiceTest {
                 TARGET_PET_ID,
                 NOW
         );
-        verify(clock).instant();
     }
 
     @Test
@@ -177,7 +180,7 @@ class FriendRequestActionTransactionServiceTest {
     }
 
     @Test
-    void commitsExpiredOutcomeWithoutCallingAcceptanceDependencies() {
+    void expiresBeforeBlockedRelationshipIsEvaluated() {
         FriendRequest expired = FriendRequest.createPending(
                 REQUESTER_PET_ID,
                 TARGET_PET_ID,
@@ -185,6 +188,44 @@ class FriendRequestActionTransactionServiceTest {
                 NOW
         );
         prepareTarget(expired);
+        given(clock.instant()).willReturn(NOW);
+        org.mockito.Mockito.lenient()
+                .when(blockRelationshipQueryService.existsBlockBetween(
+                        REQUESTER_USER_ID,
+                        TARGET_USER_ID
+                ))
+                .thenReturn(true);
+
+        FriendRequestActionResult result =
+                service.accept(TARGET_USER_ID, REQUEST_ID);
+
+        assertThat(result).isEqualTo(Terminal.EXPIRED);
+        assertThat(expired.getStatus()).isEqualTo(FriendRequestStatus.EXPIRED);
+        assertThat(expired.getRespondedAt()).isNull();
+        verify(friendRequestRepository).flush();
+        verify(blockRelationshipQueryService, never())
+                .existsBlockBetween(any(), any());
+        verify(friendshipRepository, never())
+                .existsByPetLowIdAndPetHighId(any(), any());
+        verify(friendshipRepository, never())
+                .countRelationshipsByPetIds(any());
+        verify(acceptanceService, never()).accept(any(), any(), any());
+        verify(responseAssembler, never()).accepted(any(), any(), any());
+    }
+
+    @Test
+    void expiresBeforeSuspendedCounterpartIsValidated() {
+        FriendRequest expired = FriendRequest.createPending(
+                REQUESTER_PET_ID,
+                TARGET_PET_ID,
+                NOW.minusSeconds(120),
+                NOW
+        );
+        prepareTarget(expired);
+        given(interactionPairLockService.lockInteractionPair(
+                REQUESTER_PET_ID,
+                TARGET_PET_ID
+        )).willReturn(pair(PetStatus.SUSPENDED));
         given(clock.instant()).willReturn(NOW);
 
         FriendRequestActionResult result =
@@ -194,10 +235,50 @@ class FriendRequestActionTransactionServiceTest {
         assertThat(expired.getStatus()).isEqualTo(FriendRequestStatus.EXPIRED);
         assertThat(expired.getRespondedAt()).isNull();
         verify(friendRequestRepository).flush();
+        verify(blockRelationshipQueryService, never())
+                .existsBlockBetween(any(), any());
         verify(friendshipRepository, never())
                 .existsByPetLowIdAndPetHighId(any(), any());
+        verify(friendshipRepository, never())
+                .countRelationshipsByPetIds(any());
         verify(acceptanceService, never()).accept(any(), any(), any());
-        verify(responseAssembler, never()).accepted(any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = FriendRequestStatus.class,
+            names = {"ACCEPTED", "REJECTED"}
+    )
+    void rejectsTerminalAcceptBeforeClockAndBlockChecks(
+            FriendRequestStatus terminalStatus
+    ) {
+        FriendRequest terminal = pending();
+        if (terminalStatus == FriendRequestStatus.ACCEPTED) {
+            terminal.accept(NOW.minusSeconds(1));
+        } else {
+            terminal.reject(NOW.minusSeconds(1));
+        }
+        prepareTarget(terminal);
+        org.mockito.Mockito.lenient()
+                .when(blockRelationshipQueryService.existsBlockBetween(
+                        REQUESTER_USER_ID,
+                        TARGET_USER_ID
+                ))
+                .thenReturn(true);
+
+        assertError(
+                () -> service.accept(TARGET_USER_ID, REQUEST_ID),
+                ErrorCode.FRIEND_REQUEST_NOT_PENDING
+        );
+
+        verify(clock, never()).instant();
+        verify(blockRelationshipQueryService, never())
+                .existsBlockBetween(any(), any());
+        verify(friendshipRepository, never())
+                .existsByPetLowIdAndPetHighId(any(), any());
+        verify(friendshipRepository, never())
+                .countRelationshipsByPetIds(any());
+        verify(acceptanceService, never()).accept(any(), any(), any());
     }
 
     @Test
@@ -216,26 +297,6 @@ class FriendRequestActionTransactionServiceTest {
                 .lockInteractionPair(any(), any());
         verify(friendRequestRepository, never())
                 .findByIdForUpdate(any());
-    }
-
-    @Test
-    void keepsBlockPrecedenceForAccept() {
-        FriendRequest accepted = pending();
-        accepted.accept(NOW.minusSeconds(1));
-        prepareTarget(accepted);
-        given(blockRelationshipQueryService.existsBlockBetween(
-                REQUESTER_USER_ID,
-                TARGET_USER_ID
-        )).willReturn(true);
-
-        assertError(
-                () -> service.accept(TARGET_USER_ID, REQUEST_ID),
-                ErrorCode.BLOCKED_USER
-        );
-
-        verify(clock, never()).instant();
-        verify(friendshipRepository, never())
-                .existsByPetLowIdAndPetHighId(any(), any());
     }
 
     @Test
@@ -316,6 +377,10 @@ class FriendRequestActionTransactionServiceTest {
     }
 
     private InteractionPairContext pair() {
+        return pair(PetStatus.ACTIVE);
+    }
+
+    private InteractionPairContext pair(PetStatus requesterPetStatus) {
         return new InteractionPairContext(
                 new LockedUserContext(
                         REQUESTER_USER_ID,
@@ -332,7 +397,7 @@ class FriendRequestActionTransactionServiceTest {
                 new LockedPetContext(
                         REQUESTER_PET_ID,
                         REQUESTER_USER_ID,
-                        PetStatus.ACTIVE,
+                        requesterPetStatus,
                         null
                 ),
                 new LockedPetContext(
