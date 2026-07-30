@@ -6,6 +6,8 @@ import itda.chat.service.ChatMessageService;
 import itda.chat.service.ChatQueryService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.interaction.dto.InteractionPairContext;
+import itda.interaction.service.InteractionPairLockService;
 import itda.meetingcard.domain.CardDraft;
 import itda.meetingcard.domain.MeetingCard;
 import itda.meetingcard.domain.MeetingParticipant;
@@ -14,10 +16,13 @@ import itda.meetingcard.dto.response.MeetingCardResponse;
 import itda.meetingcard.repository.CardDraftRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
+import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.user.domain.AccountStatus;
 import java.time.Clock;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +44,7 @@ public class MeetingCardService {
     private final MeetingCardRepository meetingCardRepository;
     private final MeetingParticipantRepository meetingParticipantRepository;
     private final CardDraftRepository cardDraftRepository;
+    private final InteractionPairLockService interactionPairLockService;
     private final Clock clock;
 
     // 프로젝트 관행대로 주 생성자가 Clock 을 받고 편의 생성자가 기본값을 넘긴다.
@@ -50,10 +56,11 @@ public class MeetingCardService {
                               ChatMessageService chatMessageService,
                               MeetingCardRepository meetingCardRepository,
                               MeetingParticipantRepository meetingParticipantRepository,
-                              CardDraftRepository cardDraftRepository) {
+                              CardDraftRepository cardDraftRepository,
+                              InteractionPairLockService interactionPairLockService) {
         this(activePetQueryService, chatQueryService, chatRoomRepository, chatMessageService,
                 meetingCardRepository, meetingParticipantRepository, cardDraftRepository,
-                Clock.systemUTC());
+                interactionPairLockService, Clock.systemUTC());
     }
 
     MeetingCardService(ActivePetQueryService activePetQueryService,
@@ -63,6 +70,7 @@ public class MeetingCardService {
                        MeetingCardRepository meetingCardRepository,
                        MeetingParticipantRepository meetingParticipantRepository,
                        CardDraftRepository cardDraftRepository,
+                       InteractionPairLockService interactionPairLockService,
                        Clock clock) {
         this.activePetQueryService = activePetQueryService;
         this.chatQueryService = chatQueryService;
@@ -71,6 +79,7 @@ public class MeetingCardService {
         this.meetingCardRepository = meetingCardRepository;
         this.meetingParticipantRepository = meetingParticipantRepository;
         this.cardDraftRepository = cardDraftRepository;
+        this.interactionPairLockService = interactionPairLockService;
         this.clock = clock;
     }
 
@@ -85,6 +94,19 @@ public class MeetingCardService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND));
 
         List<Long> participantPetIds = directPair(room, actor.petId());
+        Long counterpartPetId = participantPetIds.get(0).equals(actor.petId())
+                ? participantPetIds.get(1)
+                : participantPetIds.get(0);
+
+        // Block creation uses the same ordered User/Pet locks. If confirm wins, a following block
+        // sees and cancels this card; if block wins, the access recheck below observes it and this
+        // transaction creates nothing.
+        InteractionPairContext lockedPair = interactionPairLockService.lockInteractionPair(
+                actor.petId(), counterpartPetId);
+        requireLockedActor(userId, actor, lockedPair);
+        chatQueryService.requireParticipant(request.roomId(), actor.petId());
+        chatQueryService.requireGreetingReplyCompleted(request.roomId());
+
         Long sourceDraftId = resolveDraftId(request, actor.petId());
 
         MeetingCard card = meetingCardRepository.save(new MeetingCard(
@@ -210,5 +232,23 @@ public class MeetingCardService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }
         return request.draftId();
+    }
+
+    private void requireLockedActor(
+            Long userId,
+            ActivePetContext actor,
+            InteractionPairContext lockedPair
+    ) {
+        if (!Objects.equals(lockedPair.sourceUser().userId(), userId)
+                || !Objects.equals(actor.ownerUserId(), userId)
+                || !Objects.equals(lockedPair.sourcePet().ownerUserId(), userId)
+                || !Objects.equals(lockedPair.sourceUser().activePetId(), actor.petId())) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+        if (lockedPair.sourceUser().accountStatus() != AccountStatus.ACTIVE
+                || lockedPair.sourcePet().status() != PetStatus.ACTIVE
+                || lockedPair.sourcePet().deletedAt() != null) {
+            throw new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
+        }
     }
 }

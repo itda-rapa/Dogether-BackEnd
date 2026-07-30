@@ -106,6 +106,7 @@ public class CardDraftService {
         // 방 없음·참가자 아님·차단은 모두 404 로 수렴한다. 채팅과 같은 검사를 재사용해
         // 카드 쪽에서 은닉 기준이 갈리지 않게 한다.
         chatQueryService.requireParticipant(roomId, actor.petId());
+        chatQueryService.requireGreetingReplyCompleted(roomId);
 
         List<ChatMessage> newestFirst = loadSourceMessages(roomId);
 

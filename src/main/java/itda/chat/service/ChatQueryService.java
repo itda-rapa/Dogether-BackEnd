@@ -14,6 +14,8 @@ import itda.chat.support.RoomCursorCodec;
 import itda.chat.support.RoomCursorCodec.CursorPayload;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.greeting.domain.GreetingStatus;
+import itda.greeting.repository.GreetingRepository;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
 import itda.pet.service.query.PetDisplayQueryService;
@@ -47,6 +49,7 @@ public class ChatQueryService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatMessageService chatMessageService;
+    private final GreetingRepository greetingRepository;
     private final ActivePetQueryService activePetQueryService;
     private final PetDisplayQueryService petDisplayQueryService;
 
@@ -130,6 +133,17 @@ public class ChatQueryService {
     public void requireParticipant(long roomId, long petId) {
         if (!chatRoomRepository.existsAccessibleDirectRoomForPet(roomId, petId)) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
+    }
+
+    /**
+     * Server-authored room interactions such as meeting cards are unavailable while the first
+     * Greeting still waits for its recipient's TEXT reply. Unlike {@code sendText}, a card cannot
+     * itself count as that reply.
+     */
+    public void requireGreetingReplyCompleted(long roomId) {
+        if (greetingRepository.existsByRoomIdAndStatus(roomId, GreetingStatus.SENT)) {
+            throw new BusinessException(ErrorCode.GREETING_REPLY_REQUIRED);
         }
     }
 
