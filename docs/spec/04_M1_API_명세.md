@@ -1173,12 +1173,12 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
   "data": {
     "requestId": 1,
     "requesterPet": {
-      "petId": 1,
-      "publicTag": "몽이#A7K2",
-      "nickname": "몽이",
+      "petId": 2,
+      "publicTag": "초코#B8M3",
+      "nickname": "초코",
       "profileUrl": null,
       "verified": true,
-      "relationship": "NONE"
+      "relationship": "FRIEND"
     },
     "targetPet": {
       "petId": 1,
@@ -1188,11 +1188,45 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
       "verified": true,
       "relationship": "NONE"
     },
-    "status": "PENDING",
+    "status": "ACCEPTED",
     "requestedAt": "2026-07-24T09:00:00Z",
-    "respondedAt": null,
-    "expiresAt": "2026-07-24T09:00:00Z",
+    "respondedAt": "2026-07-30T09:00:00Z",
+    "expiresAt": "2026-07-31T09:00:00Z",
     "directRoomId": 1
+  },
+  "error": null
+}
+```
+
+**Response JSON — 201**
+
+```json
+{
+  "success": true,
+  "message": "친구 요청을 보냈습니다.",
+  "data": {
+    "requestId": 2,
+    "requesterPet": {
+      "petId": 1,
+      "publicTag": "몽이#A7K2",
+      "nickname": "몽이",
+      "profileUrl": null,
+      "verified": true,
+      "relationship": "NONE"
+    },
+    "targetPet": {
+      "petId": 2,
+      "publicTag": "초코#B8M3",
+      "nickname": "초코",
+      "profileUrl": null,
+      "verified": true,
+      "relationship": "REQUEST_SENT"
+    },
+    "status": "PENDING",
+    "requestedAt": "2026-07-30T09:00:00Z",
+    "respondedAt": null,
+    "expiresAt": "2026-08-06T09:00:00Z",
+    "directRoomId": null
   },
   "error": null
 }
@@ -1204,9 +1238,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---:|---|
 | `400` | `SAME_OWNER_INTERACTION_FORBIDDEN` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `BLOCKED_USER` |
-| `404` | `RESOURCE_NOT_FOUND` |
-| `409` | `FRIEND_LIMIT_EXCEEDED` |
+| `403` | `ACTIVE_PET_REQUIRED`, `PET_NOT_ACTIVE`, `BLOCKED_USER` |
+| `404` | `PET_NOT_FOUND` |
+| `409` | `FRIEND_REQUEST_ALREADY_PENDING`, `FRIENDSHIP_ALREADY_EXISTS`, `FRIEND_LIMIT_EXCEEDED`, `CONCURRENT_UPDATE_CONFLICT` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
