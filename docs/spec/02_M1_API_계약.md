@@ -100,6 +100,12 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 | DELETE | `/pets/{petId}/friends/{friendPetId}` | 친구 삭제, 기존 방 유지 |
 
 반대 방향 PENDING 요청은 새 요청을 만들지 않고 자동수락한다.
+명시적 수락·거절은 현재 Active Pet이 수신 Pet일 때, 취소는 발신 Pet일 때만
+허용한다. 권한이 없는 requestId는 `404 FRIEND_REQUEST_NOT_FOUND`로 존재를
+숨긴다. 수락은 Block과 친구 수 제한을 적용하고 Friendship·DIRECT 방을 같은
+트랜잭션에서 보장한다. 거절·취소는 관계 종료 작업이므로 Block·친구 수·Chat을
+조회하지 않는다. 만료된 PENDING은 EXPIRED를 먼저 커밋한 뒤
+`409 FRIEND_REQUEST_NOT_PENDING`을 반환한다.
 
 ## 채팅·폴링
 
@@ -169,6 +175,7 @@ M1 차단 해제 API는 없다. 신고는 차단을 자동 수행하지 않는�
 - `FRIEND_LIMIT_EXCEEDED`
 - `FRIEND_REQUEST_ALREADY_PENDING`
 - `FRIENDSHIP_ALREADY_EXISTS`
+- `FRIEND_REQUEST_NOT_FOUND`
 - `FRIEND_REQUEST_NOT_PENDING`
 - `BLOCKED_USER`
 - `MEDIA_PURPOSE_FORBIDDEN`
