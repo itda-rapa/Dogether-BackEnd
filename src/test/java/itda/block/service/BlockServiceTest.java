@@ -18,6 +18,7 @@ import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.dto.LockedPetContext;
 import itda.interaction.dto.LockedUserContext;
 import itda.interaction.service.InteractionPairLockService;
+import itda.meetingcard.service.MeetingCardBlockCleanupService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
@@ -51,6 +52,8 @@ class BlockServiceTest {
     private InteractionPairLockService interactionPairLockService;
     @Mock
     private FriendBlockCleanupService friendBlockCleanupService;
+    @Mock
+    private MeetingCardBlockCleanupService meetingCardBlockCleanupService;
 
     @InjectMocks
     private BlockService blockService;

@@ -60,8 +60,40 @@ class ChatServicePostgreSqlIntegrationTest {
 
     @BeforeEach
     void resetChatTables() {
-        jdbcTemplate.execute(
-                "truncate chat_messages, chat_room_participants, chat_rooms restart identity cascade");
+        jdbcTemplate.execute("""
+                truncate meeting_participants, meeting_cards, card_drafts,
+                         chat_messages, chat_room_participants, chat_rooms,
+                         pets, users
+                restart identity cascade
+                """);
+    }
+
+    /**
+     * Creates a real meeting_cards row and returns its id.
+     *
+     * <p>V14 added the {@code chat_messages.meeting_card_id -> meeting_cards.id} foreign key that
+     * the canonical ERD always specified but V7 could not install, because meeting_cards did not
+     * exist yet. A CARD message can no longer point at an invented card id, so the owning row and
+     * its User/Pet prerequisites have to exist first.
+     */
+    private long newMeetingCard(long roomId, long creatorPetId) {
+        jdbcTemplate.update("""
+                insert into users (id, email, password_hash, nickname, public_tag,
+                                   role, account_status, neighborhood_code)
+                values (?, ?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                """, creatorPetId, "owner" + creatorPetId + "@test.com",
+                "보호자" + creatorPetId, "owner" + creatorPetId + "#0001");
+        jdbcTemplate.update("""
+                insert into pets (id, owner_user_id, public_tag, nickname, status)
+                values (?, ?, ?, ?, 'ACTIVE')
+                """, creatorPetId, creatorPetId,
+                "pet" + creatorPetId + "#0001", "펫" + creatorPetId);
+        jdbcTemplate.update("""
+                insert into meeting_cards (room_id, creator_pet_id, card_type, place_text, meet_at)
+                values (?, ?, 'WALK', '중앙공원', now())
+                """, roomId, creatorPetId);
+        return jdbcTemplate.queryForObject(
+                "select id from meeting_cards where room_id = ?", Long.class, roomId);
     }
 
     // ---------- ChatRoomService.ensureDirectRoom ----------
@@ -204,12 +236,13 @@ class ChatServicePostgreSqlIntegrationTest {
     @Test
     void cardAnnouncementIsStoredAsACardMessage() {
         long roomId = newRoom(11L, 22L);
+        long cardId = newMeetingCard(roomId, 11L);
 
-        ChatMessageResult card = chatMessageService.postCard(roomId, 11L, 77L, "card-77");
+        ChatMessageResult card = chatMessageService.postCard(roomId, 11L, cardId, "card-77");
 
         assertThat(card.created()).isTrue();
         assertThat(card.message().getType()).isEqualTo(MessageType.CARD);
-        assertThat(card.message().getMeetingCardId()).isEqualTo(77L);
+        assertThat(card.message().getMeetingCardId()).isEqualTo(cardId);
         assertThat(card.message().getSenderPetId()).isEqualTo(11L);
     }
 
