@@ -51,6 +51,70 @@ public interface FriendRequestRepository extends JpaRepository<FriendRequest, Lo
 
     @Query(value = """
             SELECT
+                request.id AS requestId,
+                request.requester_pet_id AS requesterPetId,
+                request.target_pet_id AS targetPetId,
+                request.status AS status,
+                request.requested_at AS requestedAt,
+                request.responded_at AS respondedAt,
+                request.expires_at AS expiresAt
+            FROM friend_requests request
+            WHERE request.target_pet_id = :targetPetId
+              AND request.status = 'PENDING'
+              AND request.expires_at > :now
+              AND (
+                  CAST(:cursorRequestedAt AS TIMESTAMPTZ) IS NULL
+                  OR request.requested_at < :cursorRequestedAt
+                  OR (
+                      request.requested_at = :cursorRequestedAt
+                      AND request.id < :cursorRequestId
+                  )
+              )
+            ORDER BY request.requested_at DESC, request.id DESC
+            LIMIT :limitPlusOne
+            """, nativeQuery = true)
+    List<FriendRequestListRow> findReceivedPendingPage(
+            @Param("targetPetId") Long targetPetId,
+            @Param("now") Instant now,
+            @Param("cursorRequestedAt") Instant cursorRequestedAt,
+            @Param("cursorRequestId") Long cursorRequestId,
+            @Param("limitPlusOne") int limitPlusOne
+    );
+
+    @Query(value = """
+            SELECT
+                request.id AS requestId,
+                request.requester_pet_id AS requesterPetId,
+                request.target_pet_id AS targetPetId,
+                request.status AS status,
+                request.requested_at AS requestedAt,
+                request.responded_at AS respondedAt,
+                request.expires_at AS expiresAt
+            FROM friend_requests request
+            WHERE request.requester_pet_id = :requesterPetId
+              AND request.status = 'PENDING'
+              AND request.expires_at > :now
+              AND (
+                  CAST(:cursorRequestedAt AS TIMESTAMPTZ) IS NULL
+                  OR request.requested_at < :cursorRequestedAt
+                  OR (
+                      request.requested_at = :cursorRequestedAt
+                      AND request.id < :cursorRequestId
+                  )
+              )
+            ORDER BY request.requested_at DESC, request.id DESC
+            LIMIT :limitPlusOne
+            """, nativeQuery = true)
+    List<FriendRequestListRow> findSentPendingPage(
+            @Param("requesterPetId") Long requesterPetId,
+            @Param("now") Instant now,
+            @Param("cursorRequestedAt") Instant cursorRequestedAt,
+            @Param("cursorRequestId") Long cursorRequestId,
+            @Param("limitPlusOne") int limitPlusOne
+    );
+
+    @Query(value = """
+            SELECT
                 request.requester_pet_id AS requesterPetId,
                 request.target_pet_id AS targetPetId
             FROM friend_requests request
@@ -112,5 +176,22 @@ public interface FriendRequestRepository extends JpaRepository<FriendRequest, Lo
         Long getRequesterPetId();
 
         Long getTargetPetId();
+    }
+
+    interface FriendRequestListRow {
+
+        Long getRequestId();
+
+        Long getRequesterPetId();
+
+        Long getTargetPetId();
+
+        String getStatus();
+
+        Instant getRequestedAt();
+
+        Instant getRespondedAt();
+
+        Instant getExpiresAt();
     }
 }
