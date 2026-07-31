@@ -5,10 +5,14 @@ import itda.common.security.CurrentUser;
 import itda.greeting.dto.GreetingResponse;
 import itda.greeting.service.GreetingService;
 import itda.setlog.domain.ReactionType;
+import itda.setlog.dto.SetlogCreateRequest;
+import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogReactionResponse;
 import itda.setlog.dto.SetlogResponse;
+import itda.setlog.service.SetlogCreationService;
 import itda.setlog.service.SetlogQueryService;
 import itda.setlog.service.SetlogReactionService;
+import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +22,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,7 +33,20 @@ public class SetlogController {
 
     private final SetlogQueryService setlogQueryService;
     private final SetlogReactionService setlogReactionService;
+    private final SetlogCreationService setlogCreationService;
     private final GreetingService greetingService;
+
+    @PostMapping
+    public ResponseEntity<ApiResponse<SetlogCreateResponse>> createSetlog(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @Valid @RequestBody SetlogCreateRequest request
+    ) {
+        SetlogCreateResponse setlog =
+                setlogCreationService.create(currentUser.id(), request);
+        return ResponseEntity.status(201).body(
+                ApiResponse.created(setlog, "셋로그 생성 성공")
+        );
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<SetlogResponse>>> getSetlogs(
