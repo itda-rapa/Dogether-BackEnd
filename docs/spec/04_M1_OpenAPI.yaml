@@ -804,7 +804,14 @@ paths:
       tags: [Friend]
       summary: 친구 삭제
       operationId: deletePetFriend
-      description: 기존 DIRECT 방과 메시지는 유지하며 계속 대화할 수 있다.
+      description: |
+        인증 User가 소유한 미삭제 source Pet의 Friendship만 삭제한다.
+        source Pet은 현재 Active Pet일 필요가 없으며 ACTIVE 또는 SUSPENDED를 허용한다.
+        source Pet이 없거나 삭제됐으면 PET_NOT_FOUND, 미삭제 타인 소유 Pet이면
+        PET_NOT_OWNED, canonical pair의 Friendship이 없으면 FRIENDSHIP_NOT_FOUND다.
+        target Pet은 선행 조회하지 않는다. 기존 DIRECT ChatRoom, Participant,
+        Message, Greeting, FriendRequest 이력은 변경하지 않으며 기존 Chat 조건을
+        충족하는 참가자는 계속 대화할 수 있다.
       parameters:
         - $ref: '#/components/parameters/PetId'
         - name: friendPetId
@@ -817,7 +824,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '204':
-          description: 친구 삭제 완료
+          description: 친구 삭제 완료. 응답 Body 없음
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
