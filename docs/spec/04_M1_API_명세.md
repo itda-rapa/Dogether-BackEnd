@@ -534,35 +534,67 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `searchPetByPublicTag`
 - 인증: Bearer Token 필요
-- 설명: 친구 요청 진입점이다. 차단 관계와 자기 소유 Pet은 결과에서 제외한다.
+- 설명: 친구 요청 진입점이다. 차단 관계와 자기 소유 Pet은 결과에서 제외한다.<br>앞뒤 공백은 Java `String.strip()`의 `Character.isWhitespace` 기준으로 한 번 제거한 뒤 정확 일치 검색한다.<br>`strip()` 후 빈 값이거나 Unicode code point 수가 30을 초과하면 `400 VALIDATION_FAILED`다.<br>내부 공백, 대소문자, Unicode 구성은 변경하지 않는다. NBSP처럼 `String.strip()`이 제거하지 않는 문자는 별도로 제거하거나 치환하지 않는다.<br>검색 결과가 없거나 자기 소유·양방향 차단·비활성 대상이면 `200`과 `data=null`이다.<br>Active Pet이 없는 L1도 검색할 수 있으며 `relationship=null`이다.
 
 **파라미터**
 
 | 이름 | 위치 | 필수 | 타입 | 제약·기본값 | 설명 |
 |---|---|---:|---|---|---|
-| `publicTag` | query | ㅇ | string | maxLength: 30 | - |
+| `publicTag` | query | ㅇ | string | `String.strip()` 후 1~30 Unicode code point | Pet PublicTag 정확 일치 검색값 |
 
 **응답**
 
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
 | `200` | 검색 결과 | [`PetSearchEnvelope`](#schema-petsearchenvelope) |
+| `400` | 입력 검증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
-| `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
-**Response JSON — 200**
+**Response JSON — 200 검색 성공**
 
 ```json
 {
   "success": true,
-  "message": "처리 내용입니다.",
+  "message": "Pet 검색이 완료되었습니다.",
   "data": {
     "petId": 1,
     "publicTag": "몽이#A7K2",
     "nickname": "몽이",
     "profileUrl": null,
-    "verified": true,
+    "verified": false,
     "relationship": "NONE"
+  },
+  "error": null
+}
+```
+
+앞뒤 공백은 검색 전에 한 번 제거한다. 예를 들어 `"  몽이#A7K2  "`는
+`"몽이#A7K2"`로 정확 검색한다.
+
+**Response JSON — 200 결과 없음 또는 제외 대상**
+
+```json
+{
+  "success": true,
+  "message": "Pet 검색이 완료되었습니다.",
+  "data": null,
+  "error": null
+}
+```
+
+**Response JSON — 200 L1 사용자**
+
+```json
+{
+  "success": true,
+  "message": "Pet 검색이 완료되었습니다.",
+  "data": {
+    "petId": 1,
+    "publicTag": "몽이#A7K2",
+    "nickname": "몽이",
+    "profileUrl": null,
+    "verified": false,
+    "relationship": null
   },
   "error": null
 }
@@ -572,8 +604,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 | HTTP | 대표 ErrorCode |
 |---:|---|
+| `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
