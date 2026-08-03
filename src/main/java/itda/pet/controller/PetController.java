@@ -1,13 +1,17 @@
 package itda.pet.controller;
 
+import itda.common.constants.ErrorCode;
 import itda.common.dto.ApiResponse;
+import itda.common.exception.BusinessException;
 import itda.common.security.CurrentUser;
 import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
 import itda.pet.dto.PetResponse;
+import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
+import itda.pet.service.query.PetSearchQueryService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -18,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -26,13 +31,16 @@ public class PetController {
 
     private final PetCreationService petCreationService;
     private final MyPetQueryService myPetQueryService;
+    private final PetSearchQueryService petSearchQueryService;
 
     public PetController(
             PetCreationService petCreationService,
-            MyPetQueryService myPetQueryService
+            MyPetQueryService myPetQueryService,
+            PetSearchQueryService petSearchQueryService
     ) {
         this.petCreationService = petCreationService;
         this.myPetQueryService = myPetQueryService;
+        this.petSearchQueryService = petSearchQueryService;
     }
 
     @PostMapping
@@ -69,6 +77,23 @@ public class PetController {
         ));
     }
 
+    @GetMapping("/search")
+    public ResponseEntity<ApiResponse<PetSearchItemResponse>> searchPet(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String publicTag
+    ) {
+        String normalizedPublicTag = normalizePublicTag(publicTag);
+        PetSearchItemResponse result = petSearchQueryService.search(
+                currentUser.id(),
+                normalizedPublicTag
+        ).orElse(null);
+
+        return ResponseEntity.ok(ApiResponse.ok(
+                result,
+                "Pet 검색이 완료되었습니다."
+        ));
+    }
+
     @GetMapping("/{petId}")
     public ResponseEntity<ApiResponse<PetResponse>> getMyPet(
             @AuthenticationPrincipal CurrentUser currentUser,
@@ -78,5 +103,21 @@ public class PetController {
                 myPetQueryService.getMyPet(currentUser.id(), petId),
                 "Pet 상세 정보가 조회되었습니다."
         ));
+    }
+
+    private String normalizePublicTag(String publicTag) {
+        if (publicTag == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+
+        String normalizedPublicTag = publicTag.strip();
+        int codePointLength = normalizedPublicTag.codePointCount(
+                0,
+                normalizedPublicTag.length()
+        );
+        if (normalizedPublicTag.isEmpty() || codePointLength > 30) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+        return normalizedPublicTag;
     }
 }

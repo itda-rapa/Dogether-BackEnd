@@ -1,6 +1,8 @@
 package itda.pet.repository;
 
 import itda.pet.domain.Pet;
+import itda.pet.domain.PetStatus;
+import itda.user.domain.AccountStatus;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
@@ -14,6 +16,21 @@ import org.springframework.data.repository.query.Param;
 public interface PetRepository extends JpaRepository<Pet, Long> {
 
     boolean existsByPublicTag(String publicTag);
+
+    @Query("""
+            select pet
+            from Pet pet
+            join fetch pet.owner owner
+            where pet.publicTag = :publicTag
+              and pet.status = :petStatus
+              and pet.deletedAt is null
+              and owner.accountStatus = :ownerStatus
+            """)
+    Optional<Pet> findSearchableByPublicTag(
+            @Param("publicTag") String publicTag,
+            @Param("petStatus") PetStatus petStatus,
+            @Param("ownerStatus") AccountStatus ownerStatus
+    );
 
     long countByOwner_IdAndDeletedAtIsNull(Long ownerUserId);
 

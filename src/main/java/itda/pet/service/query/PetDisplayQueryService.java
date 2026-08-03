@@ -3,12 +3,15 @@ package itda.pet.service.query;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.pet.domain.Pet;
+import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
+import itda.user.domain.AccountStatus;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +33,22 @@ public class PetDisplayQueryService {
                 );
 
         return toDisplaySummary(pet);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PetDisplaySummary> findSearchablePetDisplaySummary(
+            String publicTag
+    ) {
+        if (publicTag == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+
+        return petRepository.findSearchableByPublicTag(
+                        publicTag,
+                        PetStatus.ACTIVE,
+                        AccountStatus.ACTIVE
+                )
+                .map(this::toDisplaySummary);
     }
 
     @Transactional(readOnly = true)
