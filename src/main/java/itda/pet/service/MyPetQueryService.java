@@ -3,6 +3,7 @@ package itda.pet.service;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.pet.domain.Pet;
+import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
 import java.util.List;
@@ -32,6 +33,21 @@ public class MyPetQueryService {
         }
 
         return PetResponse.from(pet, pet.getOwner().isActivePet(petId));
+    }
+
+    @Transactional(readOnly = true)
+    public void requireOwnedUndeletedPet(Long userId, Long petId) {
+        Pet pet = petRepository.findById(petId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PET_NOT_FOUND)
+                );
+        if (pet.getStatus() == PetStatus.DELETED
+                || pet.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.PET_NOT_FOUND);
+        }
+        if (!pet.belongsTo(userId)) {
+            throw new BusinessException(ErrorCode.PET_NOT_OWNED);
+        }
     }
 
     @Transactional(readOnly = true)
