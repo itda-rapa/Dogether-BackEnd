@@ -264,16 +264,25 @@ paths:
       tags: [Pet, Friend]
       summary: Pet 공개 태그 검색
       operationId: searchPetByPublicTag
-      description: 친구 요청 진입점이다. 차단 관계와 자기 소유 Pet은 결과에서 제외한다.
+      description: |
+        친구 요청 진입점이다. 차단 관계와 자기 소유 Pet은 결과에서 제외한다.
+        publicTag의 앞뒤 공백은 Java String.strip()의
+        Character.isWhitespace 기준으로 한 번 제거한 뒤 정확 일치 검색한다.
+        strip 후 빈 값이거나 Unicode code point 수가 30을 초과하면
+        VALIDATION_FAILED를 반환한다.
+        내부 공백, 대소문자와 Unicode 구성은 변경하지 않으며,
+        String.strip()이 제거하지 않는 공백 문자를 별도로 제거하지 않는다.
       parameters:
         - name: publicTag
           in: query
           required: true
+          description: String.strip() 후 비어 있지 않고 Unicode code point 수가 30 이하여야 한다.
           schema:
             type: string
-            maxLength: 30
           example: 몽이#A7K2
       responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '200':
@@ -282,8 +291,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PetSearchEnvelope'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+              examples:
+                success:
+                  summary: L2 사용자의 정확 검색 성공
+                  value:
+                    success: true
+                    message: Pet 검색이 완료되었습니다.
+                    data:
+                      petId: 2
+                      publicTag: 몽이#A7K2
+                      nickname: 몽이
+                      profileUrl: null
+                      verified: false
+                      relationship: NONE
+                    error: null
+                noResult:
+                  summary: 결과 없음 또는 제외 대상
+                  value:
+                    success: true
+                    message: Pet 검색이 완료되었습니다.
+                    data: null
+                    error: null
+                l1User:
+                  summary: Active Pet이 없는 L1 사용자의 검색 성공
+                  value:
+                    success: true
+                    message: Pet 검색이 완료되었습니다.
+                    data:
+                      petId: 2
+                      publicTag: 몽이#A7K2
+                      nickname: 몽이
+                      profileUrl: null
+                      verified: false
+                      relationship: null
+                    error: null
 
   /pets/{petId}:
     parameters:

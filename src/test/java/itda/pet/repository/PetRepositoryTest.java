@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
+import itda.pet.domain.PetStatus;
+import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -103,6 +105,88 @@ class PetRepositoryTest {
     }
 
     @Nested
+    @DisplayName("Describe: 검색 가능한 Pet PublicTag 정확 조회")
+    class DescribeSearchablePublicTagQuery {
+
+        @Test
+        @DisplayName("It: ACTIVE·미삭제 Pet과 ACTIVE owner를 정확 조회한다")
+        void itFindsExactSearchablePetWithOwner() {
+            Pet saved = petRepository.saveAndFlush(
+                    pet("몽이#A7K2", "몽이", null)
+            );
+            entityManager.clear();
+
+            Pet found = petRepository.findSearchableByPublicTag(
+                    "몽이#A7K2",
+                    PetStatus.ACTIVE,
+                    AccountStatus.ACTIVE
+            ).orElseThrow();
+
+            assertThat(found.getId()).isEqualTo(saved.getId());
+            assertThat(found.getOwner().getId()).isEqualTo(owner.getId());
+        }
+
+        @Test
+        @DisplayName("It: Repository에서 공백·부분·대소문자를 변환하지 않는다")
+        void itDoesNotNormalizeOrPartiallyMatch() {
+            petRepository.saveAndFlush(
+                    pet("몽이#A7K2", "몽이", null)
+            );
+            entityManager.clear();
+
+            assertThat(search(" 몽이#A7K2 ")).isEmpty();
+            assertThat(search("몽이#A7K")).isEmpty();
+            assertThat(search("몽이#a7k2")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: SUSPENDED Pet을 제외한다")
+        void itExcludesSuspendedPet() {
+            Pet saved = petRepository.saveAndFlush(
+                    pet("몽이#A7K2", "몽이", null)
+            );
+            jdbcTemplate.update(
+                    "update pets set status = 'SUSPENDED' where id = ?",
+                    saved.getId()
+            );
+            entityManager.clear();
+
+            assertThat(search("몽이#A7K2")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: DELETED Pet을 제외한다")
+        void itExcludesDeletedPet() {
+            Pet saved = petRepository.saveAndFlush(
+                    pet("몽이#A7K2", "몽이", null)
+            );
+            jdbcTemplate.update("""
+                    update pets
+                       set status = 'DELETED', deleted_at = CURRENT_TIMESTAMP
+                     where id = ?
+                    """, saved.getId());
+            entityManager.clear();
+
+            assertThat(search("몽이#A7K2")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: ACTIVE가 아닌 owner의 Pet을 제외한다")
+        void itExcludesInactiveOwner() {
+            petRepository.saveAndFlush(
+                    pet("몽이#A7K2", "몽이", null)
+            );
+            jdbcTemplate.update(
+                    "update users set account_status = 'SUSPENDED' where id = ?",
+                    owner.getId()
+            );
+            entityManager.clear();
+
+            assertThat(search("몽이#A7K2")).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("Describe: owner별 미삭제 Pet 조회")
     class DescribeOwnerQueries {
 
@@ -186,6 +270,14 @@ class PetRepositoryTest {
                 "보호자",
                 "보호자#" + unique.substring(0, 8),
                 "4113111500"
+        );
+    }
+
+    private java.util.Optional<Pet> search(String publicTag) {
+        return petRepository.findSearchableByPublicTag(
+                publicTag,
+                PetStatus.ACTIVE,
+                AccountStatus.ACTIVE
         );
     }
 

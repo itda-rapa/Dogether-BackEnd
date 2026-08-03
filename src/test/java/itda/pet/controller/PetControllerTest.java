@@ -1,5 +1,6 @@
 package itda.pet.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -15,19 +16,23 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.common.filter.JwtFilter;
 import itda.common.security.CurrentUser;
+import itda.friend.domain.FriendRelationship;
 import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
+import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.service.ActivePetAssignmentStatus;
 import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreateCommand;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
+import itda.pet.service.query.PetSearchQueryService;
 import itda.user.domain.Role;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,6 +65,9 @@ class PetControllerTest {
 
     @MockitoBean
     private MyPetQueryService myPetQueryService;
+
+    @MockitoBean
+    private PetSearchQueryService petSearchQueryService;
 
     @MockitoBean
     private JwtFilter jwtFilter;
@@ -289,6 +297,159 @@ class PetControllerTest {
     }
 
     @Nested
+    @DisplayName("Describe: GET /pets/search")
+    class DescribeSearchPet {
+
+        @Test
+        @DisplayName("It: 검색 결과를 공통 ApiResponse로 반환한다")
+        void itReturnsSearchResult() throws Exception {
+            String publicTag = "몽이#B8M3";
+            given(petSearchQueryService.search(USER_ID, publicTag))
+                    .willReturn(Optional.of(searchItem(
+                            publicTag,
+                            FriendRelationship.NONE
+                    )));
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam("publicTag", publicTag))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.message")
+                            .value("Pet 검색이 완료되었습니다."))
+                    .andExpect(jsonPath("$.data.petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data.publicTag").value(publicTag))
+                    .andExpect(jsonPath("$.data.profileUrl").isEmpty())
+                    .andExpect(jsonPath("$.data.verified").value(false))
+                    .andExpect(jsonPath("$.data.relationship").value("NONE"))
+                    .andExpect(jsonPath("$.error").isEmpty());
+        }
+
+        @Test
+        @DisplayName("It: 검색 결과가 없으면 200과 data null을 반환한다")
+        void itReturnsNullDataWhenNoPetIsVisible() throws Exception {
+            String publicTag = "없는펫#B8M3";
+            given(petSearchQueryService.search(USER_ID, publicTag))
+                    .willReturn(Optional.empty());
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam("publicTag", publicTag))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data").isEmpty())
+                    .andExpect(jsonPath("$.error").isEmpty());
+        }
+
+        @Test
+        @DisplayName("It: String.strip 대상 앞뒤 공백을 제거해 Service에 전달한다")
+        void itStripsBoundaryWhitespaceOnce() throws Exception {
+            String normalized = "몽이#B8M3";
+            given(petSearchQueryService.search(USER_ID, normalized))
+                    .willReturn(Optional.empty());
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam(
+                                    "publicTag",
+                                    " \u3000" + normalized + "\u3000 "
+                            ))
+                    .andExpect(status().isOk());
+
+            then(petSearchQueryService).should()
+                    .search(USER_ID, normalized);
+        }
+
+        @Test
+        @DisplayName("It: 내부 공백과 대소문자·Unicode 구성을 변경하지 않는다")
+        void itPreservesInternalContent() throws Exception {
+            String publicTag = "우리 몽이#a7k2";
+            given(petSearchQueryService.search(USER_ID, publicTag))
+                    .willReturn(Optional.empty());
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam("publicTag", publicTag))
+                    .andExpect(status().isOk());
+
+            then(petSearchQueryService).should()
+                    .search(USER_ID, publicTag);
+        }
+
+        @Test
+        @DisplayName("It: String.strip 비대상 NBSP를 제거하거나 치환하지 않는다")
+        void itPreservesNoBreakSpace() throws Exception {
+            assertThat(Character.isWhitespace(0x00A0)).isFalse();
+            String publicTag = "\u00A0몽이#B8M3\u00A0";
+            given(petSearchQueryService.search(USER_ID, publicTag))
+                    .willReturn(Optional.empty());
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam("publicTag", publicTag))
+                    .andExpect(status().isOk());
+
+            then(petSearchQueryService).should()
+                    .search(USER_ID, publicTag);
+        }
+
+        @Test
+        @DisplayName("It: 누락과 strip 후 빈 값은 VALIDATION_FAILED다")
+        void itRejectsMissingAndBlankPublicTag() throws Exception {
+            mockMvc.perform(get("/pets/search"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(get("/pets/search")
+                            .queryParam("publicTag", " \u3000\t "))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petSearchQueryService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: strip 후 Unicode code point 수로 30자 경계를 검증한다")
+        void itValidatesNormalizedCodePointLength() throws Exception {
+            String exactlyThirty = "가".repeat(25) + "#A7K2";
+            given(petSearchQueryService.search(USER_ID, exactlyThirty))
+                    .willReturn(Optional.empty());
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam(
+                                    "publicTag",
+                                    "  " + exactlyThirty + "  "
+                            ))
+                    .andExpect(status().isOk());
+            mockMvc.perform(get("/pets/search")
+                            .queryParam(
+                                    "publicTag",
+                                    "가".repeat(26) + "#A7K2"
+                            ))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petSearchQueryService).should()
+                    .search(USER_ID, exactlyThirty);
+        }
+
+        @Test
+        @DisplayName("It: 보조 문자도 UTF-16 길이가 아닌 code point로 센다")
+        void itCountsSupplementaryCharactersAsCodePoints() throws Exception {
+            String publicTag = "😀".repeat(25) + "#A7K2";
+            assertThat(publicTag.length()).isGreaterThan(30);
+            assertThat(publicTag.codePointCount(0, publicTag.length()))
+                    .isEqualTo(30);
+            given(petSearchQueryService.search(USER_ID, publicTag))
+                    .willReturn(Optional.empty());
+
+            mockMvc.perform(get("/pets/search")
+                            .queryParam("publicTag", publicTag))
+                    .andExpect(status().isOk());
+
+            then(petSearchQueryService).should()
+                    .search(USER_ID, publicTag);
+        }
+    }
+
+    @Nested
     @DisplayName("Describe: GET /pets/{petId}")
     class DescribeGetMyPet {
 
@@ -379,6 +540,20 @@ class PetControllerTest {
 
     private PetResponse petResponse(boolean active) {
         return petResponse(PET_ID, PetStatus.ACTIVE, active);
+    }
+
+    private PetSearchItemResponse searchItem(
+            String publicTag,
+            FriendRelationship relationship
+    ) {
+        return new PetSearchItemResponse(
+                PET_ID,
+                publicTag,
+                "몽이",
+                null,
+                false,
+                relationship
+        );
     }
 
     private PetResponse petResponse(

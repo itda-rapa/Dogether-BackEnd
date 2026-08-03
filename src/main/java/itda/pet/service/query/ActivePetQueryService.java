@@ -6,6 +6,7 @@ import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,28 +26,46 @@ public class ActivePetQueryService {
 
     @Transactional(readOnly = true)
     public ActivePetContext requireActivePet(Long userId) {
-        User user = userRepository.findById(userId)
+        return findActivePetContext(userId)
                 .orElseThrow(ActivePetQueryService::activePetRequired);
-        if (!user.isActive() || !user.hasActivePet()) {
-            throw activePetRequired();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<ActivePetContext> findActivePet(Long userId) {
+        return findActivePetContext(userId);
+    }
+
+    private Optional<ActivePetContext> findActivePetContext(Long userId) {
+        Optional<User> userResult = userRepository.findById(userId);
+        if (userResult.isEmpty()) {
+            return Optional.empty();
         }
 
-        Pet pet = petRepository.findById(user.getActivePetId())
-                .orElseThrow(ActivePetQueryService::activePetRequired);
+        User user = userResult.get();
+        if (!user.isActive() || !user.hasActivePet()) {
+            return Optional.empty();
+        }
+
+        Optional<Pet> petResult = petRepository.findById(user.getActivePetId());
+        if (petResult.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Pet pet = petResult.get();
         if (!pet.belongsTo(userId)
                 || !pet.isActive()
                 || pet.getDeletedAt() != null) {
-            throw activePetRequired();
+            return Optional.empty();
         }
 
-        return new ActivePetContext(
+        return Optional.of(new ActivePetContext(
                 pet.getId(),
                 pet.getOwner().getId(),
                 pet.getPublicTag(),
                 pet.getNickname(),
                 null,
                 false
-        );
+        ));
     }
 
     private static BusinessException activePetRequired() {
