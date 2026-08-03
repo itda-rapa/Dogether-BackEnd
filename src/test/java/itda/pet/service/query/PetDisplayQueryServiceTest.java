@@ -14,6 +14,7 @@ import itda.common.exception.BusinessException;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
+import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -38,6 +39,7 @@ class PetDisplayQueryServiceTest {
     private static final Long PET_ID = 2L;
     private static final Long SECOND_PET_ID = 3L;
     private static final Long THIRD_PET_ID = 4L;
+    private static final String PUBLIC_TAG = "몽이#B8M3";
 
     @Mock
     private PetRepository petRepository;
@@ -134,6 +136,54 @@ class PetDisplayQueryServiceTest {
                 assertThat(result.status()).isEqualTo(PetStatus.DELETED);
                 assertThat(result.deletedAt()).isEqualTo(deletedAt);
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: 검색 가능한 Pet 표시 요약을 조회한다")
+    class DescribeFindSearchablePetDisplaySummary {
+
+        @Test
+        @DisplayName("It: null PublicTag는 Repository 호출 없이 거절한다")
+        void itRejectsNullPublicTag() {
+            assertErrorCode(
+                    () -> service.findSearchablePetDisplaySummary(null),
+                    ErrorCode.VALIDATION_FAILED
+            );
+
+            then(petRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 검색 가능한 Pet이 없으면 empty를 반환한다")
+        void itReturnsEmptyWhenNoPetIsSearchable() {
+            given(petRepository.findSearchableByPublicTag(
+                    PUBLIC_TAG,
+                    PetStatus.ACTIVE,
+                    AccountStatus.ACTIVE
+            )).willReturn(Optional.empty());
+
+            assertThat(service.findSearchablePetDisplaySummary(PUBLIC_TAG))
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: 기존 표시 정책으로 검색 결과를 조립한다")
+        void itMapsSearchablePetWithExistingDisplayPolicy() {
+            Pet pet = pet(PetStatus.ACTIVE, null);
+            given(petRepository.findSearchableByPublicTag(
+                    PUBLIC_TAG,
+                    PetStatus.ACTIVE,
+                    AccountStatus.ACTIVE
+            )).willReturn(Optional.of(pet));
+
+            PetDisplaySummary result = service
+                    .findSearchablePetDisplaySummary(PUBLIC_TAG)
+                    .orElseThrow();
+
+            assertCommonSummary(result);
+            assertThat(result.profileUrl()).isNull();
+            assertThat(result.verified()).isFalse();
         }
     }
 

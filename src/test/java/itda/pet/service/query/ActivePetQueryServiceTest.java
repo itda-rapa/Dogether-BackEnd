@@ -214,6 +214,127 @@ class ActivePetQueryServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: Optional Active Pet을 조회한다")
+    class DescribeFindActivePet {
+
+        @Test
+        @DisplayName("It: User가 없으면 empty를 반환한다")
+        void itReturnsEmptyWithoutUser() {
+            given(userRepository.findById(USER_ID))
+                    .willReturn(Optional.empty());
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 비활성 User면 empty이고 Pet을 조회하지 않는다")
+        void itReturnsEmptyForInactiveUser() {
+            User user = user(USER_ID, AccountStatus.SUSPENDED, PET_ID);
+            given(userRepository.findById(USER_ID))
+                    .willReturn(Optional.of(user));
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: activePetId가 없으면 empty이고 Pet을 조회하지 않는다")
+        void itReturnsEmptyWithoutActivePetId() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, null);
+            given(userRepository.findById(USER_ID))
+                    .willReturn(Optional.of(user));
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: activePetId의 Pet이 없으면 empty를 반환한다")
+        void itReturnsEmptyWithoutPet() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            given(userRepository.findById(USER_ID))
+                    .willReturn(Optional.of(user));
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.empty());
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: Active Pet이 다른 User 소유이면 empty를 반환한다")
+        void itReturnsEmptyForOtherOwnersPet() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            Pet pet = pet(
+                    PET_ID,
+                    user(3L, AccountStatus.ACTIVE, null)
+            );
+            givenUserAndPet(user, pet);
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: Active Pet이 SUSPENDED 상태이면 empty를 반환한다")
+        void itReturnsEmptyForSuspendedPet() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            Pet pet = pet(PET_ID, user);
+            setPetState(pet, PetStatus.SUSPENDED, null);
+            givenUserAndPet(user, pet);
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: Active Pet이 DELETED 상태이고 deletedAt이 존재하면 empty를 반환한다")
+        void itReturnsEmptyForDeletedPet() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            Pet pet = pet(PET_ID, user);
+            setPetState(
+                    pet,
+                    PetStatus.DELETED,
+                    Instant.parse("2026-07-28T00:00:00Z")
+            );
+            givenUserAndPet(user, pet);
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: ACTIVE 상태여도 deletedAt이 존재하면 empty를 반환한다")
+        void itReturnsEmptyForActivePetWithDeletedAt() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            Pet pet = pet(PET_ID, user);
+            setPetState(
+                    pet,
+                    PetStatus.ACTIVE,
+                    Instant.parse("2026-07-28T00:00:00Z")
+            );
+            givenUserAndPet(user, pet);
+
+            assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: 유효한 Active Pet이면 Context를 반환한다")
+        void itReturnsUsableActivePet() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            Pet pet = pet(PET_ID, user);
+            givenUserAndPet(user, pet);
+
+            ActivePetContext result = service.findActivePet(USER_ID)
+                    .orElseThrow();
+
+            assertThat(result.petId()).isEqualTo(PET_ID);
+            assertThat(result.ownerUserId()).isEqualTo(USER_ID);
+        }
+    }
+
     private void assertActivePetRequired() {
         assertThatThrownBy(() -> service.requireActivePet(USER_ID))
                 .isInstanceOf(BusinessException.class)
