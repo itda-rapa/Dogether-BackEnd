@@ -711,7 +711,7 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - operationId: `updatePet`
 - 인증: Bearer Token 필요
-- 설명: nickname, breedName, sex, neutered, birthDate 중<br>인증 당시 스냅샷과 다른 값이 생기면 인증 배지를 해제한다.<br>
+- 설명: 인증 User가 소유한 미삭제 Pet 정보를 부분 수정한다.<br>현재 Active Pet이 아니거나 `SUSPENDED` 상태인 본인 Pet도 허용한다.<br>Pet 행 없음 또는 삭제를 소유권보다 먼저 `PET_NOT_FOUND`로 처리하고, 미삭제 타인 소유 Pet은 `PET_NOT_OWNED`로 처리한다.<br>현재 Verification 저장 구조가 없으므로 미인증 Pet만 수정하며 응답은 `verified=false`, `verifiedAt=null`이다.<br>향후 Verification 구현 이후 `nickname`, `breedName`, `sex`, `neutered`, `birthDate`가 인증 스냅샷과 달라지면 같은 트랜잭션에서 배지를 해제해야 한다.<br>
 
 **파라미터**
 
@@ -723,6 +723,12 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 
 - 요청 본문: 필수
 - 스키마: [`PetUpdateRequest`](#schema-petupdaterequest)
+- 필드 생략은 기존 값 유지, nullable 필드의 명시적 `null`은 초기화를 의미한다.
+- `nickname`과 `personalityTags`의 `null`은 허용하지 않으며 `personalityTags: []`는 전체 태그를 제거한다.
+- HTTP Body 없음, JSON `null`, `{}`, unknown field와 수정 불가 필드는 `VALIDATION_FAILED`다.
+- 생성 API의 값 정규화 정책을 유지하지만 PATCH의 JSON wire 타입은 별도로 엄격하게 검사한다. 문자열·숫자·boolean 간 coercion을 하지 않는다.
+- `breedName`, `bio`, `careNote`의 textual value는 trim하지 않고 빈 문자열·공백 문자열을 그대로 저장한다.
+- 지원 필드가 하나 이상 있지만 모든 값이 기존 값과 같으면 `200` no-op이다. 이때 version·updatedAt 갱신을 강제하지 않는다.
 
 **Request JSON**
 
@@ -752,13 +758,14 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `409` | 낙관적 잠금 충돌 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
 **Response JSON — 200**
 
 ```json
 {
   "success": true,
-  "message": "처리 내용입니다.",
+  "message": "Pet 정보가 수정되었습니다.",
   "data": {
     "petId": 1,
     "ownerUserId": 1,
@@ -779,8 +786,8 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
     "profileUrl": null,
     "status": "ACTIVE",
     "deletedAt": null,
-    "verified": true,
-    "verifiedAt": "2026-07-24T09:00:00Z",
+    "verified": false,
+    "verifiedAt": null,
     "active": true
   },
   "error": null
@@ -793,8 +800,9 @@ M1은 폴링 방식이며 WebSocket, Push, 읽음 표시, 메시지 수정·삭�
 |---:|---|
 | `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `PET_NOT_OWNED` |
+| `404` | `PET_NOT_FOUND` |
+| `409` | `CONCURRENT_UPDATE_CONFLICT` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 
@@ -2741,18 +2749,30 @@ AI 실패·지연·컨텍스트 부족은 오류가 아니라 `200` 과 빈 폼�
 <a id="schema-petupdaterequest"></a>
 ### `PetUpdateRequest`
 
+필드 생략은 기존 값 유지, nullable 필드의 `null`은 초기화를 의미한다. `nickname`과
+`personalityTags`는 null을 허용하지 않고 `personalityTags`의 빈 배열은 전체 제거다.
+객체에는 아래 지원 필드만 사용할 수 있으며 unknown field는 하나라도 있으면 요청
+전체를 거절한다. 정적 Schema의 `minProperties: 1`, `additionalProperties: false`와
+별개로 런타임 parser가 지원 필드 presence를 검사한다.
+
+Pet 생성 API의 trim·blank·길이·범위 정책은 값이 올바른 JSON 타입으로 전달된 뒤
+재사용한다. PATCH의 wire 타입은 엄격하므로 문자열 필드는 string, enum과 날짜는
+string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
+배열만 허용한다. `"true"`를 boolean으로, `"1.25"`를 number로 바꾸는 coercion은
+하지 않는다.
+
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
-| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
-| `breedName` | ㄴ | string / null | maxLength: 100 | 사용자 입력 또는 향후 동물등록 조회의 `kindNm`을 반영할 수 있는 견종명 |
+| `nickname` | ㄴ | string | minLength: 1, maxLength: 30 | null 금지. trim 후 1자 이상. 이모지 및 emoji-like pictographic 문자·기호(예: ©, ™, ☀, ♥) 사용 불가 |
+| `breedName` | ㄴ | string / null | maxLength: 100 | null은 초기화. textual value는 trim하지 않으며 빈 문자열·공백 문자열을 그대로 저장 |
 | `sex` | ㄴ | [`NullablePetSex`](#schema-nullablepetsex) | - | [`NullablePetSex`](#schema-nullablepetsex) |
 | `neutered` | ㄴ | boolean / null | - | - |
 | `birthDate` | ㄴ | string / null | format: date | - |
 | `weightKg` | ㄴ | number / null | minimum: 0, maximum: 999.99, multipleOf: 0.01 | 0 이상 999.99 이하, 소수 둘째 자리까지 |
 | `sizeCode` | ㄴ | string / null | enum: SMALL, MEDIUM, LARGE, null | - |
-| `bio` | ㄴ | string / null | maxLength: 500 | - |
-| `personalityTags` | ㄴ | array<string> | maxItems: 10 | - |
-| `careNote` | ㄴ | string / null | maxLength: 500 | - |
+| `bio` | ㄴ | string / null | maxLength: 500 | null은 초기화. textual value는 trim하지 않으며 빈 문자열·공백 문자열을 그대로 저장 |
+| `personalityTags` | ㄴ | array<string> | maxItems: 10 | null과 내부 null 금지. `[]`는 전체 제거. trim·정렬·중복 제거 없음 |
+| `careNote` | ㄴ | string / null | maxLength: 500 | null은 초기화. textual value는 trim하지 않으며 빈 문자열·공백 문자열을 그대로 저장 |
 
 <a id="schema-nullablepetsex"></a>
 ### `NullablePetSex`

@@ -25,7 +25,7 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
 | POST | `/pets` | 직접 입력 Pet 등록 |
 | GET | `/pets/me` | Active Pet 우선, 나머지 생성순 내 Pet 목록 |
 | GET | `/pets/{petId}` | Pet 상세 |
-| PATCH | `/pets/{petId}` | Pet 수정, 인증 근거 변경 시 배지 해제 |
+| PATCH | `/pets/{petId}` | 소유 미삭제 Pet 부분 수정 |
 | DELETE | `/pets/{petId}` | Active Pet 삭제 금지 |
 | GET | `/pets/search?publicTag=` | Pet 공개 태그 정확 검색 |
 | POST | `/pet-registration/attempts` | 등록번호/RFID 조회 |
@@ -58,6 +58,24 @@ M1 제외: Google 로그인, 이메일 인증, 비밀번호 찾기·재설정, G
   `404 PET_NOT_FOUND`를 반환하고, 삭제되지 않은 Pet이 존재하지만 다른 User
   소유인 경우에만 `403 PET_NOT_OWNED`를 반환한다. 따라서 다른 User 소유이면서
   삭제된 Pet도 `404 PET_NOT_FOUND`로 처리한다.
+- `PATCH /pets/{petId}`도 같은 존재·삭제·소유권 오류 우선순위를 사용한다.
+  본인 소유 미삭제 `ACTIVE`·`SUSPENDED` Pet과 현재 Active Pet이 아닌 Pet을
+  수정할 수 있다. 필드 생략은 유지, nullable 필드의 명시적 `null`은 초기화다.
+  `nickname`과 `personalityTags`의 null은 금지하며 `personalityTags: []`는
+  전체 제거다.
+- PATCH Body 없음, JSON `null`, 빈 객체, unknown field와 수정 불가 필드는
+  `400 VALIDATION_FAILED`다. PATCH는 생성 입력의 값 정규화·Validation 정책을
+  재사용하되 JSON wire 타입은 엄격하게 검사하고 scalar coercion을 하지 않는다.
+  `breedName`, `bio`, `careNote`의 textual value는 trim하거나 빈 값을 null로
+  바꾸지 않는다.
+- 지원 필드가 있지만 값이 모두 같으면 `200` no-op이며 version·updatedAt 갱신을
+  강제하지 않는다. 실제 변경은 기존 `@Version`과 JPA Auditing을 따르고 낙관적
+  충돌은 `409 CONCURRENT_UPDATE_CONFLICT`다. nickname 변경도 publicTag를
+  재생성하지 않으며 owner, status, deletedAt, profileAsset은 수정할 수 없다.
+- 현재 실제 Migration에는 Verification 저장 구조가 없으므로 PATCH 응답은
+  `verified=false`, `verifiedAt=null`을 유지한다. 향후 Verification 구현 이후
+  nickname, breedName, sex, neutered, birthDate 변경 시 같은 트랜잭션에서 인증
+  배지를 해제해야 한다. 이번 PATCH에는 신규 Flyway·ERD 변경이 없다.
 - 등록정보 Provider는 M1에서 동기 처리하며 canonical 등록번호가 없으면 `REJECTED`로 종결한다.
 - Attempt는 Provider 완료 후 최종 상태만 저장하고 DB에 `PENDING`을 저장하지 않는다.
 - consume은 `SUCCEEDED` Attempt에서만 허용하고 중복 consume은 `409`다.
