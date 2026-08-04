@@ -8,22 +8,30 @@ import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
 import itda.pet.dto.PetResponse;
 import itda.pet.dto.PetSearchItemResponse;
+import itda.pet.dto.PetUpdateRequest;
+import itda.pet.dto.PetUpdateRequestParser;
 import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
+import itda.pet.service.PetUpdateService;
 import itda.pet.service.query.PetSearchQueryService;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/pets")
@@ -32,15 +40,21 @@ public class PetController {
     private final PetCreationService petCreationService;
     private final MyPetQueryService myPetQueryService;
     private final PetSearchQueryService petSearchQueryService;
+    private final PetUpdateRequestParser petUpdateRequestParser;
+    private final PetUpdateService petUpdateService;
 
     public PetController(
             PetCreationService petCreationService,
             MyPetQueryService myPetQueryService,
-            PetSearchQueryService petSearchQueryService
+            PetSearchQueryService petSearchQueryService,
+            PetUpdateRequestParser petUpdateRequestParser,
+            PetUpdateService petUpdateService
     ) {
         this.petCreationService = petCreationService;
         this.myPetQueryService = myPetQueryService;
         this.petSearchQueryService = petSearchQueryService;
+        this.petUpdateRequestParser = petUpdateRequestParser;
+        this.petUpdateService = petUpdateService;
     }
 
     @PostMapping
@@ -102,6 +116,33 @@ public class PetController {
         return ResponseEntity.ok(ApiResponse.ok(
                 myPetQueryService.getMyPet(currentUser.id(), petId),
                 "Pet 상세 정보가 조회되었습니다."
+        ));
+    }
+
+    @PatchMapping("/{petId}")
+    @Operation(
+            summary = "Pet 정보 부분 수정",
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            schema = @Schema(
+                                    implementation = PetUpdateRequest.class
+                            )
+                    )
+            )
+    )
+    public ResponseEntity<ApiResponse<PetResponse>> updatePet(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId,
+            @RequestBody JsonNode requestBody
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                petUpdateService.update(
+                        currentUser.id(),
+                        petId,
+                        petUpdateRequestParser.parse(requestBody)
+                ),
+                "Pet 정보가 수정되었습니다."
         ));
     }
 

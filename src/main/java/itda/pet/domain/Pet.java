@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -164,6 +165,76 @@ public class Pet extends BaseEntity {
 
     public boolean isDeleted() {
         return status == PetStatus.DELETED;
+    }
+
+    public void changeNickname(String nickname) {
+        if (!Objects.equals(this.nickname, nickname)) {
+            this.nickname = nickname;
+        }
+    }
+
+    public void changeBreedName(String breedName) {
+        if (!Objects.equals(this.breedName, breedName)) {
+            this.breedName = breedName;
+        }
+    }
+
+    public void changeSex(PetSex sex) {
+        if (!Objects.equals(this.sex, sex)) {
+            this.sex = sex;
+        }
+    }
+
+    public void changeNeutered(Boolean neutered) {
+        if (!Objects.equals(this.neutered, neutered)) {
+            this.neutered = neutered;
+        }
+    }
+
+    public void changeBirthDate(LocalDate birthDate) {
+        if (!Objects.equals(this.birthDate, birthDate)) {
+            this.birthDate = birthDate;
+        }
+    }
+
+    public void changeWeightKg(BigDecimal weightKg) {
+        if (!sameDecimal(this.weightKg, weightKg)) {
+            this.weightKg = weightKg;
+        }
+    }
+
+    public void changeSizeCode(PetSizeCode sizeCode) {
+        if (!Objects.equals(this.sizeCode, sizeCode)) {
+            this.sizeCode = sizeCode;
+        }
+    }
+
+    public void changeBio(String bio) {
+        if (!Objects.equals(this.bio, bio)) {
+            this.bio = bio;
+        }
+    }
+
+    public void changePersonalityTags(List<String> personalityTags) {
+        if (!Objects.equals(this.personalityTags, personalityTags)) {
+            this.personalityTags = copyPersonalityTags(personalityTags);
+        }
+    }
+
+    public void changeCareNote(String careNote) {
+        if (!Objects.equals(this.careNote, careNote)) {
+            this.careNote = careNote;
+        }
+    }
+
+    private static boolean sameDecimal(
+            BigDecimal currentValue,
+            BigDecimal newValue
+    ) {
+        if (currentValue == null || newValue == null) {
+            return currentValue == newValue;
+        }
+        return currentValue.compareTo(newValue) == 0;
     }
 
     private static List<String> copyPersonalityTags(
