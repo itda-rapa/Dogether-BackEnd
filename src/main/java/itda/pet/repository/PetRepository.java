@@ -20,6 +20,14 @@ public interface PetRepository extends JpaRepository<Pet, Long> {
     @Query("""
             select pet
             from Pet pet
+            join fetch pet.owner
+            where pet.id = :petId
+            """)
+    Optional<Pet> findByIdWithOwner(@Param("petId") Long petId);
+
+    @Query("""
+            select pet
+            from Pet pet
             join fetch pet.owner owner
             where pet.publicTag = :publicTag
               and pet.status = :petStatus

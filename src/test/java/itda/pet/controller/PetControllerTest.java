@@ -8,6 +8,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -22,11 +23,14 @@ import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.dto.PetSearchItemResponse;
+import itda.pet.dto.PetUpdateRequestParser;
 import itda.pet.service.ActivePetAssignmentStatus;
 import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreateCommand;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
+import itda.pet.service.PetUpdateCommand;
+import itda.pet.service.PetUpdateService;
 import itda.pet.service.query.PetSearchQueryService;
 import itda.user.domain.Role;
 import java.math.BigDecimal;
@@ -39,6 +43,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -47,10 +52,12 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(PetController.class)
 @AutoConfigureMockMvc(addFilters = false)
+@Import(PetUpdateRequestParser.class)
 @DisplayName("PetController")
 class PetControllerTest {
 
@@ -68,6 +75,9 @@ class PetControllerTest {
 
     @MockitoBean
     private PetSearchQueryService petSearchQueryService;
+
+    @MockitoBean
+    private PetUpdateService petUpdateService;
 
     @MockitoBean
     private JwtFilter jwtFilter;
@@ -247,6 +257,154 @@ class PetControllerTest {
                                     ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()
                             ));
             then(myPetQueryService).shouldHaveNoInteractions();
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: PATCH /pets/{petId}")
+    class DescribeUpdatePet {
+
+        @Test
+        @DisplayName("It: strict parser의 Command와 인증 정보를 전달해 200을 반환한다")
+        void updatesPetAndReturnsEnvelope() throws Exception {
+            given(petUpdateService.update(
+                    eq(USER_ID),
+                    eq(PET_ID),
+                    any(PetUpdateCommand.class)
+            )).willReturn(petResponse(true));
+
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "nickname": "  몽이  ",
+                                      "bio": null,
+                                      "personalityTags": []
+                                    }
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.message")
+                            .value("Pet 정보가 수정되었습니다."))
+                    .andExpect(jsonPath("$.data.petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data.active").value(true))
+                    .andExpect(jsonPath("$.error").isEmpty());
+
+            ArgumentCaptor<PetUpdateCommand> captor =
+                    ArgumentCaptor.forClass(PetUpdateCommand.class);
+            then(petUpdateService).should()
+                    .update(eq(USER_ID), eq(PET_ID), captor.capture());
+            PetUpdateCommand command = captor.getValue();
+            assertThat(command.nickname().present()).isTrue();
+            assertThat(command.nickname().value()).isEqualTo("몽이");
+            assertThat(command.bio().present()).isTrue();
+            assertThat(command.bio().value()).isNull();
+            assertThat(command.personalityTags().present()).isTrue();
+            assertThat(command.personalityTags().value()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: Body 없음과 JSON null과 빈 객체를 거절한다")
+        void rejectsMissingNullAndEmptyBodies() throws Exception {
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("null"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petUpdateService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: malformed JSON을 기존 공통 Error Envelope로 거절한다")
+        void rejectsMalformedJson() throws Exception {
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petUpdateService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: unknown only와 known plus unknown을 거절한다")
+        void rejectsUnknownFields() throws Exception {
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"publicTag\":\"새태그#A7K2\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "bio": null,
+                                      "version": 1
+                                    }
+                                    """))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petUpdateService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: PATCH wire 타입 coercion을 거절한다")
+        void rejectsInvalidWireTypes() throws Exception {
+            List<String> invalidBodies = List.of(
+                    "{\"breedName\":123}",
+                    "{\"neutered\":\"true\"}",
+                    "{\"birthDate\":20260804}",
+                    "{\"weightKg\":\"1.25\"}",
+                    "{\"personalityTags\":[1]}",
+                    "{\"sex\":1}",
+                    "{\"sizeCode\":true}"
+            );
+
+            for (String body : invalidBodies) {
+                mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.VALIDATION_FAILED.name()));
+            }
+
+            then(petUpdateService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: Service의 Pet 오류를 기존 HTTP 계약으로 반환한다")
+        void mapsServiceBusinessException() throws Exception {
+            given(petUpdateService.update(
+                    eq(USER_ID),
+                    eq(PET_ID),
+                    any(PetUpdateCommand.class)
+            )).willThrow(new BusinessException(ErrorCode.PET_NOT_OWNED));
+
+            mockMvc.perform(patch("/pets/{petId}", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":\"초코\"}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.PET_NOT_OWNED.name()));
         }
     }
 

@@ -100,6 +100,89 @@ class PetTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: Pet 정보 변경")
+    class DescribeChange {
+
+        @Test
+        @DisplayName("It: nullable 값과 목록을 명시적으로 변경한다")
+        void changesMutableFields() {
+            Pet pet = mutablePet();
+            List<String> tags = new ArrayList<>(List.of("차분함"));
+
+            pet.changeNickname("초코");
+            pet.changeBreedName(null);
+            pet.changeSex(PetSex.MALE);
+            pet.changeNeutered(null);
+            pet.changeBirthDate(null);
+            pet.changeWeightKg(null);
+            pet.changeSizeCode(PetSizeCode.MEDIUM);
+            pet.changeBio("");
+            pet.changePersonalityTags(tags);
+            pet.changeCareNote("   ");
+            tags.add("외부 변경");
+
+            assertThat(pet.getNickname()).isEqualTo("초코");
+            assertThat(pet.getBreedName()).isNull();
+            assertThat(pet.getSex()).isEqualTo(PetSex.MALE);
+            assertThat(pet.getNeutered()).isNull();
+            assertThat(pet.getBirthDate()).isNull();
+            assertThat(pet.getWeightKg()).isNull();
+            assertThat(pet.getSizeCode()).isEqualTo(PetSizeCode.MEDIUM);
+            assertThat(pet.getBio()).isEmpty();
+            assertThat(pet.getPersonalityTags()).containsExactly("차분함");
+            assertThat(pet.getCareNote()).isEqualTo("   ");
+            assertThat(pet.getPublicTag()).isEqualTo("몽이#A7K2");
+            assertThat(pet.getOwner().getId()).isEqualTo(1L);
+            assertThat(pet.getStatus()).isEqualTo(PetStatus.ACTIVE);
+            assertThat(pet.getDeletedAt()).isNull();
+            assertThat(pet.getProfileAsset()).isNull();
+        }
+
+        @Test
+        @DisplayName("It: BigDecimal scale만 다르면 기존 인스턴스를 유지한다")
+        void treatsEqualDecimalValuesAsNoOp() {
+            Pet pet = mutablePet();
+            BigDecimal original = pet.getWeightKg();
+
+            pet.changeWeightKg(new BigDecimal("3.250"));
+
+            assertThat(pet.getWeightKg()).isSameAs(original);
+        }
+
+        @Test
+        @DisplayName("It: 목록 내용이 같으면 기존 인스턴스를 유지한다")
+        void treatsEqualListAsNoOp() {
+            Pet pet = mutablePet();
+            Object original = ReflectionTestUtils.getField(
+                    pet,
+                    "personalityTags"
+            );
+
+            pet.changePersonalityTags(List.of("친화적", "활발함"));
+
+            assertThat(ReflectionTestUtils.getField(pet, "personalityTags"))
+                    .isSameAs(original);
+        }
+    }
+
+    private Pet mutablePet() {
+        return Pet.register(
+                owner(1L),
+                "몽이#A7K2",
+                "몽이",
+                "말티즈",
+                PetSex.FEMALE,
+                true,
+                LocalDate.of(2020, 5, 1),
+                new BigDecimal("3.25"),
+                PetSizeCode.SMALL,
+                "소개",
+                List.of("친화적", "활발함"),
+                "돌봄 메모"
+        );
+    }
+
     private User owner(Long id) {
         User owner = User.register(
                 "owner@example.com",
