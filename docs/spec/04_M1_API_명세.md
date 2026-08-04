@@ -1675,7 +1675,11 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 - operationId: `deletePetFriend`
 - 인증: Bearer Token 필요
-- 설명: 기존 DIRECT 방과 메시지는 유지하며 계속 대화할 수 있다.
+- 설명: 인증 User 소유의 미삭제 source Pet과 `friendPetId`의 canonical
+  Friendship 한 건만 삭제한다. source는 현재 Active Pet일 필요가 없고
+  `ACTIVE` 또는 `SUSPENDED`를 허용한다. target Pet은 선행 조회하지 않는다.
+  기존 DIRECT ChatRoom·Participant·Message·Greeting·FriendRequest 이력은
+  변경하지 않으며, 기존 Chat 전송 조건을 충족하면 계속 대화할 수 있다.
 
 **파라미터**
 
@@ -1688,18 +1692,18 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
-| `204` | 친구 삭제 완료 | object |
+| `204` | 친구 삭제 완료, Body 없음 | 없음 |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
-| `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
-| `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `403` | source Pet 소유권 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
+| `404` | source Pet 또는 Friendship 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
 
 **대표 오류 코드**
 
 | HTTP | 대표 ErrorCode |
 |---:|---|
 | `401` | `UNAUTHORIZED` |
-| `403` | `FORBIDDEN` |
-| `404` | `RESOURCE_NOT_FOUND` |
+| `403` | `PET_NOT_OWNED` |
+| `404` | `PET_NOT_FOUND`, `FRIENDSHIP_NOT_FOUND` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 

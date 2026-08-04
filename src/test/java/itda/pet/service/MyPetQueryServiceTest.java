@@ -162,6 +162,100 @@ class MyPetQueryServiceTest {
     }
 
     @Nested
+    @DisplayName("Describe: source Pet의 소유권과 미삭제 상태를 검증한다")
+    class DescribeRequireOwnedUndeletedPet {
+
+        @Test
+        @DisplayName("It: 본인 소유 ACTIVE Pet을 허용한다")
+        void itAllowsOwnedActivePet() {
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.of(pet(user(USER_ID), null)));
+
+            service.requireOwnedUndeletedPet(USER_ID, PET_ID);
+
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: 본인 소유 SUSPENDED Pet을 허용한다")
+        void itAllowsOwnedSuspendedPet() {
+            Pet pet = pet(user(USER_ID), null);
+            ReflectionTestUtils.setField(pet, "status", PetStatus.SUSPENDED);
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.of(pet));
+
+            service.requireOwnedUndeletedPet(USER_ID, PET_ID);
+
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: 현재 Active Pet이 아니어도 허용한다")
+        void itDoesNotRequireCurrentActivePet() {
+            User owner = user(USER_ID);
+            owner.selectActivePet(99L);
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.of(pet(owner, null)));
+
+            service.requireOwnedUndeletedPet(USER_ID, PET_ID);
+
+            then(petRepository).should().findById(PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: Pet이 없으면 PET_NOT_FOUND를 반환한다")
+        void itRejectsMissingPet() {
+            given(petRepository.findById(PET_ID)).willReturn(Optional.empty());
+
+            assertErrorCode(
+                    () -> service.requireOwnedUndeletedPet(USER_ID, PET_ID),
+                    ErrorCode.PET_NOT_FOUND
+            );
+        }
+
+        @Test
+        @DisplayName("It: 삭제된 타인 Pet도 소유권보다 먼저 PET_NOT_FOUND를 반환한다")
+        void itRejectsDeletedPetBeforeOwnershipCheck() {
+            Pet pet = pet(user(9L), null);
+            ReflectionTestUtils.setField(pet, "status", PetStatus.DELETED);
+            ReflectionTestUtils.setField(pet, "deletedAt", Instant.now());
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.of(pet));
+
+            assertErrorCode(
+                    () -> service.requireOwnedUndeletedPet(USER_ID, PET_ID),
+                    ErrorCode.PET_NOT_FOUND
+            );
+        }
+
+        @Test
+        @DisplayName("It: DELETED 상태는 deletedAt과 무관하게 PET_NOT_FOUND를 반환한다")
+        void itRejectsDeletedStatusWithoutDeletedAt() {
+            Pet pet = pet(user(USER_ID), null);
+            ReflectionTestUtils.setField(pet, "status", PetStatus.DELETED);
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.of(pet));
+
+            assertErrorCode(
+                    () -> service.requireOwnedUndeletedPet(USER_ID, PET_ID),
+                    ErrorCode.PET_NOT_FOUND
+            );
+        }
+
+        @Test
+        @DisplayName("It: 미삭제 타인 Pet은 PET_NOT_OWNED를 반환한다")
+        void itRejectsPetOwnedByAnotherUser() {
+            given(petRepository.findById(PET_ID))
+                    .willReturn(Optional.of(pet(user(9L), null)));
+
+            assertErrorCode(
+                    () -> service.requireOwnedUndeletedPet(USER_ID, PET_ID),
+                    ErrorCode.PET_NOT_OWNED
+            );
+        }
+    }
+
+    @Nested
     @DisplayName("Describe: 본인 소유의 미삭제 Pet 목록을 조회한다")
     class DescribeGetMyPets {
 

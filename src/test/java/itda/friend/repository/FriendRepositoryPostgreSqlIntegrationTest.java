@@ -113,6 +113,53 @@ class FriendRepositoryPostgreSqlIntegrationTest {
     }
 
     @Test
+    void deletesOnlyRequestedCanonicalFriendshipAndReturnsAffectedRows() {
+        Long ownerId = createUser();
+        Long firstPetId = createPet(ownerId);
+        Long secondPetId = createPet(ownerId);
+        Long unrelatedPetId = createPet(ownerId);
+        insertFriendship(firstPetId, secondPetId);
+        insertFriendship(secondPetId, unrelatedPetId);
+
+        int deletedCount = new TransactionTemplate(transactionManager)
+                .execute(status -> friendshipRepository.deletePair(
+                        Math.min(firstPetId, secondPetId),
+                        Math.max(firstPetId, secondPetId)
+                ));
+
+        assertThat(deletedCount).isEqualTo(1);
+        assertThat(friendshipCount(firstPetId, secondPetId)).isZero();
+        assertThat(friendshipCount(secondPetId, unrelatedPetId)).isOne();
+    }
+
+    @Test
+    void returnsZeroWhenCanonicalFriendshipDoesNotExistOrWasAlreadyDeleted() {
+        Long ownerId = createUser();
+        Long firstPetId = createPet(ownerId);
+        Long secondPetId = createPet(ownerId);
+        insertFriendship(firstPetId, secondPetId);
+
+        TransactionTemplate transaction =
+                new TransactionTemplate(transactionManager);
+        int firstDelete = transaction.execute(status ->
+                friendshipRepository.deletePair(
+                        Math.min(firstPetId, secondPetId),
+                        Math.max(firstPetId, secondPetId)
+                )
+        );
+        int secondDelete = transaction.execute(status ->
+                friendshipRepository.deletePair(
+                        Math.min(firstPetId, secondPetId),
+                        Math.max(firstPetId, secondPetId)
+                )
+        );
+
+        assertThat(firstDelete).isEqualTo(1);
+        assertThat(secondDelete).isZero();
+        assertThat(friendshipCount(firstPetId, secondPetId)).isZero();
+    }
+
+    @Test
     void findsOnlyActivePendingRequestsAtStrictExpiryBoundary() {
         Long ownerId = createUser();
         Long sourcePetId = createPet(ownerId);
@@ -636,6 +683,19 @@ class FriendRepositoryPostgreSqlIntegrationTest {
                 insert into friendships (pet_low_id, pet_high_id)
                 values (?, ?)
                 """, Math.min(petLowId, petHighId), Math.max(petLowId, petHighId));
+    }
+
+    private long friendshipCount(Long petAId, Long petBId) {
+        return jdbcTemplate.queryForObject("""
+                select count(*)
+                  from friendships
+                 where pet_low_id = ?
+                   and pet_high_id = ?
+                """,
+                Long.class,
+                Math.min(petAId, petBId),
+                Math.max(petAId, petBId)
+        );
     }
 
     private Long insertFriendshipAt(

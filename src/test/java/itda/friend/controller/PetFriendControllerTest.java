@@ -1,17 +1,24 @@
 package itda.friend.controller;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import itda.chat.dto.response.CursorPage;
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
 import itda.common.filter.JwtFilter;
 import itda.common.security.CurrentUser;
 import itda.friend.domain.FriendRelationship;
 import itda.friend.dto.response.FriendPetListItemResponse;
 import itda.friend.dto.response.PetFriendListResponse;
+import itda.friend.service.FriendshipDeletionService;
 import itda.friend.service.query.FriendshipQueryService;
 import itda.user.domain.Role;
 import java.util.List;
@@ -40,6 +47,9 @@ class PetFriendControllerTest {
 
     @MockitoBean
     private FriendshipQueryService friendshipQueryService;
+
+    @MockitoBean
+    private FriendshipDeletionService friendshipDeletionService;
 
     @MockitoBean
     private JwtFilter jwtFilter;
@@ -96,5 +106,65 @@ class PetFriendControllerTest {
                         .value("VALIDATION_FAILED"));
 
         verifyNoInteractions(friendshipQueryService);
+    }
+
+    @Test
+    void deletesFriendshipWithNoContent() throws Exception {
+        mockMvc.perform(delete(
+                        "/pets/{petId}/friends/{friendPetId}",
+                        PET_ID,
+                        20L
+                ))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+
+        then(friendshipDeletionService).should()
+                .deleteFriendship(USER_ID, PET_ID, 20L);
+    }
+
+    @Test
+    void mapsPetNotFound() throws Exception {
+        willThrow(new BusinessException(ErrorCode.PET_NOT_FOUND))
+                .given(friendshipDeletionService)
+                .deleteFriendship(USER_ID, PET_ID, 20L);
+
+        mockMvc.perform(delete(
+                        "/pets/{petId}/friends/{friendPetId}",
+                        PET_ID,
+                        20L
+                ))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("PET_NOT_FOUND"));
+    }
+
+    @Test
+    void mapsPetNotOwned() throws Exception {
+        willThrow(new BusinessException(ErrorCode.PET_NOT_OWNED))
+                .given(friendshipDeletionService)
+                .deleteFriendship(USER_ID, PET_ID, 20L);
+
+        mockMvc.perform(delete(
+                        "/pets/{petId}/friends/{friendPetId}",
+                        PET_ID,
+                        20L
+                ))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("PET_NOT_OWNED"));
+    }
+
+    @Test
+    void mapsFriendshipNotFound() throws Exception {
+        willThrow(new BusinessException(ErrorCode.FRIENDSHIP_NOT_FOUND))
+                .given(friendshipDeletionService)
+                .deleteFriendship(USER_ID, PET_ID, 20L);
+
+        mockMvc.perform(delete(
+                        "/pets/{petId}/friends/{friendPetId}",
+                        PET_ID,
+                        20L
+                ))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code")
+                        .value("FRIENDSHIP_NOT_FOUND"));
     }
 }

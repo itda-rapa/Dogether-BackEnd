@@ -113,6 +113,13 @@ GET에서는 만료 상태를 변경하지 않는다. Pet 친구 목록은 본�
 기준으로 하며 SUSPENDED 또는 비 Active Pet도 허용하고, 다른 User 소유 Pet은
 `403 PET_NOT_OWNED`, 없거나 삭제된 Pet은 `404 PET_NOT_FOUND`로 처리한다.
 
+친구 삭제도 인증 User 소유의 미삭제 source Pet을 기준으로 하며 ACTIVE 또는
+SUSPENDED, 비 Active Pet을 모두 허용한다. target Pet은 선행 조회하지 않고
+canonical Pet pair의 Friendship을 직접 삭제한다. 삭제 row가 없으면
+`404 FRIENDSHIP_NOT_FOUND`, 성공하면 Body 없는 `204 No Content`다. Friendship만
+삭제하며 기존 DIRECT ChatRoom·Participant·Message·Greeting·FriendRequest 이력은
+변경하지 않는다.
+
 ## 채팅·폴링
 
 | Method | Path | 설명 |
@@ -181,6 +188,7 @@ M1 차단 해제 API는 없다. 신고는 차단을 자동 수행하지 않는�
 - `FRIEND_LIMIT_EXCEEDED`
 - `FRIEND_REQUEST_ALREADY_PENDING`
 - `FRIENDSHIP_ALREADY_EXISTS`
+- `FRIENDSHIP_NOT_FOUND`
 - `FRIEND_REQUEST_NOT_FOUND`
 - `FRIEND_REQUEST_NOT_PENDING`
 - `BLOCKED_USER`

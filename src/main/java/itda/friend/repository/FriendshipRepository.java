@@ -104,6 +104,17 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
             @Param("userB") Long userB
     );
 
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = """
+            DELETE FROM friendships
+             WHERE pet_low_id = :petLowId
+               AND pet_high_id = :petHighId
+            """, nativeQuery = true)
+    int deletePair(
+            @Param("petLowId") Long petLowId,
+            @Param("petHighId") Long petHighId
+    );
+
     interface FriendshipRelationshipRow {
 
         Long getPetLowId();
