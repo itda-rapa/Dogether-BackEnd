@@ -12,6 +12,8 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}
 
 springdoc:
   api-docs:
