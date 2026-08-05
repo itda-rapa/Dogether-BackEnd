@@ -50,3 +50,6 @@ app:
     password: ${INITIAL_ADMIN_PASSWORD:}
     nickname: ${INITIAL_ADMIN_NICKNAME:}
     neighborhood-code: ${INITIAL_ADMIN_NEIGHBORHOOD_CODE:}
+  redis:
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT}
