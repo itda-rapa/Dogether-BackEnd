@@ -27,7 +27,7 @@ dependencies {
     // Kafka
     implementation 'org.springframework.boot:spring-boot-starter-kafka'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
-    testImplementation 'org.testcontainers:kafka'
+    testImplementation 'org.testcontainers:testcontainers-kafka:2.0.5'
 
     // Redis
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'

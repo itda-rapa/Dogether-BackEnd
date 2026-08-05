@@ -8,6 +8,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+  kafka:
+    bootstrap-servers: localhost:9092
 
 app:
   jwt:
@@ -34,3 +36,6 @@ app:
     maintenance-delay: 1h
   bootstrap-admin:
     enabled: false
+  redis:
+    host: localhost
+    port: 6379
