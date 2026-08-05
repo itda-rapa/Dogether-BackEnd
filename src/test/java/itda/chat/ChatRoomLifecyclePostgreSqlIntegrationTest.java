@@ -26,7 +26,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.flyway.locations=classpath:db/migration,classpath:db/seed",
-        "app.chat-room.lifecycle.enabled=false"
+        "app.chat-room.lifecycle.enabled=false",
+        "app.chat-room.lifecycle.batch-size=2"
 })
 class ChatRoomLifecyclePostgreSqlIntegrationTest {
 
@@ -180,6 +181,50 @@ class ChatRoomLifecyclePostgreSqlIntegrationTest {
 
         assertThat(result.archivedRooms()).isZero();
         assertThat(statusOfRoom(roomId)).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void archivesNonFriendRoomEvenWhenOldFriendRoomsFillBatch() {
+        insertUser(3L);
+        insertUser(4L);
+        insertUser(5L);
+        insertUser(6L);
+        insertPet(33L, 3L);
+        insertPet(44L, 4L);
+        insertPet(55L, 5L);
+        insertPet(66L, 6L);
+
+        long firstFriendRoomId = chatRoomService
+                .ensureDirectRoom(11L, 22L, RoomOrigin.GREETING)
+                .roomId();
+        long secondFriendRoomId = chatRoomService
+                .ensureDirectRoom(33L, 44L, RoomOrigin.GREETING)
+                .roomId();
+        long nonFriendRoomId = chatRoomService
+                .ensureDirectRoom(55L, 66L, RoomOrigin.GREETING)
+                .roomId();
+
+        Instant fortyDaysAgo = NOW.minusSeconds(40L * 24 * 60 * 60);
+        Instant thirtyNineDaysAgo = NOW.minusSeconds(39L * 24 * 60 * 60);
+        Instant thirtyOneDaysAgo = NOW.minusSeconds(31L * 24 * 60 * 60);
+        insertGreeting(firstFriendRoomId, "RESPONDED", fortyDaysAgo, 11L, 22L);
+        insertGreeting(secondFriendRoomId, "RESPONDED", thirtyNineDaysAgo, 33L, 44L);
+        insertGreeting(nonFriendRoomId, "RESPONDED", thirtyOneDaysAgo, 55L, 66L);
+        setLastMessageAt(firstFriendRoomId, fortyDaysAgo);
+        setLastMessageAt(secondFriendRoomId, thirtyNineDaysAgo);
+        setLastMessageAt(nonFriendRoomId, thirtyOneDaysAgo);
+        jdbcTemplate.update("""
+                insert into friendships (pet_low_id, pet_high_id)
+                values (11, 22), (33, 44)
+                """);
+
+        ChatRoomLifecycleMaintenanceService.MaintenanceResult result =
+                maintenanceService.runOnce(NOW);
+
+        assertThat(result.archivedRooms()).isEqualTo(1);
+        assertThat(statusOfRoom(firstFriendRoomId)).isEqualTo("ACTIVE");
+        assertThat(statusOfRoom(secondFriendRoomId)).isEqualTo("ACTIVE");
+        assertThat(statusOfRoom(nonFriendRoomId)).isEqualTo("ARCHIVED");
     }
 
     @Test

@@ -70,6 +70,12 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
                     WHERE g.room_id = r.id
                       AND g.status = 'RESPONDED'
                )
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM friendships f
+                    WHERE f.pet_low_id = r.pet_low_id
+                      AND f.pet_high_id = r.pet_high_id
+               )
              ORDER BY r.last_message_at ASC, r.id ASC
              LIMIT :limit
             """, nativeQuery = true)

@@ -21,8 +21,17 @@ public class ChatRoomLifecycleScheduler {
     @Scheduled(fixedDelayString = "${app.chat-room.lifecycle.maintenance-delay-ms:60000}")
     public void runMaintenance() {
         try {
-            log.info("Starting chat room lifecycle maintenance");
-            maintenanceService.runOnce();
+            log.debug("Starting chat room lifecycle maintenance");
+            ChatRoomLifecycleMaintenanceService.MaintenanceResult result =
+                    maintenanceService.runOnce();
+            if (result.expiredGreetings() > 0
+                    || result.deletedRooms() > 0
+                    || result.archivedRooms() > 0) {
+                log.info("Chat room lifecycle maintenance: expired={}, deleted={}, archived={}",
+                        result.expiredGreetings(),
+                        result.deletedRooms(),
+                        result.archivedRooms());
+            }
         } catch (RuntimeException exception) {
             log.error("Chat room lifecycle maintenance failed", exception);
         }
