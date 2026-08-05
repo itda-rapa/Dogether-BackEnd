@@ -4,11 +4,16 @@ import itda.chat.domain.ChatMessage;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from ChatMessage m where m.room.id = :roomId")
+    int deleteByRoomId(@Param("roomId") long roomId);
 
     Optional<ChatMessage> findByRoomIdAndClientMessageId(Long roomId, String clientMessageId);
 
