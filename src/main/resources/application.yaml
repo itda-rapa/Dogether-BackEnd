@@ -16,8 +16,13 @@ spring:
 springdoc:
   api-docs:
     enabled: ${SWAGGER_ENABLED:true}
+    path: /v3/api-docs # api-docs의 엔드포인트 지정 : localhost:8080/v3/api-docs
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:true}
+    operations-sorter: alpha
+    display-request-duration: true
+    doc-expansion: list # list , full , none
+    persist-authorization: true # false , off , on , true
 
 
 app:

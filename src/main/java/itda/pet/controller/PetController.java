@@ -35,7 +35,7 @@ import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/pets")
-public class PetController {
+public class PetController implements PetSwaggerSupporter {
 
     private final PetCreationService petCreationService;
     private final MyPetQueryService myPetQueryService;

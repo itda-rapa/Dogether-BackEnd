@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/meeting-cards")
 @RequiredArgsConstructor
-public class MeetingCardController {
+public class MeetingCardController implements MeetingCardSwaggerSupporter {
 
     private final MeetingCardService meetingCardService;
 

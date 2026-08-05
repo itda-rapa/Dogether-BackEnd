@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/neighborhoods")
-public class NeighborhoodController {
+public class NeighborhoodController implements NeighborhoodSwaggerSupporter {
 
     private final NeighborhoodService neighborhoodService;
 

@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/me")
-public class MeController {
+public class MeController implements MeSwaggerSupporter {
 
     private final MeQueryService meQueryService;
     private final ActivePetSelectionService activePetSelectionService;

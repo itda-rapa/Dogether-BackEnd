@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/pets/{petId}/friends")
 @RequiredArgsConstructor
-public class PetFriendController {
+public class PetFriendController implements PetFriendSwaggerSupporter {
 
     private final FriendshipQueryService friendshipQueryService;
     private final FriendshipDeletionService friendshipDeletionService;

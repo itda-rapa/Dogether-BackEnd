@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/friend-requests")
 @RequiredArgsConstructor
-public class FriendRequestController {
+public class FriendRequestController implements FriendRequestSwaggerSupporter{
 
     private final FriendRequestCommandService commandService;
     private final FriendRequestQueryService queryService;
