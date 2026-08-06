@@ -1,6 +1,7 @@
 package itda.meetingcard.repository;
 
 import itda.meetingcard.domain.MeetingParticipant;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -32,4 +33,14 @@ public interface MeetingParticipantRepository extends JpaRepository<MeetingParti
      * 자기가 참여한 카드에는 접근할 수 있다.
      */
     boolean existsByMeetingCardIdAndPetId(Long meetingCardId, Long petId);
+
+    @Query("""
+            SELECT p
+            FROM MeetingParticipant p
+            WHERE p.meetingCardId IN :meetingCardIds
+            ORDER BY p.meetingCardId, p.petId
+            """)
+    List<MeetingParticipant> findByMeetingCardIdInOrderByMeetingCardIdAscPetIdAsc(
+            @Param("meetingCardIds") Collection<Long> meetingCardIds
+    );
 }
