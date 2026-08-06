@@ -95,4 +95,10 @@ public class Greeting {
             this.respondedAt = respondedAt;
         }
     }
+
+    public void expire() {
+        if (status == GreetingStatus.SENT) {
+            status = GreetingStatus.EXPIRED;
+        }
+    }
 }

@@ -682,6 +682,20 @@ class ChatRestPollingApiPostgreSqlIntegrationTest {
     }
 
     @Test
+    void archivedRoomRemainsVisibleAndCanBeRestoredBySending() {
+        long roomId = newRoom(11L, 22L);
+        jdbcTemplate.update(
+                "update chat_rooms set status = 'ARCHIVED', archived_at = now() where id = ?",
+                roomId);
+
+        ChatRoomResponse response = chatQueryService.getRoom(USER_1, roomId);
+
+        assertThat(response.status()).isEqualTo("ARCHIVED");
+        assertThat(response.canSend()).isTrue();
+        assertThat(response.sendBlockedReason()).isNull();
+    }
+
+    @Test
     void storedSenderPetIdEqualsActorsPetId() {
         long roomId = newRoom(11L, 22L);
 

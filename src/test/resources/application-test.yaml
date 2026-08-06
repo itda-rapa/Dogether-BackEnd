@@ -34,3 +34,9 @@ app:
     maintenance-delay: 1h
   bootstrap-admin:
     enabled: false
+  chat-room:
+    lifecycle:
+      enabled: false
+      maintenance-delay-ms: 60000
+      batch-size: 100
+      archive-after-days: 30

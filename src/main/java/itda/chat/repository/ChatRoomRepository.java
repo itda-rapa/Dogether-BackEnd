@@ -2,8 +2,12 @@ package itda.chat.repository;
 
 import itda.chat.domain.ChatRoom;
 import itda.chat.domain.RoomType;
+import jakarta.persistence.LockModeType;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,6 +15,15 @@ import org.springframework.data.repository.query.Param;
 public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
 
     Optional<ChatRoom> findByTypeAndPetLowIdAndPetHighId(RoomType type, long petLowId, long petHighId);
+
+    /**
+     * Lock the room row with {@code SELECT ... FOR UPDATE} so concurrent report creation
+     * against the same room is serialized. The lock is held until the surrounding
+     * transaction commits.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from ChatRoom r where r.id = :roomId")
+    Optional<ChatRoom> findByIdForUpdate(@Param("roomId") Long roomId);
 
     /**
      * Atomic INSERT ... ON CONFLICT DO NOTHING.
@@ -41,6 +54,44 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             WHERE id = :roomId
             """, nativeQuery = true)
     void activateAndTouchLastMessageAt(@Param("roomId") long roomId);
+
+    @Query(value = """
+            SELECT r.id AS roomId,
+                   r.pet_low_id AS petLowId,
+                   r.pet_high_id AS petHighId
+              FROM chat_rooms r
+             WHERE r.type = 'DIRECT'
+               AND r.status = 'ACTIVE'
+               AND r.last_message_at IS NOT NULL
+               AND r.last_message_at <= :cutoff
+               AND EXISTS (
+                   SELECT 1
+                     FROM greetings g
+                    WHERE g.room_id = r.id
+                      AND g.status = 'RESPONDED'
+               )
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM friendships f
+                    WHERE f.pet_low_id = r.pet_low_id
+                      AND f.pet_high_id = r.pet_high_id
+               )
+             ORDER BY r.last_message_at ASC, r.id ASC
+             LIMIT :limit
+            """, nativeQuery = true)
+    List<InactiveAnsweredDirectRoom> findInactiveAnsweredDirectRooms(
+            @Param("cutoff") Instant cutoff,
+            @Param("limit") int limit
+    );
+
+    interface InactiveAnsweredDirectRoom {
+
+        Long getRoomId();
+
+        Long getPetLowId();
+
+        Long getPetHighId();
+    }
 
     /**
      * Room list projection row — one row per room, with last-message columns from LEFT JOIN

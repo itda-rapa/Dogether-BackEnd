@@ -45,3 +45,9 @@ app:
     password: ${INITIAL_ADMIN_PASSWORD:}
     nickname: ${INITIAL_ADMIN_NICKNAME:}
     neighborhood-code: ${INITIAL_ADMIN_NEIGHBORHOOD_CODE:}
+  chat-room:
+    lifecycle:
+      enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}
+      maintenance-delay-ms: ${CHAT_ROOM_LIFECYCLE_MAINTENANCE_DELAY_MS:60000}
+      batch-size: ${CHAT_ROOM_LIFECYCLE_BATCH_SIZE:100}
+      archive-after-days: ${CHAT_ROOM_LIFECYCLE_ARCHIVE_AFTER_DAYS:30}

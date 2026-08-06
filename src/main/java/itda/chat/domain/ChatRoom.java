@@ -57,8 +57,8 @@ public class ChatRoom extends BaseEntity {
      * {@code ChatRoomRepository.activateAndTouchLastMessageAt}, which also restores an archived
      * room and uses {@code GREATEST} so a late commit never moves the timestamp backwards.
      */
-    public void archive() {
+    public void archive(Instant archivedAt) {
         this.status = RoomStatus.ARCHIVED;
-        this.archivedAt = Instant.now();
+        this.archivedAt = archivedAt;
     }
 }
