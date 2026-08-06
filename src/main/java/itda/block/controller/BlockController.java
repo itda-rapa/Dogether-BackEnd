@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/me/blocks")
 @RequiredArgsConstructor
-public class BlockController {
+public class BlockController implements BlockSwaggerSupporter {
 
     private final BlockService blockService;
 

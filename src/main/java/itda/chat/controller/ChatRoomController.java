@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/chat/rooms")
 @RequiredArgsConstructor
-public class ChatRoomController {
+public class ChatRoomController implements ChatRoomSwaggerSupporter {
 
     private final ChatQueryService chatQueryService;
 

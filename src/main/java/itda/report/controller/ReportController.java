@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-public class ReportController {
+public class ReportController implements ReportSwaggerSupporter {
 
     private final ReportService reportService;
 

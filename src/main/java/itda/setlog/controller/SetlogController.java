@@ -29,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/setlogs")
 @RequiredArgsConstructor
-public class SetlogController {
+public class SetlogController implements SetlogSwaggerSupporter {
 
     private final SetlogQueryService setlogQueryService;
     private final SetlogReactionService setlogReactionService;

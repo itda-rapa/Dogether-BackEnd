@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/chat/rooms/{roomId}/card-drafts")
 @RequiredArgsConstructor
-public class CardDraftController {
+public class CardDraftController implements CardDraftSwaggerSupporter {
 
     private final CardDraftService cardDraftService;
 

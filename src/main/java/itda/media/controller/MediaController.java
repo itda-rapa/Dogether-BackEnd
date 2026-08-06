@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-public class MediaController {
+public class MediaController implements MediaSwaggerSupporter {
     private final MediaService mediaService;
     private final MediaRepository mediaRepository;
     // ...
