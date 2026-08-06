@@ -100,7 +100,7 @@ class ChatMessageServiceTest {
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
                 .thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetId(1L, 999L)).thenReturn(false);
 
         assertThatThrownBy(() -> chatMessageService.sendText(1L, 999L, request("idem-1", "hello")))
@@ -113,7 +113,7 @@ class ChatMessageServiceTest {
     void sendingToAMissingRoomIsRejected() {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(99L, "idem-9"))
                 .thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(99L)).thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> chatMessageService.sendText(99L, 10L, request("idem-9", "hi")))
                 .isInstanceOf(BusinessException.class)
@@ -131,7 +131,7 @@ class ChatMessageServiceTest {
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
@@ -173,7 +173,7 @@ class ChatMessageServiceTest {
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
@@ -269,7 +269,7 @@ class ChatMessageServiceTest {
                 1L,
                 "reply-1"
         )).thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetId(1L, 20L))
                 .thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
@@ -304,7 +304,7 @@ class ChatMessageServiceTest {
         ChatMessage stored = systemMsg(100L, "System notice");
         MessageUpsert upsert = upsert(100L, true);
 
-        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "SYSTEM", null, "SYSTEM", "System notice", null, null))
                 .thenReturn(upsert);
@@ -328,7 +328,7 @@ class ChatMessageServiceTest {
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "card-7"))
                 .thenReturn(Optional.empty());
-        when(chatRoomRepository.findById(1L)).thenReturn(Optional.of(room));
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "CARD", null, 7L, "card-7"))

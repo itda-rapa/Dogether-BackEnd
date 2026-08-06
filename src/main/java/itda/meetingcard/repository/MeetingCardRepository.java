@@ -11,6 +11,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface MeetingCardRepository extends JpaRepository<MeetingCard, Long> {
 
+    @Modifying(flushAutomatically = true)
+    @Query("delete from MeetingCard c where c.roomId = :roomId")
+    int deleteByRoomId(@Param("roomId") long roomId);
+
     /**
      * 취소용 조회. 행 잠금을 잡아 양쪽 Pet 이 동시에 취소해도 상태 전이가 한 번만
      * 성공하게 한다.

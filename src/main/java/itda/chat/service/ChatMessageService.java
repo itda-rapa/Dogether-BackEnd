@@ -144,7 +144,11 @@ public class ChatMessageService {
             }
         }
 
-        chatRoomRepository.findById(roomId)
+        // Serialize message insertion with lifecycle cleanup. A cleanup transaction may hold
+        // this room row while deleting it; waiting for the same FOR UPDATE lock makes the sender
+        // observe a missing room after cleanup commits instead of reaching the chat_messages FK
+        // and surfacing a raw DataIntegrityViolationException.
+        chatRoomRepository.findByIdForUpdate(roomId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND));
 
         // Only members may speak in a room. This is a chat invariant rather than an access-control

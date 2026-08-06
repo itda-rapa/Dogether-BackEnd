@@ -43,3 +43,9 @@ app:
   redis:
     host: localhost
     port: 6379
+  chat-room:
+    lifecycle:
+      enabled: false
+      maintenance-delay-ms: 60000
+      batch-size: 100
+      archive-after-days: 30
