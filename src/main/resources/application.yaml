@@ -23,8 +23,8 @@ springdoc:
     enabled: ${SWAGGER_ENABLED:true}
     operations-sorter: alpha
     display-request-duration: true
-    doc-expansion: list # list , full , none
-    persist-authorization: true # false , off , on , true
+    doc-expansion: list
+    persist-authorization: true
 
 
 app:
