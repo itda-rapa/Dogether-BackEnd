@@ -54,8 +54,12 @@ public interface GreetingRepository extends JpaRepository<Greeting, Long> {
     List<Greeting> findSentByRoomIdForUpdate(@Param("roomId") Long roomId);
 
     @Query(value = """
-            SELECT g.id AS greetingId, g.room_id AS roomId
+            SELECT g.id AS greetingId,
+                   g.room_id AS roomId,
+                   r.pet_low_id AS petLowId,
+                   r.pet_high_id AS petHighId
               FROM greetings g
+              LEFT JOIN chat_rooms r ON r.id = g.room_id
              WHERE g.status = 'SENT'
                AND g.expires_at <= :now
              ORDER BY g.expires_at ASC, g.id ASC
@@ -71,5 +75,9 @@ public interface GreetingRepository extends JpaRepository<Greeting, Long> {
         Long getGreetingId();
 
         Long getRoomId();
+
+        Long getPetLowId();
+
+        Long getPetHighId();
     }
 }

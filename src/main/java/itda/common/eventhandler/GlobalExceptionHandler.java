@@ -7,6 +7,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -64,6 +65,22 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleConcurrentUpdateConflict(
             RuntimeException exception
     ) {
+        ErrorCode code = ErrorCode.CONCURRENT_UPDATE_CONFLICT;
+        return ResponseEntity.status(code.getStatus()).body(
+                ApiResponse.fail(code.name(), code.getDescription())
+        );
+    }
+
+    /**
+     * Database constraints are the final concurrency/integrity boundary. Domain services handle
+     * known violations locally; an unknown violation must still be a deterministic conflict rather
+     * than an opaque 500 response.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(
+            DataIntegrityViolationException exception
+    ) {
+        log.warn("Database integrity conflict", exception);
         ErrorCode code = ErrorCode.CONCURRENT_UPDATE_CONFLICT;
         return ResponseEntity.status(code.getStatus()).body(
                 ApiResponse.fail(code.name(), code.getDescription())

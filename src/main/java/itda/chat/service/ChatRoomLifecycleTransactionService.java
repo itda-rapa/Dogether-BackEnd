@@ -39,10 +39,18 @@ public class ChatRoomLifecycleTransactionService {
     public ExpiredGreetingOutcome expireGreetingAndCleanup(
             long greetingId,
             long candidateRoomId,
+            Long candidatePetLowId,
+            Long candidatePetHighId,
             Instant now
     ) {
-        // Report creation locks the room before inserting its report. Keep the same
-        // lock order here so cleanup cannot race report registration into a deadlock.
+        // Friend acceptance and archive maintenance both lock the interaction pair before
+        // touching the room. Keep the same order here to prevent pair/room deadlocks.
+        if (candidatePetLowId != null && candidatePetHighId != null) {
+            interactionPairLockService.lockInteractionPair(
+                    candidatePetLowId,
+                    candidatePetHighId
+            );
+        }
         ChatRoom room = chatRoomRepository.findByIdForUpdate(candidateRoomId)
                 .orElse(null);
         Greeting greeting = greetingRepository.findByIdForUpdate(greetingId)
@@ -67,7 +75,14 @@ public class ChatRoomLifecycleTransactionService {
         boolean anotherGreetingStillPending = sentGreetings.stream()
                 .anyMatch(candidate -> candidate.getExpiresAt().isAfter(now));
 
-        if (reported || answered || anotherGreetingStillPending) {
+        boolean friendshipExists = room.getPetLowId() != null
+                && room.getPetHighId() != null
+                && friendshipRepository.existsByPetLowIdAndPetHighId(
+                room.getPetLowId(),
+                room.getPetHighId()
+        );
+
+        if (reported || answered || anotherGreetingStillPending || friendshipExists) {
             return new ExpiredGreetingOutcome(true, false);
         }
 

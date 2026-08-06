@@ -107,6 +107,27 @@ class ChatRoomLifecyclePostgreSqlIntegrationTest {
     }
 
     @Test
+    void preservesFriendRoomWhenUnansweredGreetingExpires() {
+        long roomId = newRoom();
+        long greetingId = insertGreeting(roomId, "SENT", NOW.minusSeconds(1));
+        insertMessage(roomId, 11L, "first greeting");
+        jdbcTemplate.update("""
+                insert into friendships (pet_low_id, pet_high_id)
+                values (11, 22)
+                """);
+
+        ChatRoomLifecycleMaintenanceService.MaintenanceResult result =
+                maintenanceService.runOnce(NOW);
+
+        assertThat(result.expiredGreetings()).isEqualTo(1);
+        assertThat(result.deletedRooms()).isZero();
+        assertThat(statusOfGreeting(greetingId)).isEqualTo("EXPIRED");
+        assertThat(count("chat_rooms")).isEqualTo(1);
+        assertThat(count("chat_room_participants")).isEqualTo(2);
+        assertThat(count("chat_messages")).isEqualTo(1);
+    }
+
+    @Test
     void deletesRoomDependentCardRowsBeforeDeletingRoom() {
         long roomId = newRoom();
         insertGreeting(roomId, "SENT", NOW.minusSeconds(1));

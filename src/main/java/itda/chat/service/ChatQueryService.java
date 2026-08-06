@@ -176,8 +176,8 @@ public class ChatQueryService {
                 row.getStatus(),
                 row.getOrigin(),
                 counterpart,
-                canSend(),
-                sendBlockedReason(),
+                canSend(row.getStatus()),
+                sendBlockedReason(row.getStatus()),
                 lastMessage,
                 row.getLastMessageAt(),
                 row.getUpdatedAt());
@@ -200,13 +200,16 @@ public class ChatQueryService {
         return null;
     }
 
-    /** M1-015: no greeting limit contract yet. */
-    private boolean canSend() {
-        return true;
+    /**
+     * Archived rooms remain readable and accept a message because the message write path
+     * restores them to ACTIVE. Keep this status-aware rather than hiding the lifecycle state
+     * behind an unconditional stub.
+     */
+    private boolean canSend(String roomStatus) {
+        return "ACTIVE".equals(roomStatus) || "ARCHIVED".equals(roomStatus);
     }
 
-    /** M1-015: no greeting limit contract yet. */
-    private String sendBlockedReason() {
+    private String sendBlockedReason(String roomStatus) {
         return null;
     }
 

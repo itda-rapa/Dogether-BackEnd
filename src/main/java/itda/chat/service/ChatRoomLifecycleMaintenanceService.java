@@ -38,6 +38,8 @@ public class ChatRoomLifecycleMaintenanceService {
                         transactionService.expireGreetingAndCleanup(
                                 candidate.getGreetingId(),
                                 candidate.getRoomId(),
+                                candidate.getPetLowId(),
+                                candidate.getPetHighId(),
                                 now
                         );
                 if (outcome.expired()) {
