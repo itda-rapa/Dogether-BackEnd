@@ -1,4 +1,8 @@
 spring:
+  autoconfigure:
+    exclude:
+      - org.redisson.spring.starter.RedissonAutoConfigurationV2
+      - org.redisson.spring.starter.RedissonAutoConfigurationV4
   datasource:
     url: jdbc:h2:mem:dogether;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
     username: sa
@@ -8,6 +12,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
+  kafka:
+    bootstrap-servers: localhost:9092
 
 app:
   jwt:
@@ -34,6 +40,9 @@ app:
     maintenance-delay: 1h
   bootstrap-admin:
     enabled: false
+  redis:
+    host: localhost
+    port: 6379
   chat-room:
     lifecycle:
       enabled: false

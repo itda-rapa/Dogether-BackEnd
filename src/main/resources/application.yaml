@@ -12,6 +12,8 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}
 
 springdoc:
   api-docs:
@@ -21,8 +23,8 @@ springdoc:
     enabled: ${SWAGGER_ENABLED:true}
     operations-sorter: alpha
     display-request-duration: true
-    doc-expansion: list # list , full , none
-    persist-authorization: true # false , off , on , true
+    doc-expansion: list
+    persist-authorization: true
 
 
 app:
@@ -50,6 +52,9 @@ app:
     password: ${INITIAL_ADMIN_PASSWORD:}
     nickname: ${INITIAL_ADMIN_NICKNAME:}
     neighborhood-code: ${INITIAL_ADMIN_NEIGHBORHOOD_CODE:}
+  redis:
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT}
   chat-room:
     lifecycle:
       enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}
