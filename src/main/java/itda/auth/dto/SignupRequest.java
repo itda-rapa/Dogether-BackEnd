@@ -20,7 +20,11 @@ public record SignupRequest(
 
         @NotBlank
         @Size(max = 20)
-        String neighborhoodCode
+        String neighborhoodCode,
+
+        @NotBlank
+        @Size(min = 20, max = 256)
+        String verificationToken
 ) {
 
     public SignupRequest {

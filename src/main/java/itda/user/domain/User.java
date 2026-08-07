@@ -118,4 +118,11 @@ public class User extends BaseEntity {
     public void changeRole(Role role) {
         this.role = role;
     }
+
+    public void changePasswordHash(String passwordHash) {
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException("passwordHash는 비어 있을 수 없습니다.");
+        }
+        this.passwordHash = passwordHash;
+    }
 }
