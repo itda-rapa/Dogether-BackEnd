@@ -14,6 +14,14 @@ spring:
           time_zone: UTC
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:true}
 
 springdoc:
   api-docs:
@@ -55,6 +63,19 @@ app:
   redis:
     host: ${REDIS_HOST}
     port: ${REDIS_PORT}
+  email-verification:
+    hmac-secret: ${EMAIL_VERIFICATION_HMAC_SECRET}
+    challenge-ttl: ${EMAIL_VERIFICATION_CHALLENGE_TTL:5m}
+    token-ttl: ${EMAIL_VERIFICATION_TOKEN_TTL:15m}
+    cooldown: ${EMAIL_VERIFICATION_COOLDOWN:60s}
+    payload-ttl: ${EMAIL_VERIFICATION_PAYLOAD_TTL:5m}
+    worker-enabled: ${EMAIL_VERIFICATION_WORKER_ENABLED:false}
+    sender-mode: ${EMAIL_VERIFICATION_SENDER_MODE:fake}
+    stream-key: ${EMAIL_STREAM_KEY:dogether:email:v1:delivery:stream}
+    stream-group: ${EMAIL_STREAM_GROUP:email-delivery}
+    stream-consumer: ${EMAIL_STREAM_CONSUMER:email-worker-1}
+    stream-max-length: ${EMAIL_STREAM_MAX_LENGTH:0}
+    max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
   chat-room:
     lifecycle:
       enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}

@@ -27,6 +27,13 @@ public enum ErrorCode {
     NEIGHBORHOOD_NOT_FOUND(HttpStatus.UNPROCESSABLE_CONTENT, "선택할 수 없는 동네입니다."),
     ACCOUNT_NOT_ACTIVE(HttpStatus.FORBIDDEN, "현재 이용할 수 없는 계정입니다."),
 
+    EMAIL_VERIFICATION_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "이메일 인증 재전송 가능 시간 전입니다."),
+    EMAIL_VERIFICATION_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증번호가 일치하지 않습니다."),
+    EMAIL_VERIFICATION_UNAVAILABLE(HttpStatus.GONE, "사용할 수 없는 이메일 인증 요청입니다."),
+    EMAIL_VERIFICATION_ATTEMPTS_EXCEEDED(HttpStatus.GONE, "인증번호 입력 가능 횟수를 초과했습니다."),
+    EMAIL_VERIFICATION_TOKEN_INVALID(HttpStatus.GONE, "유효하지 않은 이메일 인증 토큰입니다."),
+    EMAIL_DELIVERY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이메일 발송 요청을 처리할 수 없습니다."),
+
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어 자산을 찾을 수 없습니다."),
     MEDIA_NOT_UPLOADED(HttpStatus.UNPROCESSABLE_CONTENT, "업로드된 객체를 확인할 수 없습니다."),
     MEDIA_EXPIRED(HttpStatus.GONE, "미디어 업로드 요청이 만료되었습니다."),

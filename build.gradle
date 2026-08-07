@@ -50,6 +50,7 @@ dependencies {
 
     // Spring Starter
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
     testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
@@ -78,7 +79,7 @@ tasks.withType(Test).configureEach {
 
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'postgres', 'rustfs'
+        excludeTags 'postgres', 'rustfs', 'redis'
     }
 }
 
@@ -90,6 +91,9 @@ tasks.register('postgresTest', Test) {
     useJUnitPlatform {
         includeTags 'postgres'
     }
+    // PostgreSQL-tagged tests create many distinct Testcontainers contexts; evict old contexts
+    // before their closed datasource pools accumulate for the whole suite.
+    systemProperty 'spring.test.context.cache.maxSize', '4'
     shouldRunAfter tasks.named('test')
 }
 
@@ -100,6 +104,17 @@ tasks.register('rustfsTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {
         includeTags 'rustfs'
+    }
+    shouldRunAfter tasks.named('test')
+}
+
+tasks.register('redisTest', Test) {
+    description = 'Runs Redis Lua integration tests with Testcontainers.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'redis'
     }
     shouldRunAfter tasks.named('test')
 }
