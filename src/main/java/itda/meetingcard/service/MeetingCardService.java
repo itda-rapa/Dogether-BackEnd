@@ -11,17 +11,25 @@ import itda.interaction.service.InteractionPairLockService;
 import itda.meetingcard.domain.CardDraft;
 import itda.meetingcard.domain.MeetingCard;
 import itda.meetingcard.domain.MeetingParticipant;
+import itda.meetingcard.domain.MeetingCardStatus;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
+import itda.meetingcard.dto.response.MeetingCardListResponse;
 import itda.meetingcard.dto.response.MeetingCardResponse;
 import itda.meetingcard.repository.CardDraftRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
+import itda.meetingcard.support.MeetingCardCursorCodec;
+import itda.meetingcard.support.MeetingCardCursorCodec.CursorPayload;
+import itda.chat.dto.response.CursorPage;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
 import itda.user.domain.AccountStatus;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -36,6 +44,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class MeetingCardService {
+
+    private static final int DEFAULT_LIST_LIMIT = 20;
+    private static final int MAX_LIST_LIMIT = 100;
 
     private final ActivePetQueryService activePetQueryService;
     private final ChatQueryService chatQueryService;
@@ -153,6 +164,52 @@ public class MeetingCardService {
                 card, meetingParticipantRepository.findPetIdsByMeetingCardId(cardId));
     }
 
+    @Transactional(readOnly = true)
+    public MeetingCardListResponse listMine(
+            Long userId,
+            String rawStatus,
+            String cursor,
+            Integer rawLimit
+    ) {
+        ActivePetContext actor = activePetQueryService.requireActivePet(userId);
+        int limit = validateListLimit(rawLimit);
+        String status = normalizeStatus(rawStatus);
+        CursorPayload payload = MeetingCardCursorCodec.decode(cursor);
+
+        List<MeetingCard> cards = new ArrayList<>(meetingCardRepository.findVisibleCards(
+                actor.petId(),
+                status,
+                payload == null ? null : payload.meetAt(),
+                payload == null ? null : payload.cardId(),
+                limit + 1
+        ));
+        boolean hasNext = cards.size() > limit;
+        if (hasNext) {
+            cards = new ArrayList<>(cards.subList(0, limit));
+        }
+
+        Map<Long, List<Long>> participantIdsByCard = new LinkedHashMap<>();
+        if (!cards.isEmpty()) {
+            cards.forEach(card -> participantIdsByCard.put(card.getId(), new ArrayList<>()));
+            meetingParticipantRepository.findByMeetingCardIdInOrderByMeetingCardIdAscPetIdAsc(
+                            participantIdsByCard.keySet())
+                    .forEach(participant -> participantIdsByCard
+                            .get(participant.getMeetingCardId())
+                            .add(participant.getPetId()));
+        }
+
+        List<MeetingCardResponse> items = cards.stream()
+                .map(card -> MeetingCardResponse.of(card, participantIdsByCard.get(card.getId())))
+                .toList();
+        String nextCursor = hasNext && !cards.isEmpty()
+                ? MeetingCardCursorCodec.encode(
+                        cards.get(cards.size() - 1).getId(),
+                        cards.get(cards.size() - 1).getMeetAt())
+                : null;
+
+        return new MeetingCardListResponse(items, new CursorPage(nextCursor, hasNext));
+    }
+
     /**
      * 약속 카드 취소. 참여 Pet 양쪽 모두 취소할 수 있다.
      *
@@ -249,6 +306,25 @@ public class MeetingCardService {
                 || lockedPair.sourcePet().status() != PetStatus.ACTIVE
                 || lockedPair.sourcePet().deletedAt() != null) {
             throw new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
+        }
+    }
+
+    private int validateListLimit(Integer rawLimit) {
+        int limit = rawLimit == null ? DEFAULT_LIST_LIMIT : rawLimit;
+        if (limit < 1 || limit > MAX_LIST_LIMIT) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+        return limit;
+    }
+
+    private String normalizeStatus(String rawStatus) {
+        if (rawStatus == null || rawStatus.isBlank()) {
+            return null;
+        }
+        try {
+            return MeetingCardStatus.valueOf(rawStatus).name();
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }
     }
 }

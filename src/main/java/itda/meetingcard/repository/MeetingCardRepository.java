@@ -1,6 +1,8 @@
 package itda.meetingcard.repository;
 
 import itda.meetingcard.domain.MeetingCard;
+import java.time.Instant;
+import java.util.List;
 import jakarta.persistence.LockModeType;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +12,59 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MeetingCardRepository extends JpaRepository<MeetingCard, Long> {
+
+    /**
+     * Lists cards visible to the caller's active Pet without per-card room or block queries.
+     * Archived rooms remain visible because sending to one may restore them to ACTIVE.
+     */
+    @Query(value = """
+            SELECT card.*
+              FROM meeting_cards card
+              JOIN meeting_participants meeting_participant
+                ON meeting_participant.meeting_card_id = card.id
+               AND meeting_participant.pet_id = :activePetId
+              JOIN chat_rooms room
+                ON room.id = card.room_id
+              JOIN chat_room_participants room_participant
+                ON room_participant.room_id = room.id
+               AND room_participant.pet_id = :activePetId
+               AND room_participant.left_at IS NULL
+              JOIN pets low_pet
+                ON low_pet.id = room.pet_low_id
+              JOIN pets high_pet
+                ON high_pet.id = room.pet_high_id
+             WHERE room.type = 'DIRECT'
+               AND (:activePetId = room.pet_low_id OR :activePetId = room.pet_high_id)
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM user_blocks block
+                    WHERE (
+                        block.blocker_user_id = low_pet.owner_user_id
+                        AND block.blocked_user_id = high_pet.owner_user_id
+                    ) OR (
+                        block.blocker_user_id = high_pet.owner_user_id
+                        AND block.blocked_user_id = low_pet.owner_user_id
+                    )
+               )
+               AND (:status IS NULL OR card.status = :status)
+               AND (
+                    CAST(:cursorMeetAt AS TIMESTAMPTZ) IS NULL
+                    OR card.meet_at > CAST(:cursorMeetAt AS TIMESTAMPTZ)
+                    OR (
+                        card.meet_at = CAST(:cursorMeetAt AS TIMESTAMPTZ)
+                        AND card.id > :cursorCardId
+                    )
+               )
+             ORDER BY card.meet_at ASC, card.id ASC
+             LIMIT :limitPlusOne
+            """, nativeQuery = true)
+    List<MeetingCard> findVisibleCards(
+            @Param("activePetId") Long activePetId,
+            @Param("status") String status,
+            @Param("cursorMeetAt") Instant cursorMeetAt,
+            @Param("cursorCardId") Long cursorCardId,
+            @Param("limitPlusOne") int limitPlusOne
+    );
 
     @Modifying(flushAutomatically = true)
     @Query("delete from MeetingCard c where c.roomId = :roomId")

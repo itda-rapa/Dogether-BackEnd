@@ -3,6 +3,7 @@ package itda.meetingcard.controller;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
+import itda.meetingcard.dto.response.MeetingCardListResponse;
 import itda.meetingcard.dto.response.MeetingCardResponse;
 import itda.meetingcard.service.MeetingCardService;
 import jakarta.validation.Valid;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -32,6 +34,19 @@ public class MeetingCardController implements MeetingCardSwaggerSupporter {
         MeetingCardResponse card = meetingCardService.confirm(currentUser.id(), request);
         return ResponseEntity.status(201)
                 .body(ApiResponse.created(card, "약속 카드가 생성되었습니다."));
+    }
+
+    /** 현재 사용자의 Active Pet 이 참여한 약속 카드 목록. */
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<MeetingCardListResponse>> listMine(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer limit
+    ) {
+        MeetingCardListResponse cards = meetingCardService.listMine(
+                currentUser.id(), status, cursor, limit);
+        return ResponseEntity.ok(ApiResponse.ok(cards, "약속 카드 목록 조회 성공"));
     }
 
     /** 약속 카드 상세. 카드 참여 Pet 만 조회할 수 있고 아니면 404 로 수렴한다. */

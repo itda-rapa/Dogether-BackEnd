@@ -2,17 +2,24 @@ package itda.meetingcard;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import itda.chat.domain.RoomOrigin;
 import itda.chat.service.ChatRoomService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.common.security.CurrentUser;
 import itda.meetingcard.domain.MeetingCardStatus;
 import itda.meetingcard.domain.MeetingCardType;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
+import itda.meetingcard.dto.response.MeetingCardListResponse;
 import itda.meetingcard.dto.response.MeetingCardResponse;
 import itda.meetingcard.service.MeetingCardBlockCleanupService;
 import itda.meetingcard.service.MeetingCardService;
+import itda.user.domain.Role;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -29,9 +36,11 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -45,10 +54,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("postgres")
 @Testcontainers
 @SpringBootTest
+@AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.flyway.locations=classpath:db/migration,classpath:db/seed"
+        "spring.flyway.locations=classpath:db/migration,classpath:db/seed",
+        // enables the statement counter the N+1 guard reads
+        "spring.jpa.properties.hibernate.generate_statistics=true"
 })
 class MeetingCardPostgreSqlIntegrationTest {
 
@@ -69,6 +81,24 @@ class MeetingCardPostgreSqlIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+
+    private org.hibernate.stat.Statistics statistics() {
+        return entityManagerFactory.unwrap(org.hibernate.SessionFactory.class).getStatistics();
+    }
+
+    /** Statements issued by one {@code listMine} call, counted from a clean slate. */
+    private long statementsForCardList() {
+        org.hibernate.stat.Statistics stats = statistics();
+        stats.clear();
+        meetingCardService.listMine(USER_1, null, null, 100);
+        return stats.getPrepareStatementCount();
+    }
 
     private static final long USER_1 = 1L;
     private static final long USER_2 = 2L;
@@ -241,6 +271,177 @@ class MeetingCardPostgreSqlIntegrationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.MEETING_CARD_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("내 카드 목록은 meetAt·cardId 오름차순 커서로 이어진다")
+    void listMineUsesMeetAtAndIdCursor() {
+        Instant base = Instant.now();
+        long oldest = meetingCardService.confirm(USER_1,
+                requestAt(base.plus(1, ChronoUnit.DAYS))).cardId();
+        long middle = meetingCardService.confirm(USER_1,
+                requestAt(base.plus(2, ChronoUnit.DAYS))).cardId();
+        long newest = meetingCardService.confirm(USER_1,
+                requestAt(base.plus(3, ChronoUnit.DAYS))).cardId();
+
+        MeetingCardListResponse first = meetingCardService.listMine(USER_1, null, null, 2);
+        assertThat(first.items()).extracting(card -> card.cardId())
+                .containsExactly(oldest, middle);
+        assertThat(first.page().hasNext()).isTrue();
+        assertThat(first.page().nextCursor()).isNotBlank();
+
+        MeetingCardListResponse second = meetingCardService.listMine(
+                USER_1, null, first.page().nextCursor(), 2);
+        assertThat(second.items()).extracting(card -> card.cardId())
+                .containsExactly(newest);
+        assertThat(second.page().hasNext()).isFalse();
+        assertThat(second.items().get(0).participantPetIds())
+                .containsExactlyInAnyOrder(PET_1, PET_2);
+    }
+
+    @Test
+    @DisplayName("내 카드 목록은 상태 필터와 차단·Active Pet 정책을 적용한다")
+    void listMineAppliesStatusBlockAndActivePetPolicies() {
+        long canceledId = meetingCardService.confirm(USER_1, request(null)).cardId();
+        long openId = meetingCardService.confirm(USER_1,
+                requestAt(Instant.now().plus(2, ChronoUnit.DAYS))).cardId();
+        meetingCardService.cancel(USER_1, canceledId);
+
+        assertThat(meetingCardService.listMine(USER_1, "OPEN", null, null).items())
+                .extracting(card -> card.cardId()).containsExactly(openId);
+        assertThatThrownBy(() -> meetingCardService.listMine(USER_1, "canceled", null, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThat(meetingCardService.listMine(USER_1, "CANCELED", null, null).items())
+                .extracting(card -> card.cardId()).containsExactly(canceledId);
+
+        jdbcTemplate.update("""
+                insert into user_blocks (blocker_user_id, blocked_user_id, source_pet_id, target_pet_id)
+                values (?, ?, ?, ?)
+                """, USER_1, USER_2, PET_1, PET_2);
+        assertThat(meetingCardService.listMine(USER_1, null, null, null).items()).isEmpty();
+
+        jdbcTemplate.update("update users set active_pet_id = null where id = ?", USER_1);
+        assertThatThrownBy(() -> meetingCardService.listMine(USER_1, null, null, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.ACTIVE_PET_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("카드 목록 endpoint는 ApiResponse와 /me 경로를 사용한다")
+    void listMineEndpointReturnsApiResponse() throws Exception {
+        long cardId = meetingCardService.confirm(USER_1, request(null)).cardId();
+
+        mockMvc.perform(get("/meeting-cards/me").with(user(principal(USER_1))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items[0].cardId").value(cardId))
+                .andExpect(jsonPath("$.data.page.hasNext").value(false));
+    }
+
+    @Test
+    @DisplayName("카드 목록 limit은 1부터 100까지만 허용한다")
+    void listMineRejectsInvalidLimits() {
+        assertThatThrownBy(() -> meetingCardService.listMine(USER_1, null, null, 0))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+        assertThatThrownBy(() -> meetingCardService.listMine(USER_1, null, null, 101))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+    }
+
+    @Test
+    @DisplayName("내 카드 목록은 타인 방의 카드와 퇴장한 방의 카드를 제외한다")
+    void listMineEnforcesParticipantAndActiveRoomMembership() {
+        long ownCardId = meetingCardService.confirm(USER_1, request(null)).cardId();
+
+        insertUser(3L);
+        insertPet(33L, 3L);
+        setActivePet(3L, 33L);
+        long otherRoomId = chatRoomService.ensureDirectRoom(
+                PET_2, 33L, RoomOrigin.GREETING).roomId();
+        long otherCardId = meetingCardService.confirm(
+                USER_2,
+                new MeetingCardCreateRequest(
+                        otherRoomId,
+                        null,
+                        MeetingCardType.PLAY,
+                        "다른공원",
+                        Instant.now().plus(2, ChronoUnit.DAYS)
+                )
+        ).cardId();
+
+        assertThat(meetingCardService.listMine(USER_1, null, null, null).items())
+                .extracting(card -> card.cardId())
+                .containsExactly(ownCardId)
+                .doesNotContain(otherCardId);
+
+        jdbcTemplate.update("""
+                update chat_room_participants
+                   set left_at = now()
+                 where room_id = ? and pet_id = ?
+                """, roomId, PET_1);
+
+        assertThat(meetingCardService.listMine(USER_1, null, null, null).items())
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("정지·삭제된 상대 Pet이 있어도 카드 목록 전체는 실패하지 않는다")
+    void listMineKeepsCardsWhenCounterpartPetIsSuspendedOrDeleted() {
+        long cardId = meetingCardService.confirm(USER_1, request(null)).cardId();
+
+        jdbcTemplate.update("update pets set status = 'SUSPENDED' where id = ?", PET_2);
+        assertThat(meetingCardService.listMine(USER_1, null, null, null).items())
+                .extracting(card -> card.cardId()).containsExactly(cardId);
+
+        jdbcTemplate.update("update users set active_pet_id = null where id = ?", USER_2);
+        jdbcTemplate.update("""
+                update pets
+                   set status = 'DELETED', deleted_at = now()
+                 where id = ?
+                """, PET_2);
+        assertThat(meetingCardService.listMine(USER_1, null, null, null).items())
+                .extracting(card -> card.cardId()).containsExactly(cardId);
+    }
+
+    @Test
+    @DisplayName("ARCHIVED 방의 카드도 목록에서 조회할 수 있다")
+    void listMineKeepsArchivedRoomVisible() {
+        long cardId = meetingCardService.confirm(USER_1, request(null)).cardId();
+        jdbcTemplate.update(
+                "update chat_rooms set status = 'ARCHIVED', archived_at = now() where id = ?",
+                roomId);
+
+        assertThat(meetingCardService.listMine(USER_1, null, null, null).items())
+                .extracting(card -> card.cardId()).containsExactly(cardId);
+    }
+
+    /**
+     * 카드가 늘어도 목록 조회의 쿼리 수가 그대로여야 한다.
+     *
+     * <p>절대 개수를 고정하지 않고 증가분만 본다. Active Pet 조회처럼 카드 수와 무관한 고정
+     * 비용이 앞에 붙어 있어, 개수를 박아두면 그쪽이 바뀔 때마다 이 테스트가 깨진다. N+1 은
+     * 행마다 쿼리가 붙는 것이므로 카드 수를 늘렸을 때 증가하는지만 보면 충분하다.
+     */
+    @Test
+    @DisplayName("카드가 늘어도 목록 조회 쿼리 수는 늘지 않는다")
+    void listMineDoesNotIssuePerCardQueries() {
+        Instant base = Instant.now();
+        meetingCardService.confirm(USER_1, requestAt(base.plus(1, ChronoUnit.DAYS)));
+        meetingCardService.confirm(USER_1, requestAt(base.plus(2, ChronoUnit.DAYS)));
+        long forTwoCards = statementsForCardList();
+
+        meetingCardService.confirm(USER_1, requestAt(base.plus(3, ChronoUnit.DAYS)));
+        meetingCardService.confirm(USER_1, requestAt(base.plus(4, ChronoUnit.DAYS)));
+        long forFourCards = statementsForCardList();
+
+        assertThat(meetingCardService.listMine(USER_1, null, null, 100).items()).hasSize(4);
+        assertThat(forFourCards).isEqualTo(forTwoCards);
     }
 
     // ── 취소 ───────────────────────────────────────────────────────────────
@@ -447,8 +648,20 @@ class MeetingCardPostgreSqlIntegrationTest {
     // ── helpers ────────────────────────────────────────────────────────────
 
     private MeetingCardCreateRequest request(Long draftId) {
+        return requestAt(Instant.now().plus(1, ChronoUnit.DAYS), draftId);
+    }
+
+    private MeetingCardCreateRequest requestAt(Instant meetAt) {
+        return requestAt(meetAt, null);
+    }
+
+    private MeetingCardCreateRequest requestAt(Instant meetAt, Long draftId) {
         return new MeetingCardCreateRequest(roomId, draftId, MeetingCardType.WALK,
-                "중앙공원", Instant.now().plus(1, ChronoUnit.DAYS));
+                "중앙공원", meetAt);
+    }
+
+    private CurrentUser principal(long userId) {
+        return new CurrentUser(userId, "user" + userId + "@test.com", Role.USER);
     }
 
     private long insertDraft(long draftRoomId, long requestedByPetId) {
