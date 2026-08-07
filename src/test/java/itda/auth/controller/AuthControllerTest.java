@@ -14,6 +14,9 @@ import itda.auth.dto.SignupRequest;
 import itda.auth.service.AuthService;
 import itda.common.constants.ErrorCode;
 import itda.common.filter.JwtFilter;
+import itda.email.EmailVerificationService;
+import itda.email.dto.EmailVerificationChallengeResponse;
+import itda.email.dto.EmailVerificationConfirmedResponse;
 import itda.common.security.CurrentUser;
 import itda.user.domain.Role;
 import java.time.Instant;
@@ -48,6 +51,9 @@ class AuthControllerTest {
     @MockitoBean
     private JwtFilter jwtFilter;
 
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -75,7 +81,8 @@ class AuthControllerTest {
                                   "email": " user@example.com ",
                                   "password": "  long-password  ",
                                   "nickname": " 사용자 ",
-                                  "neighborhoodCode": " 1168010100 "
+                                  "neighborhoodCode": " 1168010100 ",
+                                  "verificationToken": "verification-token-123"
                                 }
                                 """));
 
@@ -87,6 +94,7 @@ class AuthControllerTest {
                         request.email().equals("user@example.com")
                                 && request.nickname().equals("사용자")
                                 && request.neighborhoodCode().equals("1168010100")
+                                && request.verificationToken().equals("verification-token-123")
                                 && request.password().equals("  long-password  ")
                 ));
             }
@@ -118,6 +126,45 @@ class AuthControllerTest {
                                 .value(ErrorCode.VALIDATION_FAILED.name()));
                 then(authService).shouldHaveNoInteractions();
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: email verification endpoints")
+    class DescribeEmailVerification {
+
+        @Test
+        @DisplayName("POST /auth/email-verifications returns 202 with a challenge id")
+        void requestEmailVerificationReturnsAccepted() throws Exception {
+            given(emailVerificationService.request(any())).willReturn(
+                    new EmailVerificationChallengeResponse("challenge-id", ACCESS_TOKEN_EXPIRES_AT, 60)
+            );
+
+            mockMvc.perform(post("/auth/email-verifications")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"user@example.com","purpose":"SIGNUP"}
+                                    """))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.challengeId").value("challenge-id"));
+        }
+
+        @Test
+        @DisplayName("POST /auth/email-verifications/confirm returns 200 with a verification token")
+        void confirmEmailVerificationReturnsToken() throws Exception {
+            given(emailVerificationService.confirm(any())).willReturn(
+                    new EmailVerificationConfirmedResponse("verification-token", ACCESS_TOKEN_EXPIRES_AT)
+            );
+
+            mockMvc.perform(post("/auth/email-verifications/confirm")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"challengeId":"challenge-id","code":"123456"}
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.verificationToken").value("verification-token"));
         }
     }
 

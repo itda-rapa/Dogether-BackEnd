@@ -43,6 +43,19 @@ app:
   redis:
     host: localhost
     port: 6379
+  email-verification:
+    hmac-secret: test-email-verification-hmac-secret-at-least-32-bytes
+    worker-enabled: false
+    sender-mode: fake
+    challenge-ttl: 5m
+    token-ttl: 15m
+    cooldown: 60s
+    payload-ttl: 5m
+    stream-key: dogether:email:v1:delivery:stream
+    stream-group: email-delivery
+    stream-consumer: test-email-worker
+    stream-max-length: 0
+    max-attempts: 5
   chat-room:
     lifecycle:
       enabled: false
