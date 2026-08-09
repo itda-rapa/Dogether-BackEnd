@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
+import itda.auth.dto.PasswordResetRequest;
 import itda.auth.dto.RefreshRequest;
 import itda.auth.dto.SignupRequest;
 import itda.common.dto.ApiResponse;
@@ -35,6 +36,24 @@ public interface AuthSwaggerSupporter {
     ApiResponse<EmailVerificationConfirmedResponse> confirmEmailVerification(
             EmailVerificationConfirmRequest request
     );
+
+    @Operation(
+            summary = "비밀번호 재설정",
+            description = "이메일 인증 완료 후 발급된 verification token을 사용해 비밀번호를 재설정합니다."
+    )
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = PasswordResetRequest.class),
+            examples = @ExampleObject("""
+                    {
+                        "email":"user@example.com",
+                        "verificationToken":"email-verification-token",
+                        "newPassword":"newPassword1234"
+                    }
+                    """)
+    ))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "비밀번호 재설정 성공")
+    ApiResponse<Void> resetPassword(PasswordResetRequest request);
 
     @Operation(summary = "회원가입", description = "회원가입을 처리하고 토큰을 발급하는 API")
     @RequestBody(content = @Content(

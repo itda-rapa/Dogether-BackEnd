@@ -2,9 +2,11 @@ package itda.auth.controller;
 
 import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
+import itda.auth.dto.PasswordResetRequest;
 import itda.auth.dto.RefreshRequest;
 import itda.auth.dto.SignupRequest;
 import itda.auth.service.AuthService;
+import itda.auth.service.PasswordResetService;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.email.EmailVerificationService;
@@ -27,10 +29,14 @@ public class AuthController implements AuthSwaggerSupporter {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
 
-    public AuthController(AuthService authService, EmailVerificationService emailVerificationService) {
+    public AuthController(AuthService authService,
+                          EmailVerificationService emailVerificationService,
+                          PasswordResetService passwordResetService) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
+        this.passwordResetService = passwordResetService;
     }
 
     @PostMapping("/email-verifications")
@@ -47,6 +53,14 @@ public class AuthController implements AuthSwaggerSupporter {
             @Valid @RequestBody EmailVerificationConfirmRequest request
     ) {
         return ApiResponse.ok(emailVerificationService.confirm(request), "이메일 인증이 완료되었습니다.");
+    }
+
+    @PostMapping("/password-reset")
+    public ApiResponse<Void> resetPassword(@Valid @RequestBody PasswordResetRequest request) {
+        passwordResetService.reset(
+                request.email(), request.verificationToken(), request.newPassword()
+        );
+        return ApiResponse.ok("비밀번호가 재설정되었습니다.");
     }
 
     @PostMapping("/signup")

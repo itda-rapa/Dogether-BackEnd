@@ -12,6 +12,7 @@ import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
 import itda.auth.dto.SignupRequest;
 import itda.auth.service.AuthService;
+import itda.auth.service.PasswordResetService;
 import itda.common.constants.ErrorCode;
 import itda.common.filter.JwtFilter;
 import itda.email.EmailVerificationService;
@@ -53,6 +54,9 @@ class AuthControllerTest {
 
     @MockitoBean
     private EmailVerificationService emailVerificationService;
+
+    @MockitoBean
+    private PasswordResetService passwordResetService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -165,6 +169,68 @@ class AuthControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.verificationToken").value("verification-token"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: POST /auth/password-reset")
+    class DescribePasswordReset {
+
+        @Test
+        @DisplayName("It: provisional request를 Service로 전달하고 200을 반환한다")
+        void itResetsPassword() throws Exception {
+            mockMvc.perform(post("/auth/password-reset")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                      "email":" user@example.com ",
+                                      "verificationToken":"verification-token-123",
+                                      "newPassword":"newPassword1234"
+                                    }
+                                    """))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.message").value("비밀번호가 재설정되었습니다."));
+
+            then(passwordResetService).should().reset(
+                    "user@example.com", "verification-token-123", "newPassword1234"
+            );
+        }
+
+        @Test
+        @DisplayName("It: 잘못된 email은 400으로 거부한다")
+        void itRejectsInvalidEmail() throws Exception {
+            mockMvc.perform(post("/auth/password-reset")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"not-an-email","verificationToken":"verification-token-123","newPassword":"newPassword1234"}
+                                    """))
+                    .andExpect(status().isBadRequest());
+            then(passwordResetService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 빈 verification token은 400으로 거부한다")
+        void itRejectsBlankVerificationToken() throws Exception {
+            mockMvc.perform(post("/auth/password-reset")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"user@example.com","verificationToken":"","newPassword":"newPassword1234"}
+                                    """))
+                    .andExpect(status().isBadRequest());
+            then(passwordResetService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: Signup password 정책을 만족하지 않는 password는 400으로 거부한다")
+        void itRejectsInvalidNewPassword() throws Exception {
+            mockMvc.perform(post("/auth/password-reset")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"user@example.com","verificationToken":"verification-token-123","newPassword":"short"}
+                                    """))
+                    .andExpect(status().isBadRequest());
+            then(passwordResetService).shouldHaveNoInteractions();
         }
     }
 

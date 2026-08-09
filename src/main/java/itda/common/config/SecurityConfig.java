@@ -82,6 +82,7 @@ public class SecurityConfig {
                                 "/auth/signup",
                                 "/auth/login",
                                 "/auth/refresh",
+                                "/auth/password-reset",
                                 "/auth/email-verifications",
                                 "/auth/email-verifications/confirm"
                         ).permitAll()
