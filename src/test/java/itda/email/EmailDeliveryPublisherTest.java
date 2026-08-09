@@ -21,7 +21,7 @@ class EmailDeliveryPublisherTest {
     private final EmailVerificationProperties properties = new EmailVerificationProperties(
             "test-email-verification-hmac-secret-at-least-32-bytes", Duration.ofMinutes(5),
             Duration.ofMinutes(15), Duration.ofSeconds(60), Duration.ofMinutes(5), false,
-            "fake", "stream", "group", "consumer", 0, 5
+            "fake", "stream", "group", "consumer", 5
     );
 
     @Mock private StringRedisTemplate redisTemplate;

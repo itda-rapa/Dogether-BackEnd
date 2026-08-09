@@ -74,7 +74,6 @@ app:
     stream-key: ${EMAIL_STREAM_KEY:dogether:email:v1:delivery:stream}
     stream-group: ${EMAIL_STREAM_GROUP:email-delivery}
     stream-consumer: ${EMAIL_STREAM_CONSUMER:email-worker-1}
-    stream-max-length: ${EMAIL_STREAM_MAX_LENGTH:0}
     max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
   chat-room:
     lifecycle:

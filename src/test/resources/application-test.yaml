@@ -54,7 +54,6 @@ app:
     stream-key: dogether:email:v1:delivery:stream
     stream-group: email-delivery
     stream-consumer: test-email-worker
-    stream-max-length: 0
     max-attempts: 5
   chat-room:
     lifecycle:

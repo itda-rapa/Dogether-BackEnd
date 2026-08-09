@@ -26,8 +26,8 @@ public class EmailDeliveryStreamListener implements StreamListener<String, MapRe
 
     @Override
     public void onMessage(MapRecord<String, String, String> record) {
+        String payloadKey = record.getValue().get("payloadKey");
         try {
-            String payloadKey = record.getValue().get("payloadKey");
             EmailDeliveryPublisher.DeliveryPayload payload = deserialize(payloadKey);
             sender.send(payload.email(), payload.purpose(), payload.code());
             Long acknowledged = redisTemplate.opsForStream().acknowledge(
@@ -35,10 +35,24 @@ public class EmailDeliveryStreamListener implements StreamListener<String, MapRe
             if (!Long.valueOf(1L).equals(acknowledged)) {
                 throw new IllegalStateException("이메일 Stream ACK에 실패했습니다.");
             }
-            redisTemplate.delete(payloadKey);
         } catch (RuntimeException exception) {
             log.error("Email delivery failed; stream entry remains pending. recordId={}, payloadKey={}",
-                    record.getId().getValue(), record.getValue().get("payloadKey"), exception);
+                    record.getId().getValue(), payloadKey, exception);
+            return;
+        }
+
+        try {
+            redisTemplate.opsForStream().delete(properties.streamKey(), record.getId());
+        } catch (RuntimeException exception) {
+            log.error("Email stream entry cleanup failed. recordId={}, payloadKey={}",
+                    record.getId().getValue(), payloadKey, exception);
+        }
+
+        try {
+            redisTemplate.delete(payloadKey);
+        } catch (RuntimeException exception) {
+            log.error("Email delivery payload cleanup failed. recordId={}, payloadKey={}",
+                    record.getId().getValue(), payloadKey, exception);
         }
     }
 

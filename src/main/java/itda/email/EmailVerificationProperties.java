@@ -15,7 +15,6 @@ public record EmailVerificationProperties(
         String streamKey,
         String streamGroup,
         String streamConsumer,
-        long streamMaxLength,
         int maxAttempts
 ) {
 }

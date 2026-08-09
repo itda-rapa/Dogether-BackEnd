@@ -24,7 +24,7 @@ class EmailDeliveryStreamListenerTest {
     private final EmailVerificationProperties properties = new EmailVerificationProperties(
             "test-email-verification-hmac-secret-at-least-32-bytes", Duration.ofMinutes(5),
             Duration.ofMinutes(15), Duration.ofSeconds(60), Duration.ofMinutes(5), false,
-            "fake", "stream", "group", "consumer", 0, 5
+            "fake", "stream", "group", "consumer", 5
     );
 
     @Mock private StringRedisTemplate redisTemplate;
@@ -33,7 +33,7 @@ class EmailDeliveryStreamListenerTest {
     @Mock private VerificationEmailSender sender;
 
     @Test
-    void sendsAcknowledgesThenDeletesPayload() throws Exception {
+    void sendsAcknowledgesDeletesStreamEntryThenDeletesPayload() throws Exception {
         EmailDeliveryStreamListener listener = listener();
         MapRecord<String, String, String> record = record();
         given(redisTemplate.opsForValue()).willReturn(valueOperations);
@@ -46,6 +46,7 @@ class EmailDeliveryStreamListenerTest {
         InOrder order = inOrder(sender, streamOperations, redisTemplate);
         order.verify(sender).send("user@example.com", EmailVerificationPurpose.SIGNUP, "123456");
         order.verify(streamOperations).acknowledge("stream", "group", record.getId());
+        order.verify(streamOperations).delete("stream", record.getId());
         order.verify(redisTemplate).delete("payload-key");
     }
 
@@ -65,6 +66,20 @@ class EmailDeliveryStreamListenerTest {
     }
 
     @Test
+    void leavesEntryPendingAndPayloadWhenPayloadIsMissing() {
+        EmailDeliveryStreamListener listener = listener();
+        MapRecord<String, String, String> record = record();
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(valueOperations.get("payload-key")).willReturn(null);
+
+        listener.onMessage(record);
+
+        then(sender).shouldHaveNoInteractions();
+        then(streamOperations).shouldHaveNoInteractions();
+        then(redisTemplate).should(org.mockito.Mockito.never()).delete("payload-key");
+    }
+
+    @Test
     void keepsPayloadWhenAcknowledgeDidNotSucceed() throws Exception {
         EmailDeliveryStreamListener listener = listener();
         MapRecord<String, String, String> record = record();
@@ -75,6 +90,25 @@ class EmailDeliveryStreamListenerTest {
 
         listener.onMessage(record);
 
+        then(streamOperations).should(org.mockito.Mockito.never()).delete("stream", record.getId());
+        then(redisTemplate).should(org.mockito.Mockito.never()).delete("payload-key");
+    }
+
+    @Test
+    void keepsEntryAndPayloadWhenAcknowledgeThrows() throws Exception {
+        EmailDeliveryStreamListener listener = listener();
+        MapRecord<String, String, String> record = record();
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(redisTemplate.opsForStream()).willReturn(streamOperations);
+        given(valueOperations.get("payload-key")).willReturn(payloadJson());
+        org.mockito.Mockito.doThrow(new IllegalStateException("XACK failed"))
+                .when(streamOperations).acknowledge("stream", "group", record.getId());
+
+        listener.onMessage(record);
+
+        then(sender).should().send("user@example.com", EmailVerificationPurpose.SIGNUP, "123456");
+        then(streamOperations).should().acknowledge("stream", "group", record.getId());
+        then(streamOperations).should(org.mockito.Mockito.never()).delete("stream", record.getId());
         then(redisTemplate).should(org.mockito.Mockito.never()).delete("payload-key");
     }
 
@@ -90,6 +124,60 @@ class EmailDeliveryStreamListenerTest {
         then(sender).shouldHaveNoInteractions();
         then(streamOperations).shouldHaveNoInteractions();
         then(redisTemplate).should(org.mockito.Mockito.never()).delete("payload-key");
+    }
+
+    @Test
+    void continuesPayloadCleanupWhenStreamEntryCleanupFails() throws Exception {
+        EmailDeliveryStreamListener listener = listener();
+        MapRecord<String, String, String> record = record();
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(redisTemplate.opsForStream()).willReturn(streamOperations);
+        given(valueOperations.get("payload-key")).willReturn(payloadJson());
+        given(streamOperations.acknowledge("stream", "group", record.getId())).willReturn(1L);
+        org.mockito.Mockito.doThrow(new IllegalStateException("XDEL failed"))
+                .when(streamOperations).delete("stream", record.getId());
+
+        listener.onMessage(record);
+
+        then(sender).should().send("user@example.com", EmailVerificationPurpose.SIGNUP, "123456");
+        then(streamOperations).should().acknowledge("stream", "group", record.getId());
+        then(streamOperations).should().delete("stream", record.getId());
+        then(redisTemplate).should().delete("payload-key");
+    }
+
+    @Test
+    void keepsDeliverySuccessfulWhenPayloadCleanupFails() throws Exception {
+        EmailDeliveryStreamListener listener = listener();
+        MapRecord<String, String, String> record = record();
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(redisTemplate.opsForStream()).willReturn(streamOperations);
+        given(valueOperations.get("payload-key")).willReturn(payloadJson());
+        given(streamOperations.acknowledge("stream", "group", record.getId())).willReturn(1L);
+        org.mockito.Mockito.doThrow(new IllegalStateException("payload delete failed"))
+                .when(redisTemplate).delete("payload-key");
+
+        listener.onMessage(record);
+
+        then(sender).should().send("user@example.com", EmailVerificationPurpose.SIGNUP, "123456");
+        then(streamOperations).should().acknowledge("stream", "group", record.getId());
+        then(streamOperations).should().delete("stream", record.getId());
+        then(redisTemplate).should().delete("payload-key");
+    }
+
+    @Test
+    void treatsZeroStreamEntryCleanupResultAsIdempotentCleanup() throws Exception {
+        EmailDeliveryStreamListener listener = listener();
+        MapRecord<String, String, String> record = record();
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(redisTemplate.opsForStream()).willReturn(streamOperations);
+        given(valueOperations.get("payload-key")).willReturn(payloadJson());
+        given(streamOperations.acknowledge("stream", "group", record.getId())).willReturn(1L);
+        given(streamOperations.delete("stream", record.getId())).willReturn(0L);
+
+        listener.onMessage(record);
+
+        then(sender).should().send("user@example.com", EmailVerificationPurpose.SIGNUP, "123456");
+        then(redisTemplate).should().delete("payload-key");
     }
 
     private MapRecord<String, String, String> record() {

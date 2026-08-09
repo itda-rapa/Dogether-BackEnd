@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
@@ -14,6 +15,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.data.domain.Range;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.stream.Consumer;
+import org.springframework.data.redis.connection.stream.RecordId;
+import org.springframework.data.redis.connection.stream.ReadOffset;
+import org.springframework.data.redis.connection.stream.StreamOffset;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -116,7 +121,7 @@ class EmailVerificationRedisScriptIntegrationTest {
         EmailVerificationProperties properties = new EmailVerificationProperties(
                 "test-email-verification-hmac-secret-at-least-32-bytes", Duration.ofMinutes(5),
                 Duration.ofMinutes(15), Duration.ofSeconds(60), Duration.ofMinutes(5), false,
-                "fake", "delivery-stream", "group", "consumer", 0, 5
+                "fake", "delivery-stream", "group", "consumer", 5
         );
         EmailDeliveryPublisher publisher = new EmailDeliveryPublisher(template, properties);
 
@@ -132,6 +137,26 @@ class EmailVerificationRedisScriptIntegrationTest {
         assertThat(template.getExpire(payloadKey)).isPositive();
         assertThat(payload.email()).isEqualTo("user@example.com");
         assertThat(payload.code()).isEqualTo("123456");
+    }
+
+    @Test
+    void acknowledgedStreamEntryIsExplicitlyRemoved() {
+        StringRedisTemplate template = template();
+        String streamKey = "delivery-cleanup-stream";
+        String group = "delivery-cleanup-group";
+        RecordId recordId = template.opsForStream().add(streamKey, Map.of("payloadKey", "payload-key"));
+        template.opsForStream().createGroup(streamKey, ReadOffset.from("0-0"), group);
+
+        var delivered = template.opsForStream().read(
+                Consumer.from(group, "delivery-cleanup-consumer"),
+                StreamOffset.create(streamKey, ReadOffset.lastConsumed())
+        );
+
+        assertThat(delivered).hasSize(1);
+        assertThat(delivered.getFirst().getId()).isEqualTo(recordId);
+        assertThat(template.opsForStream().acknowledge(streamKey, group, recordId)).isEqualTo(1L);
+        assertThat(template.opsForStream().delete(streamKey, recordId)).isEqualTo(1L);
+        assertThat(template.opsForStream().range(streamKey, Range.unbounded())).isEmpty();
     }
 
     private StringRedisTemplate template() {
