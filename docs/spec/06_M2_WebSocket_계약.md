@@ -5,7 +5,7 @@
 
 이 문서는 BE-2, BE-4, 프론트가 WebSocket 구현 전에 공유하는 계약이다. REST·DB 정본을 대체하지 않으며, 구현 중 변경은 이 문서와 함께 리뷰한다.
 
-> **읽는 법.** 본문에는 두 종류가 섞여 있다. 하나는 **계약 규칙**(destination, 이벤트 형식, 오류, 수신자 조건 등)으로 구현이 따라야 할 대상이다. 다른 하나는 **저장소 현황 스냅샷**(`dev` `d27f3ac` 기준)으로, 구현자가 잘못된 전제를 두지 않도록 적어둔 관찰이다. 아래 여섯 곳이 현황이며 저장소가 고쳐지면 낡는다 — §3 항목 1(`/ws`가 `permitAll`에 없음), §7의 OpenAPI `BLOCKED_USER` 경고, §7.1(`canSend`·`sendBlockedReason`), §7.2(`findRoomById`), §10의 검증 환경 주의, §10의 배포 문서 부재. **해당 항목이 해소되면 이 문서에서 지우고 그 사실만 남긴다.**
+> **읽는 법.** 본문에는 두 종류가 섞여 있다. 하나는 **계약 규칙**(destination, 이벤트 형식, 오류, 수신자 조건 등)으로 구현이 따라야 할 대상이다. 다른 하나는 **저장소 현황 스냅샷**(`dev` `ec16ecd` 기준)으로, 구현자가 잘못된 전제를 두지 않도록 적어둔 관찰이다. 아래 여섯 곳이 현황이며 저장소가 고쳐지면 낡는다 — §3 항목 1(`/ws`가 `permitAll`에 없음), §7의 OpenAPI `BLOCKED_USER` 경고, §7.1(`canSend`·`sendBlockedReason`), §7.2(`findRoomById`), §10의 검증 환경 주의, §10의 배포 문서 부재. **해당 항목이 해소되면 이 문서에서 지우고 그 사실만 남긴다.**
 
 ## 1. 범위와 전제
 
@@ -67,7 +67,7 @@ GROUP destination은 BE-4가 구현하되, 공통 인증·Principal·이벤트 �
 
 ## 3. 인증·세션
 
-1. HTTP handshake 경로 `/ws`를 `SecurityConfig`에서 허용한다. **현재 `permitAll` 목록에 `/ws`가 없다** — 메서드 무관 5개(`/actuator/health`, `/media-test`, `/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`), `POST` 한정 3개(`/auth/signup`, `/auth/login`, `/auth/refresh`), `GET` 한정 1개(`/neighborhoods`)뿐이고 나머지는 `.anyRequest().authenticated()`다. **지금 상태로는 handshake가 `401 UNAUTHORIZED`로 끊긴다.** `M2-002`에서 추가해야 하며, 이미 되어 있다고 전제하지 않는다.
+1. HTTP handshake 경로 `/ws`를 `SecurityConfig`에서 허용한다. **현재 `permitAll` 목록에 `/ws`가 없다** — 메서드 무관 5개(`/actuator/health`, `/media-test`, `/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`), `POST` 한정 6개(`/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/password-reset`, `/auth/email-verifications`, `/auth/email-verifications/confirm`), `GET` 한정 1개(`/neighborhoods`)뿐이고 나머지는 `.anyRequest().authenticated()`다. **지금 상태로는 handshake가 `401 UNAUTHORIZED`로 끊긴다.** `M2-002`에서 추가해야 하며, 이미 되어 있다고 전제하지 않는다.
 2. 인증은 STOMP `CONNECT`의 `Authorization: Bearer <access-token>` native header에서 수행한다.
    - **handshake가 아니라 CONNECT인 이유**는 브라우저 WebSocket API가 handshake 요청에 임의 헤더를 붙이지 못하기 때문이다. 그래서 handshake는 인증 없이 통과시키고(1), 첫 STOMP 프레임에서 검증한다. 토큰을 쿼리 파라미터로 넘기는 우회는 쓰지 않는다 — 접근 로그와 Referer에 남는다.
 3. `Principal.getName()`은 **User ID의 문자열 표현**으로 고정한다. 이메일을 사용하지 않는다.

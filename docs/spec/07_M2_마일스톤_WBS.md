@@ -2,7 +2,7 @@
 
 > 상태: **초안 — 채팅·제안(BE-2·BE-4) 외 항목은 담당·일정 미배정**
 > 기준일: 2026-08-07
-> 저장소 기준: `dev` `d27f3ac`(PR #57 머지 시점, PR #55 포함). 이 문서의 구현 상태 판정은 전부 이 커밋을 본 것이다.
+> 저장소 기준: `dev` `ec16ecd`(PR #62 머지 시점). 이 문서의 구현 상태 판정은 전부 이 커밋을 본 것이다. 코드 대조는 `d27f3ac`에서 시작했고 `ec16ecd`로 갱신하며 영향받는 서술을 다시 확인했다.
 > 목표일: 미정(팀 합의 필요)
 > 범위: `00_최신_제품정책.md`의 M2 8개 항목과, 정책 문서 반영 대기 중인 아침 리마인드(UC-07)를 다룬다. 실제 진행 상태가 있는 채팅/실시간 인프라와 UC-07만 상세 WBS로 관리하고, 나머지는 뼈대만 세우고 담당자 배정 이후 갱신한다.
 > 상태 기준: 현재 Git 저장소의 구현·PR 상태를 기준으로 판정한다.
@@ -57,7 +57,7 @@
 
 Push, 읽음 표시, 메시지 수정·삭제, 이미지·파일 첨부, 회원탈퇴, 이메일 인증, 비밀번호 찾기·재설정은 `00_최신_제품정책.md`가 M1 미제공으로 명시했고 M2 목록에도 없다. M2로 당겨오려면 제품 정책 문서를 먼저 갱신해야 하며, 이 WBS가 임의로 포함하지 않는다.
 
-다만 **이메일 인증은 코드가 먼저 나가 있다.** `RedisConfig`의 DB 1번이 "이메일 인증 전용"으로 잡혀 있다(`M2-008`). 기능 자체는 정책상 M1·M2 어디에도 없으므로, 미사용 선반영으로 둘지 M2 범위로 올릴지는 제품 정책 문서 갱신이 선행되어야 한다.
+다만 **이메일 인증과 비밀번호 재설정은 이미 구현돼 dev에 머지됐다**(PR #62, `ec16ecd`). Redis Streams 기반 발송·확인, 회원가입 연동, 비밀번호 재설정 API까지 들어갔고 `SecurityConfig`의 `permitAll`에도 세 경로가 추가됐다. **제품 정책 문서는 두 기능을 여전히 M1 미제공으로 적어 두었고 M2 목록에도 없다.** 정책과 구현이 어긋난 상태이므로 `00_최신_제품정책.md` 갱신이 필요하다 — 이 WBS가 임의로 판단하지 않는다.
 
 ### 2.3 공유 약속 제안(UC-07) — 구현 확정, 정책 문서 반영 대기
 
@@ -552,7 +552,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 
 **`M2-008`에 남은 하자 두 가지.** 완료 판정은 유지하되 후속으로 처리한다(§8).
 
-1. **기본값 없는 필수 env가 `.env.example`에도 prod 프로파일에도 없다.** `app.redis.host: ${REDIS_HOST}`, `app.redis.port: ${REDIS_PORT}`, `spring.kafka.bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}` 셋 다 기본값이 없는데 `.env.example`에는 REDIS·KAFKA 키가 하나도 없고, `application-prod.yaml`도 이 셋을 재정의하지 않아 base 설정을 그대로 상속한다. 예시를 복사해 `.env`로 쓰거나 prod에서 해당 환경변수 없이 뜨면 placeholder를 해결하지 못해 **애플리케이션이 기동하지 않는다.**
+1. **기본값 없는 필수 env가 `.env.example`에도 prod 프로파일에도 없다.** `app.redis.host: ${REDIS_HOST}`, `app.redis.port: ${REDIS_PORT}`, `spring.kafka.bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}` 셋 다 기본값이 없다. PR #62에서 `REDIS_HOST`·`REDIS_PORT`는 `.env.example`에 추가됐으나 **`KAFKA_BOOTSTRAP_SERVER`는 아직 없다.** `application-prod.yaml`도 이 셋을 재정의하지 않아 base 설정을 그대로 상속하므로, prod에서 해당 환경변수 없이 뜨면 placeholder를 해결하지 못해 **애플리케이션이 기동하지 않는다.**
 2. **compose 두 개가 서로를 보완하지 못한다.** 루트 `docker-compose.yml`에는 백엔드(`app`)가 있지만 Redis·Kafka 서비스도, 그 환경변수도 없다. Redis·Kafka가 있는 `deployment/local/docker-compose.yml`에는 백엔드가 없다. 둘을 따로 띄우면 네트워크가 갈린다.
 
 **"Backend CI 성공"의 범위도 좁다.** `dev` PR을 검사한 것은 `ci-test.yml`의 `./gradlew test`이며, 이 태스크는 `excludeTags 'postgres', 'rustfs'`로 통합 테스트를 제외한다. `postgresTest`를 함께 돌리는 `ci.yml`은 `main` push 전용이라 이 PR에서는 동작하지 않았다(§7 위험).
