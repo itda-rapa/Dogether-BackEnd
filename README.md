@@ -59,6 +59,19 @@ docker compose up -d postgres rustfs
 .\gradlew.bat bootRun
 ```
 
+이메일 인증 기능을 IDE 또는 Gradle로 검증할 때는 Redis를 별도의 local Infra
+Compose에서 실행한다. root `docker-compose.yml`에는 Redis 서비스가 없다.
+
+```powershell
+docker compose `
+  -f deployment/local/docker-compose.yml `
+  up -d redis
+```
+
+이 경우 `.env`의 `REDIS_HOST=localhost`, `REDIS_PORT=6379`를 사용한다.
+이메일 Stream worker는 기본적으로 비활성화되어 있으므로 실제 이메일 흐름을
+검증할 때만 `EMAIL_VERIFICATION_WORKER_ENABLED=true`로 설정한다.
+
 `.env.example`에는 `SPRING_PROFILES_ACTIVE=local`과 `FLYWAY_ENABLED=false`가
 포함되어 있다. 현재 로컬 기본값에서는 Flyway를 자동 실행하지 않는다. 빈 DB를
 처음 구성하거나 migration 적용이 필요할 때만 `.env`의 값을 일시적으로 `true`로

@@ -14,6 +14,8 @@ import itda.auth.dto.AuthTokensResponse;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.common.security.service.TokenProvider;
+import itda.email.EmailVerificationService;
+import itda.email.EmailVerificationPurpose;
 import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
@@ -45,6 +47,8 @@ class AuthServiceTest {
     private PublicTagGenerator publicTagGenerator;
     @Mock
     private UserRegistrationService userRegistrationService;
+    @Mock
+    private EmailVerificationService emailVerificationService;
 
     private AuthService authService;
 
@@ -56,7 +60,8 @@ class AuthServiceTest {
                 passwordEncoder,
                 tokenProvider,
                 publicTagGenerator,
-                userRegistrationService
+                userRegistrationService,
+                emailVerificationService
         );
     }
 
@@ -66,7 +71,8 @@ class AuthServiceTest {
                 "USER@example.com",
                 "long-password",
                 "사용자",
-                "1168010100"
+                "1168010100",
+                "verification-token"
         );
         given(userRepository.findByEmailIgnoreCase("user@example.com"))
                 .willReturn(Optional.empty());
@@ -84,6 +90,7 @@ class AuthServiceTest {
         authService.signup(request);
 
         verify(passwordEncoder).encode("long-password");
+        verify(emailVerificationService).consume("verification-token", "user@example.com", EmailVerificationPurpose.SIGNUP);
         verify(userRegistrationService).registerAndIssue(any(User.class));
     }
 
@@ -106,7 +113,8 @@ class AuthServiceTest {
                 "user@example.com",
                 "long-password",
                 "사용자",
-                "4113111500"
+                "4113111500",
+                "verification-token"
         );
         given(userRepository.findByEmailIgnoreCase("user@example.com"))
                 .willReturn(Optional.empty());
@@ -199,6 +207,28 @@ class AuthServiceTest {
     class DescribeSignup {
 
         @Nested
+        @DisplayName("Context: email이 이미 존재하면")
+        class WithDuplicatedEmail {
+
+            @Test
+            @DisplayName("It: verification token을 소비하지 않는다")
+            void itRejectsBeforeConsumingVerificationToken() {
+                SignupRequest request = new SignupRequest(
+                        "user@example.com", "long-password", "사용자", "4113111500", "verification-token"
+                );
+                given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                        .willReturn(Optional.of(mock(User.class)));
+
+                assertThatThrownBy(() -> authService.signup(request))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.USER_EMAIL_DUPLICATED);
+
+                then(emailVerificationService).shouldHaveNoInteractions();
+            }
+        }
+
+        @Nested
         @DisplayName("Context: 가입 가능한 동네가 아니면")
         class WithUnavailableNeighborhood {
 
@@ -210,7 +240,8 @@ class AuthServiceTest {
                         "user@example.com",
                         "long-password",
                         "사용자",
-                        "4113111500"
+                        "4113111500",
+                        "verification-token"
                 );
                 given(userRepository.findByEmailIgnoreCase("user@example.com"))
                         .willReturn(Optional.empty());
@@ -230,6 +261,37 @@ class AuthServiceTest {
                 then(passwordEncoder).shouldHaveNoInteractions();
                 then(publicTagGenerator).shouldHaveNoInteractions();
                 then(userRegistrationService).shouldHaveNoInteractions();
+                then(emailVerificationService).shouldHaveNoInteractions();
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: verification token이 유효하지 않으면")
+        class WithInvalidVerificationToken {
+
+            @Test
+            @DisplayName("It: password와 가입 처리를 시작하지 않는다")
+            void itRejectsBeforePasswordAndRegistration() {
+                SignupRequest request = new SignupRequest(
+                        "user@example.com", "long-password", "사용자", "4113111500", "verification-token"
+                );
+                given(userRepository.findByEmailIgnoreCase("user@example.com"))
+                        .willReturn(Optional.empty());
+                given(neighborhoodRepository.existsByCodeAndActiveTrue("4113111500"))
+                        .willReturn(true);
+                org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.EMAIL_VERIFICATION_TOKEN_INVALID))
+                        .when(emailVerificationService).consume(
+                                "verification-token", "user@example.com", EmailVerificationPurpose.SIGNUP
+                        );
+
+                assertThatThrownBy(() -> authService.signup(request))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.EMAIL_VERIFICATION_TOKEN_INVALID);
+
+                then(passwordEncoder).shouldHaveNoInteractions();
+                then(publicTagGenerator).shouldHaveNoInteractions();
+                then(userRegistrationService).shouldHaveNoInteractions();
             }
         }
 
@@ -245,7 +307,8 @@ class AuthServiceTest {
                         "user@example.com",
                         "long-password",
                         "사용자",
-                        "4113111500"
+                        "4113111500",
+                        "verification-token"
                 );
                 given(userRepository.findByEmailIgnoreCase("user@example.com"))
                         .willReturn(Optional.empty());
@@ -268,6 +331,8 @@ class AuthServiceTest {
                         .isEqualTo(ErrorCode.PUBLIC_TAG_GENERATION_FAILED);
                 then(userRegistrationService).should(times(5))
                         .registerAndIssue(any(User.class));
+                then(emailVerificationService).should(times(1)).consume(
+                        "verification-token", "user@example.com", EmailVerificationPurpose.SIGNUP);
             }
         }
     }

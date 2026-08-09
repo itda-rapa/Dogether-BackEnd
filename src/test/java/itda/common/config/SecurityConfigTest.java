@@ -89,6 +89,54 @@ class SecurityConfigTest {
         }
 
         @Nested
+        @DisplayName("Context: POST /auth/email-verifications를 호출하면")
+        class WithEmailVerificationPost {
+
+            @Test
+            @DisplayName("It: 익명 요청은 Security에서 막지 않는다")
+            void itPassesSecurityAndFailsOnlyValidation() throws Exception {
+                mockMvc.perform(post("/auth/email-verifications")
+                                .contentType("application/json")
+                                .content("{}"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.VALIDATION_FAILED.name()));
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: POST /auth/email-verifications/confirm을 호출하면")
+        class WithEmailVerificationConfirmPost {
+
+            @Test
+            @DisplayName("It: 익명 요청은 Security에서 막지 않고 validation 400에 도달한다")
+            void itPassesSecurityAndFailsOnlyValidation() throws Exception {
+                mockMvc.perform(post("/auth/email-verifications/confirm")
+                                .contentType("application/json")
+                                .content("{}"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.VALIDATION_FAILED.name()));
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: POST /auth/password-reset을 호출하면")
+        class WithPasswordResetPost {
+
+            @Test
+            @DisplayName("It: 익명 요청은 Security에서 막지 않고 validation 400에 도달한다")
+            void itPassesSecurityAndFailsOnlyValidation() throws Exception {
+                mockMvc.perform(post("/auth/password-reset")
+                                .contentType("application/json")
+                                .content("{}"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.VALIDATION_FAILED.name()));
+            }
+        }
+
+        @Nested
         @DisplayName("Context: POST /pets를 호출하면")
         class WithPetPost {
 
