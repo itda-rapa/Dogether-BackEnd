@@ -22,6 +22,8 @@ app:
     # Production cleanup relies on exact object versions. Fail closed when HEAD
     # does not return one; this requires Bucket Versioning to be enabled.
     require-version-id: true
+  websocket:
+    enabled: false
   jwt:
     issuer: ${JWT_ISSUER}
     secret: ${JWT_SECRET}

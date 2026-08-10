@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import itda.chat.domain.ChatMessage;
 import itda.chat.domain.ChatRoom;
 import itda.chat.domain.MessageType;
+import itda.chat.domain.RoomType;
 import itda.chat.domain.SenderType;
 import itda.chat.dto.ChatMessageCreateRequest;
 import itda.chat.dto.ChatMessageResult;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * Mocks are always built before the {@code when(...)} call that returns them — creating a mock
@@ -53,6 +55,9 @@ class ChatMessageServiceTest {
     @Mock
     private GreetingRepository greetingRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private ChatMessageService chatMessageService;
 
     @BeforeEach
@@ -61,7 +66,8 @@ class ChatMessageServiceTest {
                 chatMessageRepository,
                 chatRoomRepository,
                 participantRepository,
-                greetingRepository
+                greetingRepository,
+                eventPublisher
         );
     }
 
@@ -159,6 +165,7 @@ class ChatMessageServiceTest {
         verify(chatMessageRepository, never()).insertMessageOnConflictWithReturning(
                 anyLong(), anyString(), any(), anyString(), any(), any(), any());
         verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -185,6 +192,7 @@ class ChatMessageServiceTest {
         assertThat(result.created()).isFalse();
         assertThat(result.message().getId()).isEqualTo(2L);
         verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     // ---------- idempotency key misuse ----------
@@ -373,6 +381,10 @@ class ChatMessageServiceTest {
     private static ChatMessage mockMsg(long id, SenderType senderType, Long senderPetId, MessageType type,
                                        String body, Long meetingCardId, String clientMessageId) {
         ChatMessage msg = mock(ChatMessage.class);
+        ChatRoom room = mock(ChatRoom.class);
+        lenient().when(room.getId()).thenReturn(1L);
+        lenient().when(room.getType()).thenReturn(RoomType.DIRECT);
+        lenient().when(msg.getRoom()).thenReturn(room);
         lenient().when(msg.getId()).thenReturn(id);
         lenient().when(msg.getSenderType()).thenReturn(senderType);
         lenient().when(msg.getSenderPetId()).thenReturn(senderPetId);
