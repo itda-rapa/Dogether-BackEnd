@@ -132,6 +132,57 @@ class ChatWebSocketChannelInterceptorTest {
     }
 
     @Test
+    void unsubscribeRequiresAnAuthenticatedSession() {
+        Message<?> authenticated = authenticatedMessage();
+        StompHeaderAccessor connected = StompHeaderAccessor.wrap(authenticated);
+        StompHeaderAccessor unsubscribe = StompHeaderAccessor.create(StompCommand.UNSUBSCRIBE);
+        unsubscribe.setSessionId("session-1");
+        unsubscribe.setSessionAttributes(new HashMap<>(connected.getSessionAttributes()));
+        unsubscribe.setUser(connected.getUser());
+
+        assertThatCode(() -> interceptor.preSend(
+                MessageBuilder.withPayload(new byte[0]).setHeaders(unsubscribe).build(),
+                mock(MessageChannel.class)
+        )).doesNotThrowAnyException();
+
+        unsubscribe.setSessionAttributes(new HashMap<>());
+        assertThatThrownBy(() -> interceptor.preSend(
+                MessageBuilder.withPayload(new byte[0]).setHeaders(unsubscribe).build(),
+                mock(MessageChannel.class)
+        )).isInstanceOfSatisfying(BusinessException.class, exception ->
+                assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.UNAUTHORIZED));
+    }
+
+    @Test
+    void heartbeatIsAllowed() {
+        StompHeaderAccessor heartbeat = StompHeaderAccessor.createForHeartbeat();
+
+        assertThatCode(() -> interceptor.preSend(
+                MessageBuilder.withPayload(new byte[0]).setHeaders(heartbeat).build(),
+                mock(MessageChannel.class)
+        )).doesNotThrowAnyException();
+    }
+
+    @Test
+    void unsupportedStompCommandsAreForbidden() {
+        for (StompCommand command : List.of(
+                StompCommand.ACK,
+                StompCommand.NACK,
+                StompCommand.BEGIN,
+                StompCommand.COMMIT,
+                StompCommand.ABORT
+        )) {
+            StompHeaderAccessor accessor = StompHeaderAccessor.create(command);
+            accessor.setSessionId("session-1");
+            assertThatThrownBy(() -> interceptor.preSend(
+                    MessageBuilder.withPayload(new byte[0]).setHeaders(accessor).build(),
+                    mock(MessageChannel.class)
+            )).isInstanceOfSatisfying(BusinessException.class, exception ->
+                    assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.FORBIDDEN));
+        }
+    }
+
+    @Test
     void missingOrInvalidTokenIsUnauthorized() {
         assertThatThrownBy(() -> interceptor.preSend(
                 connectMessage(null),
@@ -187,7 +238,8 @@ class ChatWebSocketChannelInterceptorTest {
         for (String destination : List.of(
                 "/app/chat/direct/rooms/1/messages/extra",
                 "/app/chat/direct/rooms/abc/messages",
-                "/app/chat/group/rooms/1/messages"
+                "/app/chat/group/rooms/1/messages",
+                "/app/chat/direct/rooms/9223372036854775808/messages"
         )) {
             assertThatThrownBy(() -> interceptor.preSend(
                     authenticatedSend(destination),

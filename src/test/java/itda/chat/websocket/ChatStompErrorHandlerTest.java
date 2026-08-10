@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.simp.stomp.StompConversionException;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -27,5 +28,55 @@ class ChatStompErrorHandlerTest {
         assertThat(accessor.getCommand()).isEqualTo(StompCommand.ERROR);
         assertThat(payload).contains("\"code\":\"INTERNAL_ERROR\"");
         assertThat(payload).doesNotContain("\"code\":\"UNAUTHORIZED\"");
+    }
+
+    @Test
+    void malformedStompFrameProducesValidationFailedStompFrame() {
+        ChatStompErrorHandler handler = new ChatStompErrorHandler(new ObjectMapper());
+
+        Message<byte[]> error = handler.handleClientMessageProcessingError(
+                null,
+                new StompConversionException("unknown STOMP command")
+        );
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(error);
+        String payload = new String(error.getPayload(), StandardCharsets.UTF_8);
+        assertThat(accessor.getCommand()).isEqualTo(StompCommand.ERROR);
+        assertThat(payload).contains("\"code\":\"VALIDATION_FAILED\"");
+    }
+
+    @Test
+    void ordinaryIllegalArgumentExceptionRemainsAnInternalError() {
+        ChatStompErrorHandler handler = new ChatStompErrorHandler(new ObjectMapper());
+
+        Message<byte[]> error = handler.handleClientMessageProcessingError(
+                null,
+                new IllegalArgumentException("application argument failure")
+        );
+
+        String payload = new String(error.getPayload(), StandardCharsets.UTF_8);
+        assertThat(payload).contains("\"code\":\"INTERNAL_ERROR\"");
+    }
+
+    @Test
+    void oversizedNumericRoomIdStillProducesAnErrorFrame() {
+        ChatStompErrorHandler handler = new ChatStompErrorHandler(new ObjectMapper());
+        StompHeaderAccessor headers = StompHeaderAccessor.create(StompCommand.SEND);
+        headers.setDestination(
+                "/app/chat/direct/rooms/9223372036854775808/messages"
+        );
+        Message<byte[]> clientMessage = MessageBuilder.withPayload(new byte[0])
+                .setHeaders(headers)
+                .build();
+
+        Message<byte[]> error = handler.handleClientMessageProcessingError(
+                clientMessage,
+                new IllegalStateException("unexpected inbound failure")
+        );
+
+        StompHeaderAccessor accessor = StompHeaderAccessor.wrap(error);
+        String payload = new String(error.getPayload(), StandardCharsets.UTF_8);
+        assertThat(accessor.getCommand()).isEqualTo(StompCommand.ERROR);
+        assertThat(payload).contains("\"code\":\"INTERNAL_ERROR\"");
     }
 }

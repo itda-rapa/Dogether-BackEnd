@@ -9,6 +9,7 @@ import itda.user.repository.UserRepository;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -78,18 +79,25 @@ public class ChatWebSocketChannelInterceptor implements ChannelInterceptor {
             accessor = StompHeaderAccessor.wrap(message);
         }
         if (accessor.getCommand() == null) {
-            return message;
+            if (accessor.isHeartbeat()) {
+                return message;
+            }
+            throw forbidden();
         }
 
         return switch (accessor.getCommand()) {
             case CONNECT, STOMP -> authenticate(accessor, message);
             case SUBSCRIBE -> authorizeSubscription(accessor, message);
             case SEND -> authorizeSend(accessor, message);
+            case UNSUBSCRIBE -> {
+                validateSession(accessor);
+                yield message;
+            }
             case DISCONNECT -> {
                 sessionRegistry.forget(accessor.getSessionId());
                 yield message;
             }
-            default -> message;
+            default -> throw forbidden();
         };
     }
 
@@ -145,12 +153,28 @@ public class ChatWebSocketChannelInterceptor implements ChannelInterceptor {
     private Message<?> authorizeSend(StompHeaderAccessor accessor, Message<?> message) {
         validateSession(accessor);
         String destination = accessor.getDestination();
-        if (destination == null || !DIRECT_SEND_DESTINATION.matcher(destination).matches()) {
+        if (!isAllowedDirectSendDestination(destination)) {
             log.warn("WebSocket authorization rejected sessionId={} code={}",
                     accessor.getSessionId(), ErrorCode.FORBIDDEN.name());
             throw forbidden();
         }
         return message;
+    }
+
+    private boolean isAllowedDirectSendDestination(String destination) {
+        if (destination == null) {
+            return false;
+        }
+        Matcher matcher = DIRECT_SEND_DESTINATION.matcher(destination);
+        if (!matcher.matches()) {
+            return false;
+        }
+        try {
+            Long.parseLong(matcher.group(1));
+            return true;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
     }
 
     private void validateSession(StompHeaderAccessor accessor) {

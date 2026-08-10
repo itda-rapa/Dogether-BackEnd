@@ -644,7 +644,7 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
     }
 
     @Test
-    void malformedStompFrameProducesInternalErrorAndCloses() throws Exception {
+    void malformedStompFrameProducesValidationErrorAndCloses() throws Exception {
         createFixture();
         ArrayBlockingQueue<String> frames = new ArrayBlockingQueue<>(4);
         String token = issueToken(1L);
@@ -691,7 +691,64 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
             assertThat(frames.poll(10, TimeUnit.SECONDS)).contains("CONNECTED");
             session.sendMessage(new TextMessage("NOT_A_STOMP_COMMAND\n\n\0"));
             String error = frames.poll(10, TimeUnit.SECONDS);
-            assertThat(error).contains("ERROR").contains("INTERNAL_ERROR").doesNotContain("UNAUTHORIZED");
+            assertThat(error).contains("ERROR").contains("VALIDATION_FAILED").doesNotContain("UNAUTHORIZED");
+            await().atMost(Duration.ofSeconds(5)).until(() -> !session.isOpen());
+        } finally {
+            if (session.isOpen()) {
+                session.close();
+            }
+        }
+    }
+
+    @Test
+    void unsupportedStompCommandProducesForbiddenErrorAndCloses() throws Exception {
+        createFixture();
+        ArrayBlockingQueue<String> frames = new ArrayBlockingQueue<>(4);
+        String token = issueToken(1L);
+        WebSocketHandler handler = new WebSocketHandler() {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                session.sendMessage(new TextMessage(
+                        "CONNECT\naccept-version:1.2\nhost:localhost\nAuthorization:Bearer "
+                                + token + "\n\n\0"
+                ));
+            }
+
+            @Override
+            public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) {
+                if (message instanceof TextMessage textMessage) {
+                    frames.offer(textMessage.getPayload());
+                }
+            }
+
+            @Override
+            public void handleTransportError(WebSocketSession session, Throwable exception) {
+                sessionErrors.offer("transport=" + exception.getClass().getSimpleName());
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+                sessionErrors.offer("closed=" + status.getCode());
+            }
+
+            @Override
+            public boolean supportsPartialMessages() {
+                return false;
+            }
+        };
+        StandardWebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(
+                        handler,
+                        new WebSocketHttpHeaders(),
+                        new java.net.URI("ws://localhost:" + port + ChatWebSocketDestinations.ENDPOINT)
+                )
+                .get(15, TimeUnit.SECONDS);
+
+        try {
+            assertThat(frames.poll(10, TimeUnit.SECONDS)).contains("CONNECTED");
+            session.sendMessage(new TextMessage("ACK\nid:ack-1\n\n\0"));
+            String error = frames.poll(10, TimeUnit.SECONDS);
+            assertThat(error).contains("ERROR").contains("FORBIDDEN").doesNotContain("UNAUTHORIZED");
             await().atMost(Duration.ofSeconds(5)).until(() -> !session.isOpen());
         } finally {
             if (session.isOpen()) {

@@ -46,7 +46,14 @@ record ChatWebSocketRequestContext(Long roomId, String clientMessageId) {
             return null;
         }
         Matcher matcher = DIRECT_ROOM_DESTINATION.matcher(destination);
-        return matcher.matches() ? Long.valueOf(matcher.group(1)) : null;
+        if (!matcher.matches()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(matcher.group(1));
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private static ChatMessageCreateRequest requestFromPayload(Object payload, ObjectMapper objectMapper) {
