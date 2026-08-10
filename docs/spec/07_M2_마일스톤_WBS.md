@@ -540,7 +540,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 | M2-006 | 배포 | BE-2·BE-4 | M2-002, M2-004 | WebSocket 다중 replica 대응(broker relay 또는 Kafka/Redis 방식 확정) — `M2-008` 인프라 재사용 여부 포함. `deployment/local/docker-compose.yml`이 확장 출발 파일이며, 현재 구성은 단일 노드라 그 자체가 해결책이 아니다. `06_M2_WebSocket_계약.md` §1이 "BE-2와 BE-4가 먼저 확정한다"고 정했으므로 미배정으로 두지 않는다 | 미착수 |
 | M2-007 | 계약 | BE-4 | M2-003, **G-M2-I**(§6) | 채팅방 응답의 `participants[]` 인라인 확장. `04_M1_API_명세.md`가 이를 M2 계약으로 예고해 두었으나 지금까지 어느 M2 문서에도 없었다. REST 응답 스키마 변경이므로 **`G-M2-I`에서 확정한 OpenAPI 정본**과 `02_M1_API_계약.md` 동기화가 함께 필요하다 | 미착수 |
 | M2-008 | 인프라 | BE-4 | 없음 | Redis 4개 DB(이메일 인증·캐시·분산락·멱등성) 및 Kafka producer 공통 **초기 설정**, `deployment/local/docker-compose.yml`의 로컬 단일 노드 Redis/Kafka 구성, 애플리케이션 컨텍스트 기동 및 기존 테스트 통과(PR #55 `5bb26cb`, Backend CI 성공). 실제 broker 연결·GROUP 이벤트 직렬화 검증은 M2-004·M2-006에서 수행한다 | 완료 |
-| M2-009 | 제안 | BE-2 | **G-M2-A·G-M2-I**(§6) | 공유 약속 제안 제품 계약 + `meeting_card_suggestions`·`meeting_card_suggestion_approvals` 신규 스키마, `meeting_cards.source_suggestion_id`(nullable UNIQUE), **실시간 이벤트 순서용 `event_version BIGINT`**, 마이그레이션. `01_M1_통합_ERD.md`·`.sql` 동기화 포함. **`card_drafts`는 건드리지 않는다.** 착수 전 ERD 문서의 기존 drift를 먼저 정리한다(§4.2) | 미착수 |
+| M2-009 | 제안 | BE-2 | **G-M2-A·G-M2-I·G-M2-K**(§6) | 공유 약속 제안 제품 계약 + `meeting_card_suggestions`·`meeting_card_suggestion_approvals` 신규 스키마, `meeting_cards.source_suggestion_id`(nullable UNIQUE), **실시간 이벤트 순서용 `event_version BIGINT`**, 마이그레이션. `01_M1_통합_ERD.md`·`.sql` 동기화 포함. **`card_drafts`는 건드리지 않는다.** 착수 전 ERD 문서의 기존 drift를 먼저 정리한다(§4.2) | 미착수 |
 | M2-010 | 제안 | BE-2 | M2-009 | 전날 대화 후보 선정 + AI 생성 파이프라인 — 대상 방 조건(§2.3), 사용자 컨텍스트 없는 AI 호출 경로, `source_date`를 `referenceDate`로 넘기는 경로 분리, 배치 전용 fallback(실패 시 `SKIPPED`), `GENERATING → READY`, **lease 전 구간**(최초 `INSERT ... ON CONFLICT DO NOTHING` claim → stale 회수 시 `FOR UPDATE` 재확인·lease 갱신 → 커밋 → AI 호출 → 결과 저장 시 `generation_started_at` 일치 조건으로 fencing). **claim cutoff는 최초 claim과 stale 회수 양쪽에 적용**하며, cutoff를 지난 회수는 AI를 부르지 않고 `GENERATING → SKIPPED`로 닫는다. **"아직 카드를 만들지 않음"의 판정 규칙 정의 포함.** 후보 선정 쿼리는 `V16`의 부분 인덱스 `ix_chat_rooms_active_direct_last_message (last_message_at, id) WHERE type='DIRECT' AND status='ACTIVE'`를 재사용할 수 있는지 먼저 확인한다 | 미착수 |
 | M2-011 | 제안 | BE-2 | M2-009 | 공동 편집·`revision` 기반 동의·카드 확정 REST — `GET`·`PATCH`·`approve` 3종을 **여기서 모두 구현한다**(`M2-012`는 이 GET을 재사용만 한다). **`PATCH`·`approve`는 `CardSuggestionResponse`(§2.3의 필드 표)를, `GET`은 이를 감싼 `CardSuggestionActiveResponse`를 반환하고, 현재 `revision`에 유효한 `approvedPetIds`를 계산해 내려준다.** 확정 직전 양쪽 자격 재검사(§2.3)도 포함한다. 활성 제안이 없을 때도 **가장 최근에 클라이언트에 노출된 제안(`event_version > 0`)의 `suggestionId`·`sourceDate`·`eventVersion`**을 함께 반환해 재접속 복구의 기준점이 되게 한다, 오래된 revision 수정 `409`, 양쪽 `approved_revision` 일치 시에만 `CONFIRMED`. **`approve`·`PATCH` 모두 단일 트랜잭션이며 잠금 순서는 `InteractionPairLock` → 참여·차단 재검사 → 제안 행 `FOR UPDATE` → 상태·만료·revision 재검사 순이다**(pair lock이 먼저 — 차단 경로와 반대로 잡으면 데드락), `creatorPetId` 규칙(§2.3), 공개 후 차단 시 `CANCELED` 경로 포함 | 미착수 |
 | M2-012 | 제안 | BE-2 | M2-010, M2-011, M2-002 | 07:00 공개(§2.3의 `InteractionPairLock` → 제안 `FOR UPDATE` 순서 준수)·자정 만료. **on-time publish run 판정**(행 처리 시각이 아니라 실행 시작 시각 기준), **늦게 시작한 실행이 집은 `READY`는 `SKIPPED`(공개 시각 놓침)**, **`CARD_SUGGESTION_CANCELED`는 차단 실행자에게만 발행**, **`CARD_SUGGESTION_EXPIRED`는 M2 비보장**, **모든 `CARD_SUGGESTION_*` payload에 `suggestionId`·`roomId`·`sourceDate`·`status`·`revision`·`eventVersion`을 싣고 `PUBLISHED`에는 `expiresAt`까지 실어, 역순 도착을 무시하고 만료 시점을 프론트가 알 수 있게 한다**(`CANCELED` tombstone도 공통 필드는 예외가 아니다), **`publishDeadline` 이후 남은 `READY`는 `SKIPPED`**. **REST 복구 경로는 `M2-011`의 `GET .../card-suggestions/active`를 그대로 쓰며, 여기서는 끊긴 구간을 그 GET으로 메우는 동작만 검증한다**(새 엔드포인트를 만들지 않는다). 공개 직전 대상 조건 재검사, 만료는 조회 시점 기준. **`/user/queue/card-suggestions` destination과 `CARD_SUGGESTION_*` payload를 이 작업의 계약으로 확정**(`06` 문서에는 넣지 않음). **`M2-002`가 만든 inbound `SUBSCRIBE` allowlist에 이 destination을 추가하고 인가 테스트도 함께 넣는다** — 기본 거부라 추가하지 않으면 프론트 구독이 거절된다 | 미착수 |
@@ -624,7 +624,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 
 1. `M2-001` 계약 리뷰 마무리(BE-4·프론트 승인) → PR #54 머지
 2. `M2-002` DIRECT WebSocket 구현. 착수 전 이미 완료된 `M1-038`(PR #50)의 배치 주기·아카이브 기준(`app.chat-room.lifecycle.*`)이 WebSocket 동작과 충돌하지 않는지 재확인
-3. **`G-M2-A`(제품 정책 갱신) + `G-M2-I`(M2 REST 계약 위치) 통과** → `M2-009` 제안 계약·스키마. `card_drafts`는 건드리지 않는다
+3. **`G-M2-A`(제품 정책 갱신) + `G-M2-I`(M2 REST 계약 위치) + `G-M2-K`(정본 문서 구조) 통과** → `M2-009` 제안 계약·스키마. `card_drafts`는 건드리지 않는다
 4. `M2-010` 후보 선정·AI 파이프라인과 `M2-011` 공동 편집·동의는 `M2-009` 이후 병행 가능하다
 5. `M2-012` 공개·만료·실시간 이벤트. `M2-002`가 끝난 뒤여야 `CARD_SUGGESTION_*` 이벤트를 기존 개인 큐·오류 계약 위에 얹을 수 있다
 6. `M2-006` 다중 replica 대응을 BE-4와 함께 확정. 방식의 정본은 BE-4다(§3)
@@ -645,6 +645,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 | Gate | 내용 | 관련 |
 |---|---|---|
 | **G-M2-I** | **M2 REST 계약을 어느 문서에 둘지 확정한다** — `04_M1_OpenAPI.yaml`에 M2 경로를 합칠지 M2 OpenAPI를 새로 만들지. `README.md`의 "구현할 때 주의할 경계"와 PR 리뷰 1단계가 `04_M1_OpenAPI.yaml` 기준이므로 함께 갱신한다. **`M2-003`·`M2-007`·`M2-009`의 공통 선행이다** | M2-003·M2-007·M2-009 |
+| **G-M2-K** | **M2 정본 문서 구조를 확정한다** — ① 제안 상태 전이를 `03_M1_상태전이.md`에 넣을지(문서를 `03_상태전이.md`로 승격) 별도 M2 상태전이 문서로 뺄지, ② 이번에 내린 아키텍처 결정을 `05_M1_결정사항_보완과제.md`에 넣을지 M2 결정 문서를 새로 만들지, ③ 그 결과에 맞춰 `README.md`의 정본 순서와 PR 리뷰 절차를 갱신. **`M2-009` 착수의 선행이다** | M2-009 |
 | **G-M2-A** | `00_최신_제품정책.md` M2 목록에 공유 약속 제안(UC-07)이 추가된다. **`M2-009` 착수의 선행 조건이며, 통과 전에는 스키마·마이그레이션을 만들지 않는다.** | M2-009 |
 | G-M2-B | GROUP 메시지가 Kafka를 거쳐 최종적으로 DIRECT와 동일한 개인 큐·오류 계약으로 도달한다 | M2-004 |
 | G-M2-C | 다중 replica 전환 방식이 결정되어 배포 문서에 기록된다. 미결 상태로 M2를 종료하지 않는다 | M2-006 |
@@ -677,6 +678,26 @@ Gate가 없는 작업은 `M2-001`·`M2-002`(정본이 `06_M2_WebSocket_계약.md
 | **다중 replica 결정을 반영할 배포 정의가 저장소에 없다** | `M2-006`의 산출물이 "배포 문서에 기록"인데, 저장소에는 compose 2개와 `Dockerfile`뿐이고 k8s·helm 같은 배포 정의가 없다. `ci.yml`도 GHCR 이미지 푸시까지만 한다. `06_M2_WebSocket_계약.md` §10의 "단일 인스턴스 전제와 다중 replica 전환 조건이 배포 문서에 전달된다"는 수용 기준이 현재 검증 불가다 | `M2-006`에서 배포 정의의 위치부터 정한다. 저장소 밖(인프라 레포 등)이라면 그 위치를 이 문서에 기록 |
 
 ## 8. 후속 작업
+
+### 8.1 M2로 갱신해야 하는 문서
+
+**이 문서와 `06_M2_WebSocket_계약.md`만으로 M2 문서 체계가 끝난 것이 아니다.** 지금 두 문서가 한 일은 "M2를 시작하기 위한 WBS와 WebSocket 계약"까지다. 나머지는 스키마·API·제품 결정이 나기 전에 미리 쓰면 틀린 정본을 만들게 되므로 시점을 걸어 미뤄 두었다. 아래가 남은 전부다.
+
+| 문서 | 필요한 일 | 시점 |
+|---|---|---|
+| `00_최신_제품정책.md` | M2 목록에 공유 약속 제안(UC-07) 추가 | **`G-M2-A`** |
+| `03_M1_상태전이.md` | **제안 상태 7개와 전이 규칙 반영.** 지금 이 문서 §2.3에만 있다 — 상태 전이의 정본이 03이고 `README.md`의 PR 리뷰 2단계가 "상태 변경이 03과 DB CHECK를 위반하지 않는지 확인"이므로, 빠진 채로는 그 절차가 성립하지 않는다 | **`G-M2-K`** 결정 후 `M2-009` |
+| `05_M1_결정사항_보완과제.md` 또는 신규 | 이번에 내린 아키텍처 결정 기록 — 제안을 별도 도메인으로 분리, `chat_messages` 미사용, `event_version`·`sourceDate`, 잠금 순서, 07:00 생성·공개 분리, 보존 정책. **WBS 작업 내용이 아니라 결정이므로 이 문서에만 두지 않는다** | **`G-M2-K`** |
+| `01_M1_통합_ERD.md`·`.sql` | 제안·동의 테이블, `source_suggestion_id` 반영 | `M2-009` |
+| `02_M1_API_계약.md`·`04_M1_OpenAPI.yaml` | M2 REST 경로 | **`G-M2-I`** 결정 후 |
+| `04_M1_API_명세.md` | `participants[]` 확장, 오류 정정 2건 | `M2-007` / 후속 |
+| `04_M1_마일스톤_WBS.md` | `M1-038` 상태, React Native 삭제 | 별도 PR |
+| `README.md` | 정본 순서·PR 리뷰 절차 갱신 | **`G-M2-K`** 결과 반영 |
+| `docs/인프라_역할분담.md` | 다중 replica 결론 반영. PR #54가 `replicas=1` 전제를 한 줄 넣어 두었고, 저장소에서 배포에 가장 가까운 문서다 | `M2-006` |
+
+### 8.2 개별 항목
+
+8.1이 목록이라면 아래는 그중 배경 설명이 필요한 것들이다.
 
 - `00_최신_제품정책.md`의 M2 목록에 공유 약속 제안(UC-07)을 추가한다. `G-M2-A`이며 `M2-009` 착수의 선행 조건이다(§2.3).
 - 담당자 배정 회의 이후 §2.2 항목들을 §4와 같은 형식의 WBS 표로 승격한다.
