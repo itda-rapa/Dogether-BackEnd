@@ -474,7 +474,7 @@ CardSuggestionActiveResponse
 - 양쪽 사용자·Pet 활성이고, **각 User의 `active_pet_id`가 그 방의 참여 Pet과 일치할 것.** 다른 펫을 활성화한 사용자는 채팅 접근 규칙상 그 방을 조회할 수 없으므로, 이 조건이 없으면 제안 이벤트는 받는데 방에서는 볼 수 없는 상태가 생긴다(`06_M2_WebSocket_계약.md` §6.3의 수신자 규칙과 같은 기준이다)
 - 차단 관계 없음
 - 전날 양쪽 모두 **사용자 TEXT** 대화에 참여. 정책(`02_M1_API_계약.md`)이 버튼식 활성화 조건에서 `CARD`·`SYSTEM`을 개수에서 제외하고, 구현도 `loadSourceMessages`가 `SenderType.PET` + `MessageType.TEXT`로만 조회한다. 배치의 후보 판정도 같은 기준을 쓴다 — 시스템 공지와 카드 게시만 오간 방은 대화가 있었던 것이 아니다
-- 해당 제안으로 아직 카드가 만들어지지 않음
+- **그 제안으로** 아직 카드가 만들어지지 않음(`source_suggestion_id` 기준). **방에 다른 OPEN 카드가 있는 것은 제외 조건이 아니다** — §4.1의 중복 카드 결정 참고
 - AI 결과가 제안으로 쓸 수 없으면 생성하지 않음. **판정은 `AiDraftResult`가 실제로 주는 것으로만 한다 — 이 계약에는 확신도(confidence) 필드가 없다.** `fallbackReason != null`(AI 실패)이거나 `combinedInstant == null`(날짜·시각을 조합하지 못함)이면 제안하지 않는다. 시각 없는 카드는 `meeting_cards.meet_at NOT NULL`을 채울 수 없다
 
 **공개 이후 한쪽이 Pet을 바꾸거나 지우면 그 제안은 확정될 수 없다.** `pets`는 소프트 삭제(`deleted_at`)이므로 FK와 과거 동의 기록은 그대로 남지만, 위 대상 조건의 "`active_pet_id`가 방 참여 Pet과 일치"가 깨져 그쪽은 제안을 조회할 수도 동의할 수도 없다. 상대 화면에는 계속 떠 있어 "왜 답이 없지" 상태가 된다. **이를 차단처럼 `CANCELED`로 즉시 취소하지 않고 자정 만료에 맡긴다** — 사용자가 Pet을 도로 바꾸면 그날 안에 다시 이어갈 수 있어야 하기 때문이다. 허용된 한계로 두되, 모르고 만든 구멍이 아니라 정한 것임을 남긴다.
@@ -542,7 +542,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 | M2-008 | 인프라 | BE-4 | 없음 | Redis 4개 DB(이메일 인증·캐시·분산락·멱등성) 및 Kafka producer 공통 **초기 설정**, `deployment/local/docker-compose.yml`의 로컬 단일 노드 Redis/Kafka 구성, 애플리케이션 컨텍스트 기동 및 기존 테스트 통과(PR #55 `5bb26cb`, Backend CI 성공). 실제 broker 연결·GROUP 이벤트 직렬화 검증은 M2-004·M2-006에서 수행한다 | 완료 |
 | M2-009 | 제안 | BE-2 | **G-M2-A·G-M2-I·G-M2-K**(§6) | 공유 약속 제안 제품 계약 + `meeting_card_suggestions`·`meeting_card_suggestion_approvals` 신규 스키마, `meeting_cards.source_suggestion_id`(nullable UNIQUE), **실시간 이벤트 순서용 `event_version BIGINT`**, 마이그레이션. `01_M1_통합_ERD.md`·`.sql` 동기화 포함. **`card_drafts`는 건드리지 않는다.** 착수 전 ERD 문서의 기존 drift를 먼저 정리한다(§4.2) | 미착수 |
 | M2-010 | 제안 | BE-2 | M2-009 | 전날 대화 후보 선정 + AI 생성 파이프라인 — 대상 방 조건(§2.3), 사용자 컨텍스트 없는 AI 호출 경로, `source_date`를 `referenceDate`로 넘기는 경로 분리, 배치 전용 fallback(실패 시 `SKIPPED`), `GENERATING → READY`, **lease 전 구간**(최초 `INSERT ... ON CONFLICT DO NOTHING` claim → stale 회수 시 `FOR UPDATE` 재확인·lease 갱신 → 커밋 → AI 호출 → 결과 저장 시 `generation_started_at` 일치 조건으로 fencing). **claim cutoff는 최초 claim과 stale 회수 양쪽에 적용**하며, cutoff를 지난 회수는 AI를 부르지 않고 `GENERATING → SKIPPED`로 닫는다. **"아직 카드를 만들지 않음"의 판정 규칙 정의 포함.** 후보 선정 쿼리는 `V16`의 부분 인덱스 `ix_chat_rooms_active_direct_last_message (last_message_at, id) WHERE type='DIRECT' AND status='ACTIVE'`를 재사용할 수 있는지 먼저 확인한다 | 미착수 |
-| M2-011 | 제안 | BE-2 | M2-009 | 공동 편집·`revision` 기반 동의·카드 확정 REST — `GET`·`PATCH`·`approve` 3종을 **여기서 모두 구현한다**(`M2-012`는 이 GET을 재사용만 한다). **`PATCH`·`approve`는 `CardSuggestionResponse`(§2.3의 필드 표)를, `GET`은 이를 감싼 `CardSuggestionActiveResponse`를 반환하고, 현재 `revision`에 유효한 `approvedPetIds`를 계산해 내려준다.** 확정 직전 양쪽 자격 재검사(§2.3)도 포함한다. 활성 제안이 없을 때도 **가장 최근에 클라이언트에 노출된 제안(`event_version > 0`)의 `suggestionId`·`sourceDate`·`eventVersion`**을 함께 반환해 재접속 복구의 기준점이 되게 한다, 오래된 revision 수정 `409`, 양쪽 `approved_revision` 일치 시에만 `CONFIRMED`. **`approve`·`PATCH` 모두 단일 트랜잭션이며 잠금 순서는 `InteractionPairLock` → 참여·차단 재검사 → 제안 행 `FOR UPDATE` → 상태·만료·revision 재검사 순이다**(pair lock이 먼저 — 차단 경로와 반대로 잡으면 데드락), `creatorPetId` 규칙(§2.3), 공개 후 차단 시 `CANCELED` 경로 포함 | 미착수 |
+| M2-011 | 제안 | BE-2 | M2-009 | 공동 편집·`revision` 기반 동의·카드 확정 REST — `GET`·`PATCH`·`approve` 3종을 **여기서 모두 구현한다**(`M2-012`는 이 GET을 재사용만 한다). **`PATCH`·`approve`는 `CardSuggestionResponse`(§2.3의 필드 표)를, `GET`은 이를 감싼 `CardSuggestionActiveResponse`를 반환하고, 현재 `revision`에 유효한 `approvedPetIds`를 계산해 내려준다.** 확정 직전 양쪽 자격 재검사(§2.3)도 포함한다. 활성 제안이 없을 때도 **가장 최근에 클라이언트에 노출된 제안(`event_version > 0`)의 `suggestionId`·`sourceDate`·`eventVersion`**을 함께 반환해 재접속 복구의 기준점이 되게 한다, 오래된 revision 수정 `409`, 양쪽 `approved_revision` 일치 시에만 `CONFIRMED`. **`approve`·`PATCH` 모두 단일 트랜잭션이며 잠금 순서는 `InteractionPairLock` → 참여·차단 재검사 → 제안 행 `FOR UPDATE` → 상태·만료·revision 재검사 순이다**(pair lock이 먼저 — 차단 경로와 반대로 잡으면 데드락), `creatorPetId` 규칙(§2.3), 공개 후 차단 시 `CANCELED` 경로 포함. **기존 OPEN 카드 존재를 확정 거부 조건으로 검사하지 않는다**(§4.1) | 미착수 |
 | M2-012 | 제안 | BE-2 | M2-010, M2-011, M2-002 | 07:00 공개(§2.3의 `InteractionPairLock` → 제안 `FOR UPDATE` 순서 준수)·자정 만료. **on-time publish run 판정**(행 처리 시각이 아니라 실행 시작 시각 기준), **늦게 시작한 실행이 집은 `READY`는 `SKIPPED`(공개 시각 놓침)**, **`CARD_SUGGESTION_CANCELED`는 차단 실행자에게만 발행**, **`CARD_SUGGESTION_EXPIRED`는 M2 비보장**, **모든 `CARD_SUGGESTION_*` payload에 `suggestionId`·`roomId`·`sourceDate`·`status`·`revision`·`eventVersion`을 싣고 `PUBLISHED`에는 `expiresAt`까지 실어, 역순 도착을 무시하고 만료 시점을 프론트가 알 수 있게 한다**(`CANCELED` tombstone도 공통 필드는 예외가 아니다), **`publishDeadline` 이후 남은 `READY`는 `SKIPPED`**. **REST 복구 경로는 `M2-011`의 `GET .../card-suggestions/active`를 그대로 쓰며, 여기서는 끊긴 구간을 그 GET으로 메우는 동작만 검증한다**(새 엔드포인트를 만들지 않는다). 공개 직전 대상 조건 재검사, 만료는 조회 시점 기준. **`/user/queue/card-suggestions` destination과 `CARD_SUGGESTION_*` payload를 이 작업의 계약으로 확정**(`06` 문서에는 넣지 않음). **`M2-002`가 만든 inbound `SUBSCRIBE` allowlist에 이 destination을 추가하고 인가 테스트도 함께 넣는다** — 기본 거부라 추가하지 않으면 프론트 구독이 거절된다 | 미착수 |
 | M2-013 | 알림 | 미배정 | M2-012 | OS Push (토큰·권한·FCM/APNs·실패 재시도). **M2 필수 아님** — 필요해지면 착수하며 제품 정책 갱신이 선행 | 후보 |
 
@@ -561,7 +561,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 
 ### 4.1 UC-07 설계 결정으로 해소된 충돌과 남은 과제
 
-`d27f3ac` 기준 실측이다. 처음 16건을 뽑았고 설계·검토를 진행하며 3건이 더 드러나 **모두 19건**이며, §2.3의 "별도 도메인 분리" 결정으로 **11건이 해소됐다.** 남은 8건은 이후 검토를 거치며 **설계가 확정된 것과 아직 결정이 필요한 것으로 갈렸다** — 아래 대조표 다음에 나눠 적는다.
+`d27f3ac` 기준 실측이다. 처음 16건을 뽑았고 설계·검토를 진행하며 3건이 더 드러나 **모두 19건**이며, §2.3의 "별도 도메인 분리" 결정으로 **11건이 해소됐다.** 남은 8건은 이후 검토와 결정을 거치며 **설계가 확정된 5건과 아직 결정이 필요한 3건으로 갈렸다** — 아래 대조표 다음에 나눠 적는다.
 
 **해소됨 — 별도 테이블 분리(§2.3)**
 
@@ -595,17 +595,20 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 - **공동 편집 동시성.** `revision` 증가 시 기존 동의 무효화, 양쪽 `approved_revision` 일치 시에만 확정, 오래된 revision 수정은 `409`. 잠금 순서는 `InteractionPairLock` → 제안 `FOR UPDATE`로 고정했다. 검증은 `G-M2-F`·`G-M2-G`(`M2-011`).
 - **공통 AI 호출 경로.** `MeetingDraftAiClient` 인터페이스를 공통 계약 seam으로 쓰고 구현(`MeetingCardAiAdapter`·`HttpMeetingDraftAiClient`)을 복제하지 않는다. 갈라지는 것은 입력 수집 규칙과 fallback 정책뿐이다(`M2-010`).
 
+- **중복 카드 정책 — 허용한다(2026-08-10 확정).** M2에서는 **기존 OPEN 카드의 존재를 공유 제안의 생성·확정 거부 조건으로 쓰지 않는다.** M1이 한 DIRECT 방에 여러 OPEN 카드를 허용하고(산책과 병원 약속은 따로 잡는 것이다), 기존 카드가 지금 제안과 같은 약속인지 **서버가 결정적으로 판별할 계약이 없기** 때문이다. 방 단위 카드 존재를 조건으로 걸면 M1의 정책을 M2가 뒤에서 깨게 된다.
+  - 중복 방어는 **`meeting_cards.source_suggestion_id UNIQUE` 하나**다. 같은 제안이 두 번 카드가 되는 것만 DB가 막고, 버튼식 카드나 다른 제안과 의미상 같은 카드가 함께 있는 것은 허용한다.
+  - 덕분에 차단 전용으로 짜인 `CANCELED` 계약(취소 주체·CHECK·tombstone 수신자)을 **한 줄도 건드리지 않는다.** `DUPLICATE_CARD` 같은 취소 사유 축을 도입하면 취소 주체가 누구인지, 이벤트를 누구에게 보내는지가 전부 새 문제가 되는데, 얻는 것은 "가끔 같은 약속이 카드 두 장이 되는 것을 막음" 하나뿐이라 비용이 맞지 않는다.
+  - 의미 기반 중복 제거가 필요해지면 방·종류·시각 범위·정규화한 장소·출처 메시지 구간 같은 **appointment identity/provenance 계약**으로 따로 다룬다. 기존 카드 목록을 AI에 넣어 판단시키는 방식은 정합성을 비결정적 판단에 맡기게 되므로 M2에서는 쓰지 않는다.
+
+- **"아직 카드를 만들지 않음"의 판정 — 방 단위 카드 존재로 보지 않는다(2026-08-10 확정).** 위와 같은 이유다. 토요일 병원 카드가 하나 있다는 이유로 "내일 저녁에 한강 갈래?" 제안이 아예 생성되지 않으면 안 된다. 기획 원문의 *"약속 표현이 있었는데 카드를 만들지 않음"*은 제품 의도로 남기되, **현재 데이터 모델로는 "이 대화에서 말한 바로 그 약속이 이미 카드가 됐는지"를 결정적으로 판별할 수 없다**는 점을 명시한다. 후보 선정은 §2.3의 나머지 조건으로만 한다.
+
 **아직 결정이 필요한 것**
 
-권장 순서는 **중복 카드 정책 → "아직 카드를 만들지 않음" 판정 → AI 입력 범위·비용**이다. 앞의 둘이 같은 축이고, 그 결론이 AI에 무엇을 얼마나 넣을지를 좌우한다.
+중복 카드 정책과 "아직 카드를 만들지 않음" 판정이 위에서 닫히면서 셋으로 줄었다. 그 둘의 결론(방 단위 카드 존재를 조건으로 쓰지 않는다)이 **AI에 기존 카드 목록을 넣을 필요가 없다**는 뜻이므로, 남은 1번의 범위도 그만큼 좁아졌다.
 
 1. **AI 입력 범위·비용.** 버튼식 상수는 `MAX_SOURCE_MESSAGES=30`, `SOURCE_WINDOW=24h`, `MIN_SOURCE_MESSAGES=2`다. "전날 00:00~24:00"은 24시간 롤링 윈도우와 다르므로 배치용 수집 규칙을 따로 정한다. 대상 방 전체를 한 번에 도는 호출량과 07:00 공개 시각의 관계도 여기서 잡는다(`M2-010`).
 2. **알림 범위의 최종 확정.** 인앱 한정으로 출시할지, `M2-013`을 M2 안에 넣을지는 제품 결정이다. 인앱 한정이면 오프라인 사용자는 방 진입 시 REST로만 확인한다는 점을 제품이 수용해야 한다.
 3. **차단 발생 시점별 처리.** 후보 선정·공개 직전 재검사로 대부분 걸러지지만, 공개 이후 차단은 `CANCELED` 전이가 필요하다. `MeetingCardBlockCleanupService`가 OPEN 카드만 다루므로 제안 취소 경로를 어디에 둘지 정한다(`M2-011`).
-4. **확정 시점의 중복 카드 방지.** `meeting_cards`에는 방 단위 유니크가 없고(`uk_meeting_card_source_draft`는 초안 기준이다) `MeetingCardService.confirm()`에도 "이미 OPEN 카드가 있으면 거부"가 없다. 즉 **M1은 한 방에 OPEN 카드가 여러 장 있는 것을 허용한다**(산책과 병원 약속을 따로 잡을 수 있어야 하므로 의도된 것으로 보인다). 그래서 07:00 공개 이후 한쪽이 버튼식으로 같은 약속 카드를 만들고, 나중에 양쪽이 제안에도 동의하면 **같은 약속으로 카드 2장**이 생긴다. 후보 선정과 공개 직전 재검사만으로는 이 창을 막지 못한다. `approve` 확정 트랜잭션에서 어떻게 다룰지 정해야 한다 — 같은 날 OPEN 카드가 있으면 확정을 거부하고 제안을 닫을지, 아니면 사용자가 둘 다 원한 것으로 보고 허용할지(`M2-011`).
-
-**닫는 쪽을 고른다면 `CANCELED`를 그대로 쓸 수 없다.** 현재 `CANCELED` 계약은 **차단 전용**으로 짜여 있다 — 취소 주체가 차단을 실행한 Pet이고, `CARD_SUGGESTION_CANCELED`도 그 Pet에게만 간다(§2.3). 중복 카드로 닫는 경우에는 취소 주체가 누구인지(두 번째 동의자? 시스템?), 이벤트를 누구에게 보내는지가 전부 달라진다. `CANCELED`를 범용화하려면 **취소 사유 축(`BLOCKED`·`DUPLICATE_CARD` 등)을 도입하고 `canceled_by_pet_id` CHECK와 이벤트 수신자 규칙을 사유별로 다시 정의해야 한다.** 그게 부담이면 이 선택지를 빼고 다른 처리를 고른다.
-5. **"아직 카드를 만들지 않음"의 판정.** 그날 카드가 하나라도 있으면 제외할지, 대화 내용과 기존 카드를 AI가 함께 보고 "이미 그 약속이 잡혔는지"를 판단할지에 따라 결과가 크게 달라진다. 전자는 단순하지만 다른 약속을 이야기한 경우를 놓치고, 후자는 AI 입력과 프롬프트가 커진다. `M2-010`에서 확정한다.
 
 한편 동시 동의에서 "두 번째로 동의한 Pet"이 결정론적인지, 확정과 차단이 경합할 때 차단 이후 카드가 생기지 않는지는 §2.3의 단일 `approve` 트랜잭션과 `InteractionPairLockService` 재사용으로 결론이 났다. 남은 과제가 아니며 검증만 `G-M2-G`로 관리한다.
 
