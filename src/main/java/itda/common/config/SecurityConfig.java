@@ -81,7 +81,10 @@ public class SecurityConfig {
                                 HttpMethod.POST,
                                 "/auth/signup",
                                 "/auth/login",
-                                "/auth/refresh"
+                                "/auth/refresh",
+                                "/auth/password-reset",
+                                "/auth/email-verifications",
+                                "/auth/email-verifications/confirm"
                         ).permitAll()
                         .requestMatchers(
                                 HttpMethod.GET,

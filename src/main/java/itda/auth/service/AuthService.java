@@ -6,6 +6,8 @@ import itda.auth.dto.SignupRequest;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.common.security.service.TokenProvider;
+import itda.email.EmailVerificationPurpose;
+import itda.email.EmailVerificationService;
 import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
@@ -29,6 +31,7 @@ public class AuthService {
     private final TokenProvider tokenProvider;
     private final PublicTagGenerator publicTagGenerator;
     private final UserRegistrationService userRegistrationService;
+    private final EmailVerificationService emailVerificationService;
 
     public AuthService(
             UserRepository userRepository,
@@ -36,7 +39,8 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             TokenProvider tokenProvider,
             PublicTagGenerator publicTagGenerator,
-            UserRegistrationService userRegistrationService
+            UserRegistrationService userRegistrationService,
+            EmailVerificationService emailVerificationService
     ) {
         this.userRepository = userRepository;
         this.neighborhoodRepository = neighborhoodRepository;
@@ -44,6 +48,7 @@ public class AuthService {
         this.tokenProvider = tokenProvider;
         this.publicTagGenerator = publicTagGenerator;
         this.userRegistrationService = userRegistrationService;
+        this.emailVerificationService = emailVerificationService;
     }
 
     public AuthTokensResponse signup(SignupRequest request) {
@@ -55,6 +60,10 @@ public class AuthService {
         if (!neighborhoodRepository.existsByCodeAndActiveTrue(request.neighborhoodCode())) {
             throw new BusinessException(ErrorCode.NEIGHBORHOOD_NOT_FOUND);
         }
+
+        emailVerificationService.consume(
+                request.verificationToken(), email, EmailVerificationPurpose.SIGNUP
+        );
 
         String passwordHash = passwordEncoder.encode(request.password());
         for (int attempt = 0; attempt < PUBLIC_TAG_SAVE_ATTEMPTS; attempt++) {

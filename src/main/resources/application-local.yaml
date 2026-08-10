@@ -12,3 +12,7 @@ spring:
       - classpath:db/migration
       - classpath:db/seed
       - classpath:db/demo
+
+app:
+  email-verification:
+    worker-enabled: ${EMAIL_VERIFICATION_WORKER_ENABLED:false}
