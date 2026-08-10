@@ -44,24 +44,28 @@ public class ChatWebSocketChannelInterceptor implements ChannelInterceptor {
 
     private final TokenProvider tokenProvider;
     private final UserRepository userRepository;
+    private final ChatWebSocketSessionRegistry sessionRegistry;
     private final Clock clock;
 
     public ChatWebSocketChannelInterceptor(
             TokenProvider tokenProvider,
             UserRepository userRepository,
+            ChatWebSocketSessionRegistry sessionRegistry,
             Clock clock
     ) {
         this.tokenProvider = tokenProvider;
         this.userRepository = userRepository;
+        this.sessionRegistry = sessionRegistry;
         this.clock = clock;
     }
 
     @Autowired
     public ChatWebSocketChannelInterceptor(
             TokenProvider tokenProvider,
-            UserRepository userRepository
+            UserRepository userRepository,
+            ChatWebSocketSessionRegistry sessionRegistry
     ) {
-        this(tokenProvider, userRepository, Clock.systemUTC());
+        this(tokenProvider, userRepository, sessionRegistry, Clock.systemUTC());
     }
 
     @Override
@@ -81,6 +85,10 @@ public class ChatWebSocketChannelInterceptor implements ChannelInterceptor {
             case CONNECT, STOMP -> authenticate(accessor, message);
             case SUBSCRIBE -> authorizeSubscription(accessor, message);
             case SEND -> authorizeSend(accessor, message);
+            case DISCONNECT -> {
+                sessionRegistry.forget(accessor.getSessionId());
+                yield message;
+            }
             default -> message;
         };
     }
@@ -113,6 +121,11 @@ public class ChatWebSocketChannelInterceptor implements ChannelInterceptor {
         }
         attributes.put(WebSocketSessionAttributeNames.USER_ID, tokenSession.userId());
         attributes.put(WebSocketSessionAttributeNames.EXPIRES_AT, tokenSession.expiresAt());
+
+        // A subscribe-only session never reaches validateSession again, so the token TTL has to be
+        // enforced out-of-band or it stops being an upper bound at all.
+        sessionRegistry.scheduleExpiry(accessor.getSessionId(), tokenSession.expiresAt());
+
         accessor.setLeaveMutable(true);
         return MessageBuilder.createMessage(message.getPayload(), accessor.getMessageHeaders());
     }

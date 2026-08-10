@@ -35,6 +35,7 @@ class ChatWebSocketChannelInterceptorTest {
 
     private TokenProvider tokenProvider;
     private UserRepository userRepository;
+    private ChatWebSocketSessionRegistry sessionRegistry;
     private User user;
     private ChatWebSocketChannelInterceptor interceptor;
 
@@ -42,6 +43,7 @@ class ChatWebSocketChannelInterceptorTest {
     void setUp() {
         tokenProvider = mock(TokenProvider.class);
         userRepository = mock(UserRepository.class);
+        sessionRegistry = mock(ChatWebSocketSessionRegistry.class);
         user = mock(User.class);
         when(user.getId()).thenReturn(7L);
         when(user.getRole()).thenReturn(Role.USER);
@@ -50,6 +52,7 @@ class ChatWebSocketChannelInterceptorTest {
         interceptor = new ChatWebSocketChannelInterceptor(
                 tokenProvider,
                 userRepository,
+                sessionRegistry,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
@@ -92,6 +95,40 @@ class ChatWebSocketChannelInterceptorTest {
                         WebSocketSessionAttributeNames.USER_ID,
                         WebSocketSessionAttributeNames.EXPIRES_AT
                 );
+    }
+
+    @Test
+    void connectSchedulesTheSessionCloseAtTokenExpiry() {
+        when(tokenProvider.parseAccessTokenSession("token"))
+                .thenReturn(Optional.of(new AccessTokenSession(7L, NOW.plusSeconds(60))));
+
+        interceptor.preSend(connectMessage("token"), mock(MessageChannel.class));
+
+        verify(sessionRegistry).scheduleExpiry("session-1", NOW.plusSeconds(60));
+    }
+
+    @Test
+    void rejectedConnectSchedulesNothing() {
+        assertThatThrownBy(() -> interceptor.preSend(
+                connectMessage(null),
+                mock(MessageChannel.class)
+        )).isInstanceOf(BusinessException.class);
+
+        verify(sessionRegistry, org.mockito.Mockito.never())
+                .scheduleExpiry(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void disconnectDropsThePendingClose() {
+        StompHeaderAccessor disconnect = StompHeaderAccessor.create(StompCommand.DISCONNECT);
+        disconnect.setSessionId("session-1");
+
+        interceptor.preSend(
+                MessageBuilder.withPayload(new byte[0]).setHeaders(disconnect).build(),
+                mock(MessageChannel.class)
+        );
+
+        verify(sessionRegistry).forget("session-1");
     }
 
     @Test

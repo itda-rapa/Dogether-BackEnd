@@ -11,10 +11,13 @@ import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
@@ -27,6 +30,7 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final ChatWebSocketProperties properties;
     private final CorsProperties corsProperties;
     private final ChatWebSocketChannelInterceptor channelInterceptor;
+    private final ChatWebSocketSessionRegistry sessionRegistry;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -59,9 +63,27 @@ public class ChatWebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registration.interceptors(channelInterceptor);
     }
 
+    /**
+     * The decorator is how the expiry scheduler gets a closable handle on a session — the inbound
+     * channel only ever sees frames and session ids, never the session itself.
+     */
     @Override
     public void configureWebSocketTransport(WebSocketTransportRegistration registration) {
         registration.setMessageSizeLimit((int) properties.messageSizeLimit().toBytes());
+        registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                sessionRegistry.bind(session);
+                super.afterConnectionEstablished(session);
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, CloseStatus status)
+                    throws Exception {
+                sessionRegistry.forget(session.getId());
+                super.afterConnectionClosed(session, status);
+            }
+        });
     }
 
     @Bean

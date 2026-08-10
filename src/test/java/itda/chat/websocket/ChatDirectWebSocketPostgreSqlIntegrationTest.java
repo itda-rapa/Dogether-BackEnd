@@ -103,6 +103,9 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
     @Autowired
     private SimpUserRegistry userRegistry;
 
+    @Autowired
+    private itda.common.properties.JwtProperties jwtProperties;
+
     @BeforeEach
     void reset() {
         jdbcTemplate.execute("truncate refresh_tokens, chat_messages, chat_room_participants, chat_rooms, pets, users restart identity cascade");
@@ -179,6 +182,44 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
             a1.disconnect();
             a2.disconnect();
             b1.disconnect();
+            client.stop();
+        }
+    }
+
+    /**
+     * The session subscribes and then sends nothing, so the per-frame expiry check in the
+     * interceptor can never run again. Only the close scheduled at CONNECT can end it — without
+     * that, an expired token keeps receiving broadcasts for as long as the socket stays open.
+     */
+    @Test
+    void subscribeOnlySessionIsClosedWhenItsAccessTokenExpires() throws Exception {
+        createFixture();
+        // Truncated to whole seconds because the JWT `exp` claim has one-second granularity —
+        // an instant with sub-second precision would be floored on the way into the token, and
+        // the close would legitimately fire before the untruncated value.
+        java.time.Instant expiresAt = java.time.Instant.now()
+                .plusSeconds(5)
+                .truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        String shortLivedToken = issueTokenExpiringAt(1L, expiresAt);
+
+        WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
+        client.setMessageConverter(new MappingJackson2MessageConverter());
+        StompSession session = connect(client, shortLivedToken);
+
+        try {
+            subscribeMessages(session, new ArrayBlockingQueue<>(4), "1", 1);
+            assertThat(session.isConnected()).isTrue();
+
+            await().atMost(Duration.ofSeconds(30))
+                    .pollInterval(Duration.ofMillis(100))
+                    .untilAsserted(() -> assertThat(session.isConnected()).isFalse());
+
+            // Guards against the test passing for the wrong reason: a session dropped by
+            // anything other than the scheduled close would end before its token expired.
+            assertThat(java.time.Instant.now())
+                    .as("session must survive until its token actually expires")
+                    .isAfterOrEqualTo(expiresAt);
+        } finally {
             client.stop();
         }
     }
@@ -1000,5 +1041,22 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
     private String issueToken(long userId) {
         User user = userRepository.findById(userId).orElseThrow();
         return tokenProvider.issueTokens(user).accessToken();
+    }
+
+    /**
+     * Signed exactly the way {@code TokenProvider} signs, but with a TTL short enough to observe.
+     * Overriding {@code app.jwt.access-ttl} instead would fork a second Testcontainers context
+     * for a single assertion.
+     */
+    private String issueTokenExpiringAt(long userId, java.time.Instant expiresAt) {
+        return io.jsonwebtoken.Jwts.builder()
+                .subject(Long.toString(userId))
+                .issuer(jwtProperties.issuer())
+                .claim("tokenType", itda.common.constants.TokenType.ACCESS_TOKEN.name())
+                .issuedAt(java.util.Date.from(java.time.Instant.now()))
+                .expiration(java.util.Date.from(expiresAt))
+                .signWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        jwtProperties.secret().getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .compact();
     }
 }
