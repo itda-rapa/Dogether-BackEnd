@@ -1,4 +1,4 @@
-name: Backend CI
+name: Backend CI-CD
 
 on:
   push:
@@ -59,4 +59,15 @@ jobs:
           context: . # dockerfile이 있는 위치
           push: true
           tags: ${{steps.meta.outputs.tags}}
-
+  deploy:
+    runs-on:
+      - self-hosted
+      - application
+    needs: build-image
+    steps:
+      - name: 백엔드 배포
+        run : |
+          cd /home/ubuntu/deployment/server
+          sudo docker compose down
+          sudo docker compose pull
+          sudo docker compose up -d
