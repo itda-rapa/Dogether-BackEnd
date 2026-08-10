@@ -25,8 +25,10 @@ app:
   # 환경 변수로 열어두지 않고 고정한다. SimpleBroker는 replicas=1 전제이며, replica가
   # 둘 이상이면 송신자와 수신자가 다른 JVM에 붙는 순간 오류 없이 전달만 누락된다.
   # prod 개방은 배포 토폴로지 결정과 함께 별도로 판단한다.
+  # SimpleBroker는 replicas=1 전제다. replica가 둘 이상이면 송신자와 수신자가 다른
+  # JVM에 붙는 순간 오류 없이 전달이 누락되므로, 단일 replica 배포에서만 활성화한다.
   websocket:
-    enabled: false
+    enabled: ${WEBSOCKET_ENABLED:false}
   jwt:
     issuer: ${JWT_ISSUER}
     secret: ${JWT_SECRET}

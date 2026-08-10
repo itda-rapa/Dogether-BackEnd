@@ -73,9 +73,10 @@ docker compose `
 검증할 때만 `EMAIL_VERIFICATION_WORKER_ENABLED=true`로 설정한다.
 
 DIRECT 채팅 WebSocket도 기본적으로 비활성화되어 있으므로 실시간 흐름을 확인할
-때만 `WEBSOCKET_ENABLED=true`로 설정한다. **이 값은 local 전용이다** — `prod`
-프로필은 `application-prod.yaml`에서 비활성으로 고정되어 있어 이 환경 변수를
-보지 않는다.
+때만 `WEBSOCKET_ENABLED=true`로 설정한다. `prod` 프로필도 이 값을 읽지만,
+SimpleBroker는 인스턴스 간 구독을 공유하지 않으므로 **단일 replica 배포에서만**
+활성화한다. 다중 replica 환경에서는 broker relay 또는 Kafka/Redis 기반 확장
+방식이 확정되기 전까지 `false`로 유지한다.
 
 `.env.example`에는 `SPRING_PROFILES_ACTIVE=local`과 `FLYWAY_ENABLED=false`가
 포함되어 있다. 현재 로컬 기본값에서는 Flyway를 자동 실행하지 않는다. 빈 DB를
