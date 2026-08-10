@@ -224,6 +224,85 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
         }
     }
 
+    /**
+     * The scheduled close is a transport-level close, not a protocol error: the frontend
+     * distinguishes it by close code, so 1008 is part of the contract. It also must not be
+     * preceded by a STOMP {@code ERROR} frame — that channel belongs to frame-level rejections.
+     */
+    @Test
+    void scheduledExpiryClosesWithPolicyViolationAndSendsNoErrorFrame() throws Exception {
+        createFixture();
+        java.time.Instant expiresAt = java.time.Instant.now()
+                .plusSeconds(5)
+                .truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        String shortLivedToken = issueTokenExpiringAt(1L, expiresAt);
+
+        ArrayBlockingQueue<String> frames = new ArrayBlockingQueue<>(8);
+        ArrayBlockingQueue<Integer> closeCodes = new ArrayBlockingQueue<>(2);
+        WebSocketHandler handler = new WebSocketHandler() {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                session.sendMessage(new TextMessage(
+                        "CONNECT\naccept-version:1.2\nhost:localhost\nAuthorization:Bearer "
+                                + shortLivedToken + "\n\n\0"
+                ));
+            }
+
+            @Override
+            public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) {
+                if (message instanceof TextMessage textMessage) {
+                    frames.offer(textMessage.getPayload());
+                }
+            }
+
+            @Override
+            public void handleTransportError(WebSocketSession session, Throwable exception) {
+                sessionErrors.offer("transport=" + exception.getClass().getSimpleName());
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+                closeCodes.offer(status.getCode());
+            }
+
+            @Override
+            public boolean supportsPartialMessages() {
+                return false;
+            }
+        };
+
+        StandardWebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(
+                        handler,
+                        new WebSocketHttpHeaders(),
+                        new java.net.URI("ws://localhost:" + port + ChatWebSocketDestinations.ENDPOINT)
+                )
+                .get(15, TimeUnit.SECONDS);
+
+        try {
+            assertThat(frames.poll(10, TimeUnit.SECONDS)).contains("CONNECTED");
+            session.sendMessage(new TextMessage(
+                    "SUBSCRIBE\nid:sub-1\ndestination:"
+                            + ChatWebSocketDestinations.USER_CHAT_MESSAGES + "\n\n\0"
+            ));
+
+            Integer closeCode = closeCodes.poll(30, TimeUnit.SECONDS);
+            assertThat(closeCode)
+                    .as("scheduled expiry must close with POLICY_VIOLATION")
+                    .isEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+            assertThat(java.time.Instant.now())
+                    .as("session must survive until its token actually expires")
+                    .isAfterOrEqualTo(expiresAt);
+            assertThat(frames)
+                    .as("expiry close is not announced as a STOMP ERROR frame")
+                    .noneMatch(frame -> frame.startsWith("ERROR"));
+        } finally {
+            if (session.isOpen()) {
+                session.close();
+            }
+        }
+    }
+
     @Test
     void invalidPayloadReturnsValidationErrorAndKeepsSessionOpen() throws Exception {
         long roomId = createFixture();

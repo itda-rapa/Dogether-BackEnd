@@ -72,6 +72,11 @@ docker compose `
 이메일 Stream worker는 기본적으로 비활성화되어 있으므로 실제 이메일 흐름을
 검증할 때만 `EMAIL_VERIFICATION_WORKER_ENABLED=true`로 설정한다.
 
+DIRECT 채팅 WebSocket도 기본적으로 비활성화되어 있으므로 실시간 흐름을 확인할
+때만 `WEBSOCKET_ENABLED=true`로 설정한다. **이 값은 local 전용이다** — `prod`
+프로필은 `application-prod.yaml`에서 비활성으로 고정되어 있어 이 환경 변수를
+보지 않는다.
+
 `.env.example`에는 `SPRING_PROFILES_ACTIVE=local`과 `FLYWAY_ENABLED=false`가
 포함되어 있다. 현재 로컬 기본값에서는 Flyway를 자동 실행하지 않는다. 빈 DB를
 처음 구성하거나 migration 적용이 필요할 때만 `.env`의 값을 일시적으로 `true`로
