@@ -14,9 +14,8 @@ import itda.greeting.dto.GreetingResponse;
 import itda.setlog.domain.ReactionType;
 import itda.setlog.dto.SetlogCreateRequest;
 import itda.setlog.dto.SetlogCreateResponse;
+import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogReactionResponse;
-import itda.setlog.dto.SetlogResponse;
-import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -60,7 +59,10 @@ public interface SetlogSwaggerSupporter {
             SetlogCreateRequest request
     );
 
-    @Operation(summary = "셋로그 목록 조회", description = "홈 셋로그 목록을 조회하는 API")
+    @Operation(
+            summary = "셋로그 목록 조회",
+            description = "최신순 커서 페이지네이션으로 홈 셋로그를 조회하는 API"
+    )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "셋로그 목록 조회 성공",
@@ -70,21 +72,28 @@ public interface SetlogSwaggerSupporter {
                             {
                                 "success":true,
                                 "message":"셋로그 조회 성공",
-                                "data":[
-                                    {
+                                "data":{
+                                    "items":[{
                                         "setlogId":1,
+                                        "source":"SEED",
                                         "caption":"오늘 산책 완료",
                                         "reactionCount":3,
                                         "createdAt":"2026-08-05T00:00:00Z"
-                                    }
-                                ],
+                                    }],
+                                    "nextCursor":"MjAyNi0wOC0wNVQwMDowMDowMFp8MQ",
+                                    "hasNext":true
+                                },
                                 "error":null
                             }
                             """)
             )
     )
-    ResponseEntity<ApiResponse<List<SetlogResponse>>> getSetlogs(
-            @Parameter(hidden = true) CurrentUser currentUser
+    ResponseEntity<ApiResponse<SetlogListResponse>> getSetlogs(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            @Parameter(description = "이전 응답의 다음 페이지 커서")
+            String cursor,
+            @Parameter(description = "조회 개수(기본 20, 최대 100)")
+            Integer size
     );
 
     @Operation(summary = "셋로그 반응 추가", description = "셋로그에 반응을 추가하는 API")

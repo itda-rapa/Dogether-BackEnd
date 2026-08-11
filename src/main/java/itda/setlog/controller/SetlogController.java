@@ -7,13 +7,12 @@ import itda.greeting.service.GreetingService;
 import itda.setlog.domain.ReactionType;
 import itda.setlog.dto.SetlogCreateRequest;
 import itda.setlog.dto.SetlogCreateResponse;
+import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogReactionResponse;
-import itda.setlog.dto.SetlogResponse;
 import itda.setlog.service.SetlogCreationService;
-import itda.setlog.service.SetlogQueryService;
+import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
 import jakarta.validation.Valid;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class SetlogController implements SetlogSwaggerSupporter {
 
-    private final SetlogQueryService setlogQueryService;
+    private final SetlogReadService setlogReadService;
     private final SetlogReactionService setlogReactionService;
     private final SetlogCreationService setlogCreationService;
     private final GreetingService greetingService;
@@ -49,13 +49,18 @@ public class SetlogController implements SetlogSwaggerSupporter {
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<SetlogResponse>>> getSetlogs(
-            @AuthenticationPrincipal CurrentUser currentUser
+    public ResponseEntity<ApiResponse<SetlogListResponse>> getSetlogs(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer size
     ) {
-        List<SetlogResponse> setlogs =
-                setlogQueryService.getSeedSetlogs(currentUser.id());
+        SetlogListResponse setlogs = setlogReadService.getSetlogs(
+                currentUser.id(),
+                cursor,
+                size
+        );
         return ResponseEntity.ok(
-                ApiResponse.ok(setlogs, "시드 셋로그 조회 성공")
+                ApiResponse.ok(setlogs, "셋로그 조회 성공")
         );
     }
 
