@@ -303,6 +303,81 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
         }
     }
 
+    /**
+     * Pins the close code of the interceptor rejection path against the scheduled-expiry close.
+     * The frontend is told to key off whether a STOMP {@code ERROR} frame arrived first rather
+     * than off the code, so this test exists to keep the two codes from silently converging and
+     * making that advice look unnecessary.
+     */
+    @Test
+    void unauthorizedDestinationClosesWithProtocolErrorNotPolicyViolation() throws Exception {
+        createFixture();
+        String token = issueToken(1L);
+        ArrayBlockingQueue<String> frames = new ArrayBlockingQueue<>(8);
+        ArrayBlockingQueue<Integer> closeCodes = new ArrayBlockingQueue<>(2);
+
+        WebSocketHandler handler = new WebSocketHandler() {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                session.sendMessage(new TextMessage(
+                        "CONNECT\naccept-version:1.2\nhost:localhost\nAuthorization:Bearer "
+                                + token + "\n\n\0"
+                ));
+            }
+
+            @Override
+            public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) {
+                if (message instanceof TextMessage textMessage) {
+                    frames.offer(textMessage.getPayload());
+                }
+            }
+
+            @Override
+            public void handleTransportError(WebSocketSession session, Throwable exception) {
+                sessionErrors.offer("transport=" + exception.getClass().getSimpleName());
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+                closeCodes.offer(status.getCode());
+            }
+
+            @Override
+            public boolean supportsPartialMessages() {
+                return false;
+            }
+        };
+
+        StandardWebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(
+                        handler,
+                        new WebSocketHttpHeaders(),
+                        new java.net.URI("ws://localhost:" + port + ChatWebSocketDestinations.ENDPOINT)
+                )
+                .get(15, TimeUnit.SECONDS);
+
+        try {
+            assertThat(frames.poll(10, TimeUnit.SECONDS)).contains("CONNECTED");
+            session.sendMessage(new TextMessage(
+                    "SEND\ndestination:/app/not-allowlisted\ncontent-type:application/json\n\n"
+                            + "{\"clientMessageId\":\"x\",\"body\":\"y\"}\0"
+            ));
+
+            String error = frames.poll(10, TimeUnit.SECONDS);
+            assertThat(error).contains("ERROR").contains("FORBIDDEN");
+
+            Integer closeCode = closeCodes.poll(10, TimeUnit.SECONDS);
+            assertThat(closeCode)
+                    .as("interceptor rejection close code")
+                    .isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode())
+                    .isNotEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+        } finally {
+            if (session.isOpen()) {
+                session.close();
+            }
+        }
+    }
+
     @Test
     void invalidPayloadReturnsValidationErrorAndKeepsSessionOpen() throws Exception {
         long roomId = createFixture();
@@ -693,6 +768,9 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
             String error = frames.poll(10, TimeUnit.SECONDS);
             assertThat(error).contains("ERROR").contains("VALIDATION_FAILED").doesNotContain("UNAUTHORIZED");
             await().atMost(Duration.ofSeconds(5)).until(() -> !session.isOpen());
+            // Distinct from the scheduled-expiry close (1008), so the two are separable by code
+            // as well as by whether an ERROR frame preceded them.
+            assertThat(sessionErrors).contains("closed=" + CloseStatus.PROTOCOL_ERROR.getCode());
         } finally {
             if (session.isOpen()) {
                 session.close();
