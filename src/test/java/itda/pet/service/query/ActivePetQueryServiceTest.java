@@ -42,7 +42,11 @@ class ActivePetQueryServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ActivePetQueryService(userRepository, petRepository);
+        service = new ActivePetQueryService(
+                userRepository,
+                petRepository,
+                new ActivePetValidator()
+        );
     }
 
     @Nested
