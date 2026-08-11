@@ -153,6 +153,31 @@ class ChatWebSocketChannelInterceptorTest {
                 assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.UNAUTHORIZED));
     }
 
+    /**
+     * The other half of the {@code getCommand() == null} branch. A malformed frame never reaches
+     * here — {@code StompDecoder} rejects it before the interceptor runs — so this branch has no
+     * end-to-end path and only a direct unit test pins it.
+     */
+    @Test
+    void inboundMessageWithoutACommandThatIsNotAHeartbeatIsForbidden() {
+        org.springframework.messaging.simp.SimpMessageHeaderAccessor accessor =
+                org.springframework.messaging.simp.SimpMessageHeaderAccessor
+                        .create(org.springframework.messaging.simp.SimpMessageType.MESSAGE);
+        accessor.setSessionId("session-1");
+        Message<?> message = MessageBuilder.withPayload(new byte[0]).setHeaders(accessor).build();
+
+        // Asserted through the same view the interceptor takes, so the precondition is the one
+        // the branch actually reads.
+        StompHeaderAccessor asStomp = StompHeaderAccessor.wrap(message);
+        assertThat(asStomp.getCommand()).isNull();
+        assertThat(asStomp.isHeartbeat()).isFalse();
+
+        assertThatThrownBy(() -> interceptor.preSend(message, mock(MessageChannel.class)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCode.FORBIDDEN);
+    }
+
     @Test
     void heartbeatIsAllowed() {
         StompHeaderAccessor heartbeat = StompHeaderAccessor.createForHeartbeat();

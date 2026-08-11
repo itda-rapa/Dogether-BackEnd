@@ -106,6 +106,17 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
     @Autowired
     private itda.common.properties.JwtProperties jwtProperties;
 
+    /**
+     * A spy, not a mock, so every other test in this class keeps the real service. Only the
+     * internal-error test stubs it, and the bean override is reset between methods.
+     */
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private itda.chat.service.ChatQueryService chatQueryService;
+
+    /** Used only to force a non-{@code BusinessException} failure inside the inbound channel. */
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    private ChatWebSocketSessionRegistry sessionRegistry;
+
     @BeforeEach
     void reset() {
         jdbcTemplate.execute("truncate refresh_tokens, chat_messages, chat_room_participants, chat_rooms, pets, users restart identity cascade");
@@ -371,6 +382,131 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
                     .as("interceptor rejection close code")
                     .isEqualTo(CloseStatus.PROTOCOL_ERROR.getCode())
                     .isNotEqualTo(CloseStatus.POLICY_VIOLATION.getCode());
+        } finally {
+            if (session.isOpen()) {
+                session.close();
+            }
+        }
+    }
+
+    /**
+     * The controller-internal branch of {@code INTERNAL_ERROR}: unlike the transport-layer branch
+     * it must reach {@code /user/queue/errors} and leave the session open. Reading the annotations
+     * does not establish that — whether {@code @MessageExceptionHandler(Exception.class)} plus
+     * {@code @SendToUser} actually survive an unexpected service failure is a runtime question.
+     */
+    @Test
+    void unexpectedServiceExceptionReturnsInternalErrorAndKeepsSessionOpen() throws Exception {
+        long roomId = createFixture();
+        WebSocketStompClient client = newClient();
+        StompSession session = connect(client, issueToken(1L));
+        ArrayBlockingQueue<ChatWebSocketErrorPayload> errors = new ArrayBlockingQueue<>(2);
+
+        try {
+            subscribeErrors(session, errors, "1", 1);
+
+            org.mockito.Mockito.doThrow(new IllegalStateException("unexpected failure"))
+                    .when(chatQueryService).sendMessage(
+                            org.mockito.ArgumentMatchers.anyLong(),
+                            org.mockito.ArgumentMatchers.anyLong(),
+                            org.mockito.ArgumentMatchers.any()
+                    );
+
+            StompHeaders headers = new StompHeaders();
+            headers.setDestination("/app/chat/direct/rooms/" + roomId + "/messages");
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            session.send(headers, new ChatMessageCreateRequest("internal-error-1", "boom"));
+
+            ChatWebSocketErrorPayload error = errors.poll(10, TimeUnit.SECONDS);
+            assertThat(error)
+                    .as("errors=%s protocolErrors=%s sessionErrors=%s", errors, protocolErrors, sessionErrors)
+                    .isNotNull();
+            assertThat(error.eventType()).isEqualTo(ChatWebSocketEventType.CHAT_ERROR);
+            assertThat(error.code()).isEqualTo("INTERNAL_ERROR");
+            assertThat(error.roomId()).isEqualTo(roomId);
+            assertThat(error.clientMessageId()).isEqualTo("internal-error-1");
+
+            assertThat(protocolErrors)
+                    .as("controller-internal failures must not surface as a STOMP ERROR frame")
+                    .isEmpty();
+            assertThat(session.isConnected())
+                    .as("session must stay open, unlike the transport-layer INTERNAL_ERROR")
+                    .isTrue();
+        } finally {
+            disconnectIfConnected(session);
+            client.stop();
+        }
+    }
+
+    /**
+     * The transport-layer branch of {@code INTERNAL_ERROR}, which ends the opposite way to the
+     * controller-internal one: a STOMP {@code ERROR} frame and then a closed session. Both
+     * branches carry the same code, so the contract can only separate them if this is pinned too.
+     */
+    @Test
+    void unexpectedInterceptorExceptionSendsInternalErrorStompFrameAndCloses() throws Exception {
+        createFixture();
+        String token = issueToken(1L);
+
+        org.mockito.Mockito.doThrow(new IllegalStateException("registry failure"))
+                .when(sessionRegistry).scheduleExpiry(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any()
+                );
+
+        ArrayBlockingQueue<String> frames = new ArrayBlockingQueue<>(8);
+        ArrayBlockingQueue<Integer> closeCodes = new ArrayBlockingQueue<>(2);
+        WebSocketHandler handler = new WebSocketHandler() {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                session.sendMessage(new TextMessage(
+                        "CONNECT\naccept-version:1.2\nhost:localhost\nAuthorization:Bearer "
+                                + token + "\n\n\0"
+                ));
+            }
+
+            @Override
+            public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) {
+                if (message instanceof TextMessage textMessage) {
+                    frames.offer(textMessage.getPayload());
+                }
+            }
+
+            @Override
+            public void handleTransportError(WebSocketSession session, Throwable exception) {
+                sessionErrors.offer("transport=" + exception.getClass().getSimpleName());
+            }
+
+            @Override
+            public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+                closeCodes.offer(status.getCode());
+            }
+
+            @Override
+            public boolean supportsPartialMessages() {
+                return false;
+            }
+        };
+
+        StandardWebSocketClient client = new StandardWebSocketClient();
+        WebSocketSession session = client.execute(
+                        handler,
+                        new WebSocketHttpHeaders(),
+                        new java.net.URI("ws://localhost:" + port + ChatWebSocketDestinations.ENDPOINT)
+                )
+                .get(15, TimeUnit.SECONDS);
+
+        try {
+            String frame = frames.poll(10, TimeUnit.SECONDS);
+            assertThat(frame)
+                    .as("frames=%s sessionErrors=%s", frames, sessionErrors)
+                    .isNotNull()
+                    .startsWith("ERROR")
+                    .contains("INTERNAL_ERROR");
+
+            assertThat(closeCodes.poll(10, TimeUnit.SECONDS))
+                    .as("transport-layer INTERNAL_ERROR must end the session")
+                    .isNotNull();
         } finally {
             if (session.isOpen()) {
                 session.close();
