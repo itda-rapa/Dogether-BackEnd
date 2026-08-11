@@ -74,4 +74,8 @@ public interface AdminBoardSwaggerSupporter {
             @Parameter(description = "게시판 ID") Long boardId,
             JsonNode requestBody
     );
+
+    @Operation(summary = "게시판 삭제", description = "PUBLISHED 또는 DELETED 게시글이 하나도 없는 게시판만 물리 삭제합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "게시판 삭제 성공 (응답 body 없음)")
+    ResponseEntity<Void> deleteBoard(@Parameter(description = "게시판 ID") Long boardId);
 }

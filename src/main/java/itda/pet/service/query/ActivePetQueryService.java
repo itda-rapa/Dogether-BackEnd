@@ -15,13 +15,16 @@ public class ActivePetQueryService {
 
     private final UserRepository userRepository;
     private final PetRepository petRepository;
+    private final ActivePetValidator activePetValidator;
 
     public ActivePetQueryService(
             UserRepository userRepository,
-            PetRepository petRepository
+            PetRepository petRepository,
+            ActivePetValidator activePetValidator
     ) {
         this.userRepository = userRepository;
         this.petRepository = petRepository;
+        this.activePetValidator = activePetValidator;
     }
 
     @Transactional(readOnly = true)
@@ -42,6 +45,8 @@ public class ActivePetQueryService {
         }
 
         User user = userResult.get();
+        // Account state is determined from the User row alone. Besides avoiding an
+        // unnecessary Pet lookup, this preserves the query contract for inactive users.
         if (!user.isActive() || !user.hasActivePet()) {
             return Optional.empty();
         }
@@ -52,9 +57,7 @@ public class ActivePetQueryService {
         }
 
         Pet pet = petResult.get();
-        if (!pet.belongsTo(userId)
-                || !pet.isActive()
-                || pet.getDeletedAt() != null) {
+        if (!activePetValidator.isValid(user, pet)) {
             return Optional.empty();
         }
 
