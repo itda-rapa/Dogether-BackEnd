@@ -42,17 +42,20 @@
 
 **`@EnableWebSocketSecurity`를 쓰지 않기로 했으므로(§3 항목 4) destination 인가가 공짜로 따라오지 않는다.** 인증만 하고 인가를 비워 두면, 악성 클라이언트가 `/app/...` 컨트롤러를 거치지 않고 broker destination에 직접 SEND하거나 허용하지 않은 destination을 SUBSCRIBE할 수 있다. **인바운드 `ChannelInterceptor`에서 프레임 종류별로 허용 목록을 검사하고 나머지는 거부한다.**
 
-인터셉터가 보는 것은 STOMP 커맨드가 아니라 `SimpMessageType`이며 값은 아홉 개다 — `CONNECT`, `CONNECT_ACK`, `MESSAGE`, `SUBSCRIBE`, `UNSUBSCRIBE`, `HEARTBEAT`, `DISCONNECT`, `DISCONNECT_ACK`, `OTHER`. **STOMP `SEND`는 `MESSAGE`로 들어온다.**
+인터셉터는 **`StompHeaderAccessor.getCommand()`(`StompCommand`)** 로 분기한다. `getCommand()`가 `null`인 인바운드 메시지에 한해 heartbeat 여부를 따로 본다. **기본은 거부이고 아래 목록만 허용한다.**
 
-| `SimpMessageType` | 처리 |
+| 프레임 | 처리 |
 |---|---|
-| `CONNECT` | JWT 인증(§3). 실패 시 거부 |
-| `MESSAGE`(STOMP `SEND`) | destination이 `/app/chat/direct/rooms/{roomId}/messages`일 때만 허용. **`/queue/**`·`/topic/**`·`/user/**` 직접 SEND는 거부** |
-| `SUBSCRIBE` | `/user/queue/chat/messages`, `/user/queue/errors` 만 허용 |
+| `CONNECT`, `STOMP` | JWT 인증(§3). 성공 시 access token `exp`에 세션 종료를 예약한다. 실패 시 거부 |
+| `SEND` | destination이 `/app/chat/direct/rooms/{roomId}/messages`이고 `{roomId}`가 `long`으로 파싱될 때만 허용. 인증 세션 필요. **`/queue/**`·`/topic/**`·`/user/**` 직접 SEND는 거부** |
+| `SUBSCRIBE` | `/user/queue/chat/messages`, `/user/queue/errors` 만 허용. 인증 세션 필요 |
 | `UNSUBSCRIBE` | 인증된 세션이면 허용 |
-| `DISCONNECT` | 허용. 세션 정리를 수행한다 |
-| `HEARTBEAT` | 허용 |
-| `OTHER`·그 외 | 거부 |
+| `DISCONNECT` | 예약 종료를 정리한 뒤 허용 |
+| heartbeat (`getCommand()`가 `null`이며 heartbeat) | 허용 |
+| 그 밖의 command | 거부 |
+| `getCommand()`가 `null`인 비-heartbeat 인바운드 | 거부 |
+
+**`roomId`는 정규식만으로 부족하다.** 허용 패턴이 `\d+`라 자릿수 제한이 없어 `long` 범위를 넘는 값도 정규식은 통과한다. 이는 권한이 뚫리는 문제가 아니라 — 그런 방은 존재하지 않는다 — **비정상 destination을 인가 단계에서 조기에 거부**하는 문제다. 파싱까지 성공해야 허용한다.
 
 **제어 프레임을 막지 않는다.** `UNSUBSCRIBE`·`DISCONNECT`·`HEARTBEAT`까지 "기본 거부"에 넣으면 정상 종료와 구독 해제, heartbeat가 끊긴다. `DISCONNECT`는 클라이언트가 보내기도 하고 연결 종료 과정에서 서버가 만들기도 한다. 거부 대상은 **인증되지 않은 프레임과 허용 목록 밖의 destination**이지 프레임 종류 자체가 아니다.
 
@@ -61,28 +64,29 @@
 - `M2-012`가 `/user/queue/card-suggestions`를 추가하면 SUBSCRIBE 허용 목록에 함께 넣는다.
 - 클라이언트 `ACK`/`NACK`는 쓰지 않으므로 허용하지 않는다.
 
-**여기서의 거부는 §7의 `CHAT_ERROR`가 아니라 STOMP `ERROR` 프레임이다.** 이유는 §7 머리의 두 층 구분을 참고한다.
+**여기서의 거부는 §7의 `CHAT_ERROR`가 아니라 STOMP `ERROR` 프레임이다.** 이유는 §7 머리의 경로 구분을 참고한다.
 
 GROUP destination은 BE-4가 구현하되, 공통 인증·Principal·이벤트 형식·오류 큐를 별도로 복제하지 않는다.
 
 ## 3. 인증·세션
 
-1. HTTP handshake 경로 `/ws`를 `SecurityConfig`에서 허용한다. **현재 `permitAll` 목록에 `/ws`가 없다** — 메서드 무관 5개(`/actuator/health`, `/media-test`, `/v3/api-docs/**`, `/swagger-ui/**`, `/swagger-ui.html`), `POST` 한정 6개(`/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/password-reset`, `/auth/email-verifications`, `/auth/email-verifications/confirm`), `GET` 한정 1개(`/neighborhoods`)뿐이고 나머지는 `.anyRequest().authenticated()`다. **지금 상태로는 handshake가 `401 UNAUTHORIZED`로 끊긴다.** `M2-002`에서 추가해야 하며, 이미 되어 있다고 전제하지 않는다.
-2. 인증은 STOMP `CONNECT`의 `Authorization: Bearer <access-token>` native header에서 수행한다.
-   - **handshake가 아니라 CONNECT인 이유**는 브라우저 WebSocket API가 handshake 요청에 임의 헤더를 붙이지 못하기 때문이다. 그래서 handshake는 인증 없이 통과시키고(1), 첫 STOMP 프레임에서 검증한다. 토큰을 쿼리 파라미터로 넘기는 우회는 쓰지 않는다 — 접근 로그와 Referer에 남는다.
+1. HTTP handshake 경로 `/ws`를 `SecurityConfig`의 `permitAll` 목록에 둔다. 나머지는 `.anyRequest().authenticated()`이므로 등록하지 않으면 handshake가 `401 UNAUTHORIZED`로 끊긴다.
+   - **handshake를 열어 두는 것이 인증 면제를 뜻하지는 않는다.** 브라우저 WebSocket API가 handshake 요청에 임의 헤더를 붙이지 못하므로 인증 시점을 STOMP 프레임 단계로 옮긴 것이며, 검증은 항목 2·4가 담당한다. 토큰을 쿼리 파라미터로 넘기는 우회는 쓰지 않는다 — 접근 로그와 Referer에 남는다.
+2. 인증은 STOMP `CONNECT` **또는 `STOMP`** 프레임의 `Authorization: Bearer <access-token>` native header에서 수행한다. 표준 STOMP는 두 커맨드를 모두 연결 개시로 규정하므로 양쪽을 같게 다룬다.
+   - 한쪽만 처리해도 **무인증 통과가 되지는 않는다.** §2.1의 기본 거부가 미처리 커맨드를 거부하기 때문이다. 양쪽을 다루는 이유는 구멍을 막기 위해서가 아니라, 표준을 따르는 클라이언트가 `STOMP` 커맨드로 접속했을 때 정상 연결이 거부되지 않게 하기 위해서다.
 3. `Principal.getName()`은 **User ID의 문자열 표현**으로 고정한다. 이메일을 사용하지 않는다.
    - **WebSocket은 HTTP `CurrentUser`를 Principal로 재사용하지 않는다.** `CurrentUser.getUsername()`은 email을 반환하므로 그대로 쓰면 이 규칙이 깨진다. `Principal.getName()`이 userId 문자열을 반환하는 WebSocket 전용 Principal 어댑터를 사용한다.
-4. CONNECT에서 JWT 서명·만료·사용자 활성 상태를 확인한다. **실패하면 STOMP `ERROR` 프레임을 보내고 연결을 종료한다.** 이 시점에는 `/user/queue/errors` 구독이 성립하지 않으므로 §7의 `CHAT_ERROR`를 쓸 수 없다 — 전송 수단이 다르다.
+4. `CONNECT`·`STOMP` 프레임에서 JWT 서명·만료·사용자 활성 상태를 확인한다. **실패하면 STOMP `ERROR` 프레임을 보내고 연결을 종료한다.** 이 시점에는 `/user/queue/errors` 구독이 성립하지 않으므로 §7의 `CHAT_ERROR`를 큐로 보낼 수 없다 — 전송 수단이 다르다.
    - **Spring Security의 WebSocket 메시지 보안(`@EnableWebSocketSecurity`)은 쓰지 않는다.** 그 기능은 `spring-security-messaging` 아티팩트에 있는데 `spring-boot-starter-security`가 끌어오지 않아 현재 runtimeClasspath에 없다(`config`·`core`·`crypto`·`web`뿐). 도입하면 inbound `CONNECT`에 CSRF 토큰을 요구하게 되어 이 문서의 Bearer 단독 설계와 충돌한다. 인가는 이 문서의 인터셉터가 담당하고, 의존성을 추가하지 않는 것이 결정이다.
 5. CONNECT 검증에 성공하면 **User ID와 access token 만료 시각(`exp`)을 STOMP 세션 attribute에 저장한다.** 이후 프레임은 이 값을 읽는다.
    - **HttpSession을 쓰지 않는다.** `SecurityConfig`가 `SessionCreationPolicy.STATELESS`라 handshake에서 HttpSession이 만들어지지 않는다. `HttpSessionHandshakeInterceptor`로 세션 속성을 넘기는 흔한 예제는 이 프로젝트에서 동작하지 않으며, 그래서 인증 시점을 handshake가 아니라 STOMP `CONNECT` 프레임으로 잡은 것이다.
 6. SEND마다 토큰 만료와 사용자 활성 상태를 재검사한다. 결과는 두 축으로 갈린다.
-   - **토큰 만료·정지 계정 → `UNAUTHORIZED`, 세션 종료.** 이때는 이미 구독이 성립해 있으므로 **`/user/queue/errors`로 `CHAT_ERROR`(`code=UNAUTHORIZED`)를 먼저 보내고 그 다음 세션을 닫는다.** 다만 **이 전달은 best-effort다** — 발행과 close가 연달아 일어나므로 클라이언트가 오류를 받기 전에 연결이 닫힐 수 있다. **프론트는 `CHAT_ERROR` 없이 세션이 닫히는 경우도 인증 실패 가능성으로 처리한다**(§8의 refresh 절차로 수렴). CONNECT 실패(4번, STOMP `ERROR` 프레임)와 전송 수단이 다르다 — 프론트는 두 경로를 모두 처리해야 한다. REST에서도 정지 사용자는 `JwtFilter`가 `user.isActive()`에서 걸러 Authentication을 만들지 않고, `SecurityConfig`의 `authenticationEntryPoint`가 `UNAUTHORIZED`로 응답한다 — 도메인 서비스에 진입조차 하지 않는다. WebSocket SEND 재검사도 같은 코드를 쓰며, 이는 §7의 "REST와 동일한 `ErrorCode`" 원칙과 어긋나지 않는다.
+   - **토큰 만료·정지 계정 → `UNAUTHORIZED`, 세션 종료.** 전달은 CONNECT 실패(항목 4)와 **같은 STOMP `ERROR` 프레임**이며 `/user/queue/errors`의 `CHAT_ERROR`를 쓰지 않는다. 이 거부는 `ChannelInterceptor`에서 일어나 `@MessageMapping` 컨트롤러에 도달하지 않으므로 `@MessageExceptionHandler` 흐름을 타지 않는다. 큐로 보내려면 별도 전송 경로를 새로 만들어야 하며, 그렇게 하지 않는다. REST에서도 정지 사용자는 `JwtFilter`가 `user.isActive()`에서 걸러 Authentication을 만들지 않고, `SecurityConfig`의 `authenticationEntryPoint`가 `UNAUTHORIZED`로 응답한다 — 도메인 서비스에 진입조차 하지 않는다. WebSocket SEND 재검사도 같은 코드를 쓰며, 이는 §7의 "REST와 동일한 `ErrorCode`" 원칙과 어긋나지 않는다.
    - **활성 계정인데 Active Pet만 없음 → `ACTIVE_PET_REQUIRED`, 세션 유지.** 이쪽은 인증이 아니라 도메인 게이트(`ChatQueryService.sendMessage` → `requireActivePet`)에서 나오는 오류다.
    - `ACCOUNT_NOT_ACTIVE`는 현재 채팅 REST 경로에서 사용하지 않는다. WebSocket도 쓰지 않는다.
    - 만료 검사는 5의 세션 attribute만 읽는다. **SEND 프레임에 `Authorization` 헤더를 요구하지 않는다** — STOMP는 임의 헤더를 허용하므로 클라이언트가 붙일 수는 있으나, 서버는 이를 신뢰하지 않고 무시한다. 세션 인증 상태를 프레임 단위로 갱신할 수 있게 두면 CONNECT 검증이 무의미해진다.
    - 사용자 활성 상태 재검사는 메시지마다 조회가 발생한다. 캐시를 도입한다면 정지 반영 지연이 곧 캐시 TTL이 되므로, 도입 시 그 지연을 이 문서에 명시한다.
-7. **CONNECT 성공 시 `exp` 시각에 해당 세션을 닫는 작업을 예약한다.** SEND 재검사만으로는 부족하다 — 수신만 하고 한 번도 SEND하지 않는 세션은 토큰이 만료돼도 계속 살아 있어서 "Access Token TTL이 상한"이 성립하지 않는다. 예약 종료가 상한을 실제로 강제하고, 항목 6의 SEND 재검사는 그 위의 이중 방어다. 예약 작업이 실제로 소켓을 닫으려면 `sessionId`로 닫을 수 있는 핸들이 필요하다 — `ScheduledFuture`는 실행 시점만 알려줄 뿐이므로, `WebSocketHandlerDecorator` 등으로 **`sessionId → 세션 핸들` 레지스트리**를 함께 둔다. **세션이 `exp` 전에 끝나면 예약 작업을 취소한다** — `sessionId → ScheduledFuture`를 들고 있다가 `DISCONNECT`·세션 종료 시 정리하며, `DISCONNECT`는 한 세션에서 두 번 이상 관찰될 수 있으므로 **정리는 멱등이어야 한다.**
+7. **CONNECT 성공 시 `exp` 시각에 해당 세션을 닫는 작업을 예약한다.** SEND 재검사만으로는 부족하다 — 수신만 하고 한 번도 SEND하지 않는 세션은 토큰이 만료돼도 계속 살아 있어서 "Access Token TTL이 상한"이 성립하지 않는다. 예약 종료가 상한을 실제로 강제하고, 항목 6의 SEND 재검사는 그 위의 이중 방어다. 예약 작업이 실제로 소켓을 닫으려면 `sessionId`로 닫을 수 있는 핸들이 필요하다 — `ScheduledFuture`는 실행 시점만 알려줄 뿐이므로, `WebSocketHandlerDecorator` 등으로 **`sessionId → 세션 핸들` 레지스트리**를 함께 둔다. **세션이 `exp` 전에 끝나면 예약 작업을 취소한다** — `sessionId → ScheduledFuture`를 들고 있다가 `DISCONNECT`·세션 종료 시 정리하며, `DISCONNECT`는 한 세션에서 두 번 이상 관찰될 수 있으므로 **정리는 멱등이어야 한다.** 이 종료는 STOMP `ERROR` 프레임 없이 WebSocket close만으로 끝난다. **프론트가 원인을 판정하는 1차 기준은 직전 `ERROR` 프레임의 유무다** — 프레임이 있었으면 인증·destination·프로토콜 거부, 없었으면 예약 만료다. close code는 보조 신호로만 쓴다. 현재 구현의 측정값은 만료 종료 `1008`(`POLICY_VIOLATION`), 프로토콜 오류 `1002`(`PROTOCOL_ERROR`)이며 회귀 테스트로 고정돼 있으나, **관측된 구현 세부이지 클라이언트가 의존해도 되는 계약값이 아니다.**
 8. 로그아웃·정지 이후에도 기존 세션은 서버가 즉시 회수하지 못할 수 있다. **정지 계정을 즉시 추방하는 기능은 이 계약 범위가 아니며, 상한은 항목 7의 예약 종료다.**
 9. Origin은 기존 `CorsProperties`의 `app.cors.allowed-origins` **값을 그대로 재사용**한다. 임의의 `*` 허용을 추가하지 않는다.
    - **검사가 두 겹이다.** handshake는 HTTP 요청이라 `SecurityConfig`의 `CorsConfigurationSource`(`/**` 등록)를 그대로 지난다. 그런데 Spring WebSocket이 그와 **독립적인 origin 검사**를 하나 더 한다 — `OriginHandshakeInterceptor`가 엔드포인트 등록의 `setAllowedOrigins`/`setAllowedOriginPatterns` 값으로 판정한다. Security CORS를 통과해도 이쪽에서 막힐 수 있으므로, **엔드포인트 등록에도 같은 `app.cors.allowed-origins` 값을 넣는다.** 두 곳에 다른 목록이 생기지 않게 한다.
@@ -205,14 +209,20 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 
 ## 7. 오류 계약
 
-**오류는 발생 위치에 따라 두 층으로 갈린다.** 하나로 합치면 `clientMessageId` 규칙이 깨진다.
+**오류는 발생 계층에 따라 여섯 갈래로 갈린다.** 하나로 합치면 `clientMessageId` 규칙이 깨지고, 특히 `INTERNAL_ERROR`는 계층에 따라 전달 수단과 세션 결과가 반대가 된다.
 
-| 층 | 무엇 | 전달 | 세션 |
+| # | 발생 계층 | 전달 | 세션 |
 |---|---|---|---|
-| 프로토콜·보안 | CONNECT 인증 실패, 허용 밖 destination SEND·SUBSCRIBE, 인증 안 된 프레임, 잘못된 STOMP 사용 | **STOMP `ERROR` 프레임** | 종료 |
-| 채팅 도메인 | `ACTIVE_PET_REQUIRED`, `CHAT_ROOM_NOT_FOUND`, `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE`, payload 검증 실패 | `/user/queue/errors`의 `CHAT_ERROR` | 유지 |
+| 1 | 컨트롤러: 채팅 도메인 오류 (`ACTIVE_PET_REQUIRED`, `CHAT_ROOM_NOT_FOUND`, `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE`, payload 검증 실패) | `/user/queue/errors`의 `CHAT_ERROR` | 유지 |
+| 2 | 컨트롤러: 예기치 않은 예외 | `/user/queue/errors`의 `CHAT_ERROR(INTERNAL_ERROR)` | 유지 |
+| 3 | 인터셉터: 프레임 인증 실패·허용 밖 destination·미허용 command | STOMP `ERROR` (`UNAUTHORIZED` / `FORBIDDEN`) | 종료 |
+| 4 | 전송 계층: malformed STOMP frame | STOMP `ERROR(VALIDATION_FAILED)` | 종료 |
+| 5 | 인터셉터·전송 계층: 예기치 않은 예외 | STOMP `ERROR(INTERNAL_ERROR)` | 종료 |
+| 6 | 예약된 JWT 만료 종료 | 프레임 없음, WebSocket close | 종료 |
 
-**STOMP `ERROR`에도 `code`를 실어 프론트가 기계적으로 구분할 수 있게 한다.** 위층에는 인증 실패와 destination 위반이 함께 들어오는데, 프론트의 재연결 규칙(§8)은 **인증 실패일 때만 refresh**해야 한다. 구분 값이 없으면 destination 위반에도 refresh를 돌게 된다. `ERROR` 프레임 body를 `CHAT_ERROR`와 같은 `{code, message}` 형태로 싣고, `code`는 기존 `ErrorCode`를 그대로 쓴다. 새 오류 코드를 만들지 않는다 — 필요한 값이 이미 있다.
+**`eventType`으로 두 갈래를 구분할 수 없다.** STOMP `ERROR` 프레임 body도 큐로 가는 것과 동일한 payload이며 `eventType`이 똑같이 `CHAT_ERROR`다. 따라서 **`CHAT_ERROR`를 받았다는 사실만으로 연결이 유지된다고 판단하면 안 된다.** 구분 기준은 전달 경로(큐 구독 vs `ERROR` 프레임)다.
+
+**STOMP `ERROR`에도 `code`를 실어 프론트가 기계적으로 구분할 수 있게 한다.** 경로 3에는 인증 실패와 destination 위반이 함께 들어오는데, 프론트의 재연결 규칙(§8)은 **인증 실패일 때만 refresh**해야 한다. 구분 값이 없으면 destination 위반에도 refresh를 돌게 된다. `ERROR` 프레임 body를 `CHAT_ERROR`와 같은 `{code, message}` 형태로 싣고, `code`는 기존 `ErrorCode`를 그대로 쓴다. 새 오류 코드를 만들지 않는다 — 필요한 값이 이미 있다.
 
 | 사유 | `code` |
 |---|---|
@@ -220,14 +230,15 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 | 허용 목록 밖 destination의 SEND·SUBSCRIBE | `FORBIDDEN` |
 | 인증되지 않은 프레임, 허용하지 않는 프레임 종류 | `FORBIDDEN` |
 | STOMP 프레임 자체가 잘못됨 | `VALIDATION_FAILED` |
+| 인터셉터·전송 계층의 예기치 않은 예외 | `INTERNAL_ERROR` |
 
 `FORBIDDEN`은 범용 코드(`"현재 계정에 권한이 없습니다."`)라 destination 위반에 그대로 맞는다.
 
 **두 경로가 같은 body를 내야 한다.** 인가 거부는 `ChannelInterceptor`에서 잡히지만, **STOMP 프레임 자체가 파싱되지 않는 경우는 인터셉터까지 오지도 않는다** — 그건 `StompSubProtocolErrorHandler`(또는 동등한 protocol error handler)가 처리하는 영역이고, 파싱 단계 오류에서는 원본 메시지가 `null`일 수도 있다. 두 곳을 각각 구현하면 인터셉터 오류만 `{code, message}`가 되고 malformed 프레임은 Spring 기본 형식으로 나간다. **양쪽 모두 같은 body를 만들도록 error handler를 구성한다.**
 
-위층을 `CHAT_ERROR`로 보낼 수 없는 이유는 두 가지다. 첫째, 그 거부는 `ChannelInterceptor`에서 일어나 `@MessageMapping` 컨트롤러에 도달하지 않으므로 `@MessageExceptionHandler`가 잡는 흐름을 타지 않는다. 둘째, `SUBSCRIBE /topic/...` 같은 프레임에는 **애초에 `clientMessageId`가 없어** 아래 payload 규칙을 만족시킬 수 없다.
+경로 3~5를 큐의 `CHAT_ERROR`로 보낼 수 없는 이유는 두 가지다. 첫째, 그 거부는 `ChannelInterceptor`에서 일어나 `@MessageMapping` 컨트롤러에 도달하지 않으므로 `@MessageExceptionHandler`가 잡는 흐름을 타지 않는다. 둘째, `SUBSCRIBE /topic/...` 같은 프레임에는 **애초에 `clientMessageId`가 없어** 아래 payload 규칙을 만족시킬 수 없다.
 
-아래 payload는 **아래층(채팅 도메인 오류)의 형식**이다.
+아래 payload는 **경로 1~2(컨트롤러에서 발생해 큐로 가는 오류)의 형식**이다.
 
 ```json
 {
@@ -239,17 +250,17 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 }
 ```
 
-- **`clientMessageId`를 반드시 싣는다.** 없으면 프론트가 여러 건을 동시에 보냈을 때 어느 전송이 실패했는지 알 수 없어 낙관적 렌더링을 되돌리지 못한다. **payload를 읽기 전에 실패한 경우에만 `null`이다** — payload 파싱 실패, 그리고 인터셉터 단계의 인증·세션 검사 실패(§3 항목 6)가 여기 해당한다. 그 검사는 컨트롤러 바인딩보다 앞이라 아직 `ChatMessageCreateRequest`가 없다. **이 값을 얻으려고 인터셉터에서 raw JSON을 다시 파싱하지 않는다.**
+- **`clientMessageId`를 반드시 싣는다.** 없으면 프론트가 여러 건을 동시에 보냈을 때 어느 전송이 실패했는지 알 수 없어 낙관적 렌더링을 되돌리지 못한다. **payload를 읽기 전에 실패한 경우에만 `null`이다** — payload 파싱 실패, 그리고 인터셉터 단계의 인증·세션 검사 실패(§3 항목 6, 경로 3)가 여기 해당한다. 그 검사는 컨트롤러 바인딩보다 앞이라 아직 `ChatMessageCreateRequest`가 없다. **이 값을 얻으려고 인터셉터에서 raw JSON을 다시 파싱하지 않는다.**
 - `CHAT_ERROR`는 이 문서가 새로 정하는 값이다. `/user/queue/errors`에는 이 한 종류만 흐르지만, ACK·메시지 이벤트와 처리 코드를 공유할 수 있도록 `eventType`을 동일하게 싣는다.
 - `message`는 `ErrorCode`에 정의된 문구를 그대로 쓴다. 위 예시의 문장도 `ErrorCode.CHAT_DUPLICATE_MESSAGE`의 실제 값이다. WebSocket 전용 문구를 새로 만들지 않는다.
 - `code`·`message`는 REST 오류 응답의 `ApiResponse.ErrorBody`와 같은 의미다. 다만 **WebSocket은 `ApiResponse` 봉투를 쓰지 않는다** — §6.1·§6.2와 마찬가지로 평면 payload이며 `success`·`data` 필드가 없다.
 - 오류는 `/user/queue/errors`로 보낸다.
 - **`CHAT_ERROR`는 그 SEND를 일으킨 세션에만 보낸다.** ACK와 같은 규칙이며(§6.1) `@SendToUser("/queue/errors", broadcast = false)` 또는 동등한 세션 한정 방식을 쓴다. `/user` destination은 기본이 같은 User의 **모든** 세션이라 그대로 두면 broadcast된다.
   - 특히 위험한 경우는 `UNAUTHORIZED`다. 탭 A의 토큰만 만료됐는데 User 전체로 퍼지면 **멀쩡한 탭 B까지 refresh·재연결**에 들어간다(§8).
-  - 인터셉터에서 발생한 인증·세션 오류도 마찬가지다. `sessionId`를 보존해 그 세션에만 전달한다.
+  - 인터셉터에서 발생한 인증·세션 오류도 그 세션에만 전달한다. 다만 그쪽은 큐가 아니라 STOMP `ERROR` 프레임이므로(경로 3) 애초에 broadcast 대상이 아니다.
 - 오류 코드는 REST와 동일한 `ErrorCode`를 사용한다. WebSocket 전용 오류 코드를 새로 만들지 않는다.
 - 일반적인 검증·권한·도메인 오류는 오류 이벤트 후 연결을 유지한다.
-- CONNECT 실패는 위층이므로 STOMP `ERROR` 프레임이다. 연결 후의 토큰 만료·정지 계정 SEND는 이미 구독이 성립해 있어 `CHAT_ERROR`(`code=UNAUTHORIZED`)를 보내고 종료한다 — 근거와 `ACTIVE_PET_REQUIRED`(세션 유지)와의 구분은 §3 항목 6에 있다.
+- CONNECT 실패는 경로 3이므로 STOMP `ERROR` 프레임이다. 연결 후의 토큰 만료·정지 계정 SEND도 같은 경로이며, 구독이 성립해 있더라도 큐의 `CHAT_ERROR`가 아니라 STOMP `ERROR`(`code=UNAUTHORIZED`)를 보내고 종료한다 — 근거와 `ACTIVE_PET_REQUIRED`(세션 유지)와의 구분은 §3 항목 6에 있다.
 - WebSocket payload 검증 실패는 `VALIDATION_FAILED`로 매핑한다. `@MessageExceptionHandler`에서 raw validation exception을 노출하지 않는다.
 
 SEND에서 나올 수 있는 오류 집합은 REST `POST /chat/rooms/{roomId}/messages`와 같다 — `VALIDATION_FAILED`(400), `ACTIVE_PET_REQUIRED`(403), `CHAT_ROOM_NOT_FOUND`(404), `GREETING_REPLY_REQUIRED`·`CHAT_DUPLICATE_MESSAGE`(409), 그리고 인증 축의 `UNAUTHORIZED`(401). 이 목록은 코드 기준이다.
