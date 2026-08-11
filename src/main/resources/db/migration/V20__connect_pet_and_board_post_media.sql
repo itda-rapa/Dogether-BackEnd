@@ -1,3 +1,15 @@
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pets
+        WHERE profile_asset_id IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION
+            'Legacy pets.profile_asset_id data must be migrated explicitly before V20';
+    END IF;
+END $$;
+
 ALTER TABLE pets
     DROP CONSTRAINT fk_pets_profile_asset;
 
