@@ -31,6 +31,7 @@ import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
 import itda.pet.service.PetUpdateCommand;
 import itda.pet.service.PetUpdateService;
+import itda.pet.service.PetProfileImageService;
 import itda.pet.service.query.PetSearchQueryService;
 import itda.user.domain.Role;
 import java.math.BigDecimal;
@@ -78,6 +79,9 @@ class PetControllerTest {
 
     @MockitoBean
     private PetUpdateService petUpdateService;
+
+    @MockitoBean
+    private PetProfileImageService petProfileImageService;
 
     @MockitoBean
     private JwtFilter jwtFilter;
@@ -694,6 +698,59 @@ class PetControllerTest {
                   "careNote": "닭고기 알레르기"
                 }
                 """;
+    }
+
+    @Nested
+    @DisplayName("Describe: POST /pets/{petId}/profile-image")
+    class DescribeSetInitialProfileImage {
+
+        @Test
+        @DisplayName("It: 최초 프로필 이미지를 201과 Presigned URL로 반환한다")
+        void itCreatesInitialProfileImage() throws Exception {
+            PetResponse response = petResponse(true);
+            response = new PetResponse(
+                    response.petId(), response.ownerUserId(),
+                    response.publicTag(), response.ownerPublicTag(),
+                    response.nickname(), response.breedName(), response.sex(),
+                    response.neutered(), response.birthDate(), response.weightKg(),
+                    response.sizeCode(), response.bio(), response.personalityTags(),
+                    response.careNote(), "https://presigned.example/media/3",
+                    response.status(), response.deletedAt(), response.verified(),
+                    response.verifiedAt(), response.active()
+            );
+            given(petProfileImageService.setInitialProfileImage(
+                    USER_ID, PET_ID, 3L
+            )).willReturn(response);
+
+            mockMvc.perform(post("/pets/{petId}/profile-image", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.profileUrl")
+                            .value("https://presigned.example/media/3"));
+
+            then(petProfileImageService).should()
+                    .setInitialProfileImage(USER_ID, PET_ID, 3L);
+        }
+
+        @Test
+        @DisplayName("It: mediaId가 없거나 0이면 VALIDATION_FAILED다")
+        void itRejectsInvalidMediaId() throws Exception {
+            mockMvc.perform(post("/pets/{petId}/profile-image", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(post("/pets/{petId}/profile-image", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":0}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petProfileImageService).shouldHaveNoInteractions();
+        }
     }
 
     private PetResponse petResponse(boolean active) {
