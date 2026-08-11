@@ -1,11 +1,11 @@
 # M2 WebSocket 채팅 계약
 
-상태: **구현 전 검토용 초안**
+상태: **구현 반영본** — DIRECT 실시간 계층은 PR #67로 구현됐고, 이 문서는 그 구현에 맞춰 정정됐다.
 범위: M2 DIRECT 실시간 채팅 기반 계약 및 BE-4 그룹 채팅 연계 경계
 
 이 문서는 BE-2, BE-4, 프론트가 WebSocket 구현 전에 공유하는 계약이다. REST·DB 정본을 대체하지 않으며, 구현 중 변경은 이 문서와 함께 리뷰한다.
 
-> **읽는 법.** 본문에는 두 종류가 섞여 있다. 하나는 **계약 규칙**(destination, 이벤트 형식, 오류, 수신자 조건 등)으로 구현이 따라야 할 대상이다. 다른 하나는 **저장소 현황 스냅샷**(`dev` `ec16ecd` 기준)으로, 구현자가 잘못된 전제를 두지 않도록 적어둔 관찰이다. 아래 여섯 곳이 현황이며 저장소가 고쳐지면 낡는다 — §3 항목 1(`/ws`가 `permitAll`에 없음), §7의 OpenAPI `BLOCKED_USER` 경고, §7.1(`canSend`·`sendBlockedReason`), §7.2(`findRoomById`), §10의 검증 환경 주의, §10의 배포 문서 부재. **해당 항목이 해소되면 이 문서에서 지우고 그 사실만 남긴다.**
+> **읽는 법.** 본문에는 두 종류가 섞여 있다. 하나는 **계약 규칙**(destination, 이벤트 형식, 오류, 수신자 조건 등)으로 구현이 따라야 할 대상이다. 다른 하나는 **저장소 현황 스냅샷**(`dev` `ec16ecd` 기준)으로, 구현자가 잘못된 전제를 두지 않도록 적어둔 관찰이다. 아래 다섯 곳이 현황이며 저장소가 고쳐지면 낡는다 — §7의 OpenAPI `BLOCKED_USER` 경고, §7.1(`canSend`·`sendBlockedReason`), §7.2(`findRoomById`), §10의 검증 환경 주의, §10의 배포 문서 부재. (`/ws`의 `permitAll` 등록은 PR #67에서 해소되어 §3 항목 1을 계약 요구로 바꿨다. 남은 다섯 곳은 `ec16ecd` 시점 관찰이며 최신 `dev` 기준 재확인이 필요하다.) **해당 항목이 해소되면 이 문서에서 지우고 그 사실만 남긴다.**
 
 ## 1. 범위와 전제
 
@@ -57,12 +57,11 @@
 
 **`roomId`는 정규식만으로 부족하다.** 허용 패턴이 `\d+`라 자릿수 제한이 없어 `long` 범위를 넘는 값도 정규식은 통과한다. 이는 권한이 뚫리는 문제가 아니라 — 그런 방은 존재하지 않는다 — **비정상 destination을 인가 단계에서 조기에 거부**하는 문제다. 파싱까지 성공해야 허용한다.
 
-**제어 프레임을 막지 않는다.** `UNSUBSCRIBE`·`DISCONNECT`·`HEARTBEAT`까지 "기본 거부"에 넣으면 정상 종료와 구독 해제, heartbeat가 끊긴다. `DISCONNECT`는 클라이언트가 보내기도 하고 연결 종료 과정에서 서버가 만들기도 한다. 거부 대상은 **인증되지 않은 프레임과 허용 목록 밖의 destination**이지 프레임 종류 자체가 아니다.
+**`UNSUBSCRIBE`·`DISCONNECT`·heartbeat는 명시적 허용 예외다.** 이 셋까지 거부하면 정상 종료와 구독 해제, heartbeat가 끊기므로 제어 프레임이라는 이유로 막지 않는다. `DISCONNECT`는 클라이언트가 보내기도 하고 연결 종료 과정에서 서버가 만들기도 한다. **예외는 여기까지이며 그 밖의 command는 기본 거부를 따른다** — 위 표에 없는 커맨드와 클라이언트 `ACK`/`NACK`는 destination과 무관하게 거부된다.
 
 - `/user/**`는 Spring이 세션별로 실제 destination을 풀어 주므로 남의 큐를 구독할 수는 없지만, **`/topic/**`·`/queue/**` 직접 구독은 막지 않으면 그대로 열린다.**
 - GROUP이 `/topic`을 쓰기 시작하면 이 구멍이 커진다. BE-4는 GROUP destination을 추가할 때 **이 표에 행을 더하는 방식**으로 넓히고, 기본 거부 원칙을 유지한다.
 - `M2-012`가 `/user/queue/card-suggestions`를 추가하면 SUBSCRIBE 허용 목록에 함께 넣는다.
-- 클라이언트 `ACK`/`NACK`는 쓰지 않으므로 허용하지 않는다.
 
 **여기서의 거부는 §7의 `CHAT_ERROR`가 아니라 STOMP `ERROR` 프레임이다.** 이유는 §7 머리의 경로 구분을 참고한다.
 
@@ -86,7 +85,7 @@ GROUP destination은 BE-4가 구현하되, 공통 인증·Principal·이벤트 �
    - `ACCOUNT_NOT_ACTIVE`는 현재 채팅 REST 경로에서 사용하지 않는다. WebSocket도 쓰지 않는다.
    - 만료 검사는 5의 세션 attribute만 읽는다. **SEND 프레임에 `Authorization` 헤더를 요구하지 않는다** — STOMP는 임의 헤더를 허용하므로 클라이언트가 붙일 수는 있으나, 서버는 이를 신뢰하지 않고 무시한다. 세션 인증 상태를 프레임 단위로 갱신할 수 있게 두면 CONNECT 검증이 무의미해진다.
    - 사용자 활성 상태 재검사는 메시지마다 조회가 발생한다. 캐시를 도입한다면 정지 반영 지연이 곧 캐시 TTL이 되므로, 도입 시 그 지연을 이 문서에 명시한다.
-7. **CONNECT 성공 시 `exp` 시각에 해당 세션을 닫는 작업을 예약한다.** SEND 재검사만으로는 부족하다 — 수신만 하고 한 번도 SEND하지 않는 세션은 토큰이 만료돼도 계속 살아 있어서 "Access Token TTL이 상한"이 성립하지 않는다. 예약 종료가 상한을 실제로 강제하고, 항목 6의 SEND 재검사는 그 위의 이중 방어다. 예약 작업이 실제로 소켓을 닫으려면 `sessionId`로 닫을 수 있는 핸들이 필요하다 — `ScheduledFuture`는 실행 시점만 알려줄 뿐이므로, `WebSocketHandlerDecorator` 등으로 **`sessionId → 세션 핸들` 레지스트리**를 함께 둔다. **세션이 `exp` 전에 끝나면 예약 작업을 취소한다** — `sessionId → ScheduledFuture`를 들고 있다가 `DISCONNECT`·세션 종료 시 정리하며, `DISCONNECT`는 한 세션에서 두 번 이상 관찰될 수 있으므로 **정리는 멱등이어야 한다.** 이 종료는 STOMP `ERROR` 프레임 없이 WebSocket close만으로 끝난다. **프론트가 원인을 판정하는 1차 기준은 직전 `ERROR` 프레임의 유무다** — 프레임이 있었으면 인증·destination·프로토콜 거부, 없었으면 예약 만료다. close code는 보조 신호로만 쓴다. 현재 구현의 측정값은 만료 종료 `1008`(`POLICY_VIOLATION`), 프로토콜 오류 `1002`(`PROTOCOL_ERROR`)이며 회귀 테스트로 고정돼 있으나, **관측된 구현 세부이지 클라이언트가 의존해도 되는 계약값이 아니다.**
+7. **CONNECT 성공 시 `exp` 시각에 해당 세션을 닫는 작업을 예약한다.** SEND 재검사만으로는 부족하다 — 수신만 하고 한 번도 SEND하지 않는 세션은 토큰이 만료돼도 계속 살아 있어서 "Access Token TTL이 상한"이 성립하지 않는다. 예약 종료가 상한을 실제로 강제하고, 항목 6의 SEND 재검사는 그 위의 이중 방어다. 예약 작업이 실제로 소켓을 닫으려면 `sessionId`로 닫을 수 있는 핸들이 필요하다 — `ScheduledFuture`는 실행 시점만 알려줄 뿐이므로, `WebSocketHandlerDecorator` 등으로 **`sessionId → 세션 핸들` 레지스트리**를 함께 둔다. **세션이 `exp` 전에 끝나면 예약 작업을 취소한다** — `sessionId → ScheduledFuture`를 들고 있다가 `DISCONNECT`·세션 종료 시 정리하며, `DISCONNECT`는 한 세션에서 두 번 이상 관찰될 수 있으므로 **정리는 멱등이어야 한다.** 이 종료는 STOMP `ERROR` 프레임 없이 WebSocket close만으로 끝난다. **프론트가 원인을 판정하는 1차 기준은 직전 `ERROR` 프레임의 유무다.** 프레임이 있었으면 프로토콜·인증·destination 거부 경로다. **`ERROR` 없이 닫히는 경우는 예약 만료 하나로 단정할 수 없다** — heartbeat timeout과 네트워크 실패도 같은 모습이다(§8). 프론트는 access token `exp`와 현재 시각을 비교해 만료 여부를 확인한 뒤 처리한다. close code는 보조 신호로만 쓴다. 현재 구현의 측정값은 예약 만료 종료가 `1008`(`POLICY_VIOLATION`), destination 위반과 malformed 프레임이 `1002`(`PROTOCOL_ERROR`)이며 그 세 경우만 회귀 테스트로 고정돼 있다. **관측된 구현 세부이지 클라이언트가 의존해도 되는 계약값이 아니다.**
 8. 로그아웃·정지 이후에도 기존 세션은 서버가 즉시 회수하지 못할 수 있다. **정지 계정을 즉시 추방하는 기능은 이 계약 범위가 아니며, 상한은 항목 7의 예약 종료다.**
 9. Origin은 기존 `CorsProperties`의 `app.cors.allowed-origins` **값을 그대로 재사용**한다. 임의의 `*` 허용을 추가하지 않는다.
    - **검사가 두 겹이다.** handshake는 HTTP 요청이라 `SecurityConfig`의 `CorsConfigurationSource`(`/**` 등록)를 그대로 지난다. 그런데 Spring WebSocket이 그와 **독립적인 origin 검사**를 하나 더 한다 — `OriginHandshakeInterceptor`가 엔드포인트 등록의 `setAllowedOrigins`/`setAllowedOriginPatterns` 값으로 판정한다. Security CORS를 통과해도 이쪽에서 막힐 수 있으므로, **엔드포인트 등록에도 같은 `app.cors.allowed-origins` 값을 넣는다.** 두 곳에 다른 목록이 생기지 않게 한다.
