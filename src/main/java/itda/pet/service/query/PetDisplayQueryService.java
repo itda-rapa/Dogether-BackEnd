@@ -5,6 +5,7 @@ import itda.common.exception.BusinessException;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
+import itda.media.service.MediaService;
 import itda.user.domain.AccountStatus;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -20,14 +21,19 @@ import org.springframework.transaction.annotation.Transactional;
 public class PetDisplayQueryService {
 
     private final PetRepository petRepository;
+    private final MediaService mediaService;
 
-    public PetDisplayQueryService(PetRepository petRepository) {
+    public PetDisplayQueryService(
+            PetRepository petRepository,
+            MediaService mediaService
+    ) {
         this.petRepository = petRepository;
+        this.mediaService = mediaService;
     }
 
     @Transactional(readOnly = true)
     public PetDisplaySummary getPetDisplaySummary(Long petId) {
-        Pet pet = petRepository.findById(petId)
+        Pet pet = petRepository.findByIdWithOwnerAndProfileAsset(petId)
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.PET_NOT_FOUND)
                 );
@@ -71,7 +77,8 @@ public class PetDisplayQueryService {
             return Map.of();
         }
 
-        List<Pet> pets = petRepository.findAllById(requestedIds);
+        List<Pet> pets = petRepository
+                .findAllByIdWithOwnerAndProfileAsset(requestedIds);
         Map<Long, PetDisplaySummary> result = new LinkedHashMap<>();
         for (Pet pet : pets) {
             result.put(pet.getId(), toDisplaySummary(pet));
@@ -90,10 +97,19 @@ public class PetDisplayQueryService {
                 pet.getOwner().getId(),
                 pet.getPublicTag(),
                 pet.getNickname(),
-                null,
+                profileUrlOf(pet),
                 false,
                 pet.getStatus(),
                 pet.getDeletedAt()
         );
+    }
+
+    private String profileUrlOf(Pet pet) {
+        if (pet.getProfileAsset() == null) {
+            return null;
+        }
+        return mediaService.getPresignedDownloadUrl(
+                pet.getProfileAsset().getId()
+        ).url();
     }
 }

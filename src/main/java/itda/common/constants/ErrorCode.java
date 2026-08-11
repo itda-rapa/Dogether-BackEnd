@@ -49,6 +49,7 @@ public enum ErrorCode {
     PET_NOT_FOUND(HttpStatus.NOT_FOUND, "반려견을 찾을 수 없습니다."),
     PET_NOT_OWNED(HttpStatus.FORBIDDEN, "해당 반려견의 소유자가 아닙니다."),
     PET_NOT_ACTIVE(HttpStatus.FORBIDDEN, "활동 가능한 반려견이 아닙니다."),
+    PET_PROFILE_IMAGE_ALREADY_SET(HttpStatus.CONFLICT, "반려견 프로필 이미지는 이미 설정되었습니다."),
     PET_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "반려견은 최대 5마리까지 등록할 수 있습니다."),
     PET_PUBLIC_TAG_GENERATION_FAILED(
             HttpStatus.CONFLICT,

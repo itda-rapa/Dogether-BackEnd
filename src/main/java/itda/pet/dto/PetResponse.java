@@ -38,7 +38,11 @@ public record PetResponse(
                 : List.copyOf(personalityTags);
     }
 
-    public static PetResponse from(Pet pet, boolean active) {
+    public static PetResponse from(
+            Pet pet,
+            boolean active,
+            String profileUrl
+    ) {
         return new PetResponse(
                 pet.getId(),
                 pet.getOwner().getId(),
@@ -54,7 +58,7 @@ public record PetResponse(
                 pet.getBio(),
                 pet.getPersonalityTags(),
                 pet.getCareNote(),
-                null,
+                profileUrl,
                 pet.getStatus(),
                 pet.getDeletedAt(),
                 false,

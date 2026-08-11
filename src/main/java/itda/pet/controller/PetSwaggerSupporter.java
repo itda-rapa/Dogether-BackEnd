@@ -12,6 +12,7 @@ import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
+import itda.pet.dto.PetProfileImageRequest;
 import itda.pet.dto.PetResponse;
 import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.dto.PetUpdateRequest;
@@ -153,6 +154,37 @@ public interface PetSwaggerSupporter {
     ResponseEntity<ApiResponse<PetResponse>> getMyPet(
             @Parameter(hidden = true) CurrentUser currentUser,
             @Parameter(description = "Pet ID") Long petId
+    );
+
+    @Operation(
+            summary = "Pet 프로필 이미지 최초 설정",
+            description = "본인 소유의 Pet에 업로드 완료된 IMAGE Media를 최초 1회 연결합니다."
+    )
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = PetProfileImageRequest.class),
+            examples = @ExampleObject("""
+                    {"mediaId":123}
+                    """)
+    ))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "201",
+            description = "Pet 프로필 이미지 최초 설정 성공",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {"success":true,"message":"Pet 프로필 이미지가 설정되었습니다.","data":{"petId":10,"publicTag":"pet#TAG1","nickname":"초코","profileUrl":"https://...","verified":false},"error":null}
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "409",
+            description = "이미 프로필 이미지가 설정됨 (PET_PROFILE_IMAGE_ALREADY_SET)"
+    )
+    ResponseEntity<ApiResponse<PetResponse>> setInitialProfileImage(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            @Parameter(description = "Pet ID") Long petId,
+            PetProfileImageRequest request
     );
 
     @Operation(summary = "Pet 정보 수정", description = "Pet 정보를 부분 수정하는 API")
