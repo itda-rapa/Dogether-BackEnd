@@ -1,0 +1,9 @@
+services:
+  app:
+    image: ghcr.io/itda-rapa/dogether-backend:latest
+    container_name: dogether-backend
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    stop_grace_period: 30s

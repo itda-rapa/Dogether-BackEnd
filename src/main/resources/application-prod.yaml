@@ -1,0 +1,33 @@
+spring:
+  config:
+    # Application 구동 시 .env.production 파일이 자동으로 적용
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    locations:
+      - classpath:db/migration
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+app:
+  jwt:
+    issuer: ${JWT_ISSUER}
+    secret: ${JWT_SECRET}
+    access-ttl: ${JWT_ACCESS_TTL}
+    refresh-ttl: ${JWT_REFRESH_TTL}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  s3:
+    access-key: ${AWS_S3_ACCESS_KEY}
+    secret-key: ${AWS_S3_SECRET_KEY}
+    bucket: ${AWS_S3_BUCKET_NAME}
+    region: ${AWS_REGION}
+    presigned-url-expiration-seconds: ${PRESIGNEDURL_EXPIRATION_TIME_SEC}

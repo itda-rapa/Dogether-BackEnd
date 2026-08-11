@@ -1,0 +1,83 @@
+spring:
+  config:
+    # Application 구동 시 .env.production 파일이 자동으로 적용
+    import: optional:file:.env[.properties]
+  application:
+    name: dogether
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:true}
+
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
+    path: /v3/api-docs # api-docs의 엔드포인트 지정 : localhost:8080/v3/api-docs
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+    operations-sorter: alpha
+    display-request-duration: true
+    doc-expansion: list
+    persist-authorization: true
+
+
+app:
+  jwt:
+    issuer: ${JWT_ISSUER:dogether}
+    secret: ${JWT_SECRET}
+    access-ttl: ${JWT_ACCESS_TTL:30m}
+    refresh-ttl: ${JWT_REFRESH_TTL:7d}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  s3:
+    access-key: ${AWS_S3_ACCESS_KEY}
+    secret-key: ${AWS_S3_SECRET_KEY}
+    bucket: ${AWS_S3_BUCKET_NAME}
+    region: ${AWS_REGION}
+    presigned-url-expiration-seconds: ${PRESIGNEDURL_EXPIRATION_TIME_SEC}
+  media:
+    upload-url-ttl: ${MEDIA_UPLOAD_URL_TTL:15m}
+    view-url-ttl: ${MEDIA_VIEW_URL_TTL:10m}
+    max-upload-bytes: ${MEDIA_MAX_UPLOAD_BYTES:10485760}
+    maintenance-delay: ${MEDIA_MAINTENANCE_DELAY:1m}
+  bootstrap-admin:
+    enabled: ${INITIAL_ADMIN_ENABLED:false}
+    email: ${INITIAL_ADMIN_EMAIL:}
+    password: ${INITIAL_ADMIN_PASSWORD:}
+    nickname: ${INITIAL_ADMIN_NICKNAME:}
+    neighborhood-code: ${INITIAL_ADMIN_NEIGHBORHOOD_CODE:}
+  redis:
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT}
+  email-verification:
+    hmac-secret: ${EMAIL_VERIFICATION_HMAC_SECRET}
+    challenge-ttl: ${EMAIL_VERIFICATION_CHALLENGE_TTL:5m}
+    token-ttl: ${EMAIL_VERIFICATION_TOKEN_TTL:15m}
+    cooldown: ${EMAIL_VERIFICATION_COOLDOWN:60s}
+    payload-ttl: ${EMAIL_VERIFICATION_PAYLOAD_TTL:5m}
+    worker-enabled: ${EMAIL_VERIFICATION_WORKER_ENABLED:false}
+    sender-mode: ${EMAIL_VERIFICATION_SENDER_MODE:fake}
+    stream-key: ${EMAIL_STREAM_KEY:dogether:email:v1:delivery:stream}
+    stream-group: ${EMAIL_STREAM_GROUP:email-delivery}
+    stream-consumer: ${EMAIL_STREAM_CONSUMER:email-worker-1}
+    max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+  chat-room:
+    lifecycle:
+      enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}
+      maintenance-delay-ms: ${CHAT_ROOM_LIFECYCLE_MAINTENANCE_DELAY_MS:60000}
+      batch-size: ${CHAT_ROOM_LIFECYCLE_BATCH_SIZE:100}
+      archive-after-days: ${CHAT_ROOM_LIFECYCLE_ARCHIVE_AFTER_DAYS:30}

@@ -1,0 +1,73 @@
+name: Backend CI-CD
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: Run tests
+        run: ./gradlew test postgresTest
+
+      - name: Gradle을 통한 JAR파일 빌드
+        run: ./gradlew build -x test
+
+      - name: 레지스트리 ( GHCR ) 로그인
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 메타데이터 추출
+        uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{github.repository}}
+          tags: |
+            type=sha
+            type=raw,value=latest
+      - name: 빌드 및 이미지 푸시 수행( 태깅을 기반으로 도커 이미지에 태깅 적용)
+        uses: docker/build-push-action@v7
+        with:
+          context: . # dockerfile이 있는 위치
+          push: true
+          tags: ${{steps.meta.outputs.tags}}
+  deploy:
+    runs-on:
+      - self-hosted
+      - application
+    needs: build-image
+    steps:
+      - name: 백엔드 배포
+        run : |
+          cd /home/ubuntu/deployment/server
+          sudo docker compose down
+          sudo docker compose pull
+          sudo docker compose up -d
