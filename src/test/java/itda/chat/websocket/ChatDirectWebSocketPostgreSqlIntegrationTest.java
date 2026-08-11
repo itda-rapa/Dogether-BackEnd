@@ -8,6 +8,7 @@ import com.jayway.jsonpath.JsonPath;
 import itda.chat.dto.ChatMessageCreateRequest;
 import itda.chat.repository.ChatRealtimeRecipientRepository;
 import itda.chat.service.ChatMessageService;
+import itda.chat.service.ChatQueryService;
 import itda.common.security.CurrentUser;
 import itda.common.security.service.TokenProvider;
 import itda.user.domain.Role;
@@ -23,6 +24,9 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -110,15 +114,18 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
      * A spy, not a mock, so every other test in this class keeps the real service. Only the
      * internal-error test stubs it, and the bean override is reset between methods.
      */
-    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
-    private itda.chat.service.ChatQueryService chatQueryService;
+    @MockitoSpyBean
+    private ChatQueryService chatQueryService;
 
     /** Used only to force a non-{@code BusinessException} failure inside the inbound channel. */
-    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    @MockitoSpyBean
     private ChatWebSocketSessionRegistry sessionRegistry;
 
     @BeforeEach
     void reset() {
+        // Explicit even though the override resets after each method: these spies inject
+        // failures, so a stub surviving into another test would be silent and misleading.
+        Mockito.reset(chatQueryService, sessionRegistry);
         jdbcTemplate.execute("truncate refresh_tokens, chat_messages, chat_room_participants, chat_rooms, pets, users restart identity cascade");
         sessionErrors.clear();
         protocolErrors.clear();
@@ -405,11 +412,11 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
         try {
             subscribeErrors(session, errors, "1", 1);
 
-            org.mockito.Mockito.doThrow(new IllegalStateException("unexpected failure"))
+            Mockito.doThrow(new IllegalStateException("unexpected failure"))
                     .when(chatQueryService).sendMessage(
-                            org.mockito.ArgumentMatchers.anyLong(),
-                            org.mockito.ArgumentMatchers.anyLong(),
-                            org.mockito.ArgumentMatchers.any()
+                            ArgumentMatchers.anyLong(),
+                            ArgumentMatchers.anyLong(),
+                            ArgumentMatchers.any()
                     );
 
             StompHeaders headers = new StompHeaders();
@@ -448,10 +455,10 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
         createFixture();
         String token = issueToken(1L);
 
-        org.mockito.Mockito.doThrow(new IllegalStateException("registry failure"))
+        Mockito.doThrow(new IllegalStateException("registry failure"))
                 .when(sessionRegistry).scheduleExpiry(
-                        org.mockito.ArgumentMatchers.anyString(),
-                        org.mockito.ArgumentMatchers.any()
+                        ArgumentMatchers.anyString(),
+                        ArgumentMatchers.any()
                 );
 
         ArrayBlockingQueue<String> frames = new ArrayBlockingQueue<>(8);
