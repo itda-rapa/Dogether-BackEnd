@@ -12,6 +12,8 @@ public record BoardPostResponse(
         String title,
         String content,
         List<BoardPostImageResponse> images,
+        long reactionCount,
+        boolean reactedByMe,
         long version,
         Instant createdAt,
         Instant updatedAt
@@ -20,7 +22,8 @@ public record BoardPostResponse(
     public static BoardPostResponse of(
             BoardPost post,
             PetDisplaySummary pet,
-            List<BoardPostImageResponse> images
+            List<BoardPostImageResponse> images,
+            BoardPostReactionSnapshot reaction
     ) {
         return new BoardPostResponse(
                 post.getId(),
@@ -29,9 +32,12 @@ public record BoardPostResponse(
                 post.getTitle(),
                 post.getContent(),
                 List.copyOf(images),
+                reaction.reactionCount(),
+                reaction.reactedByMe(),
                 post.getVersion(),
                 post.getCreatedAt(),
                 post.getUpdatedAt()
         );
     }
+
 }

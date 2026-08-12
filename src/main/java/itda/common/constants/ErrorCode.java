@@ -90,6 +90,7 @@ public enum ErrorCode {
     BOARD_NOT_FOUND(HttpStatus.NOT_FOUND, "게시판을 찾을 수 없습니다."),
     BOARD_POST_NOT_FOUND(HttpStatus.NOT_FOUND, "게시글을 찾을 수 없습니다."),
     BOARD_POST_FORBIDDEN(HttpStatus.FORBIDDEN, "게시글을 수정하거나 삭제할 권한이 없습니다."),
+    BOARD_POST_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "자신이 작성한 게시글에는 반응할 수 없습니다."),
     BOARD_NOT_EMPTY(HttpStatus.CONFLICT, "게시글이 있는 게시판은 삭제할 수 없습니다."),
     BOARD_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 게시판 이름입니다.");
 
