@@ -33,6 +33,7 @@ app:
     endpoint:
     presign-endpoint:
     path-style-access-enabled: false
+    allow-insecure-endpoint: false
   media:
     upload-url-ttl: 15m
     view-url-ttl: 10m
