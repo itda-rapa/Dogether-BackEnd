@@ -94,15 +94,11 @@ docker compose `
 `postgresTest`는 Docker가 없으면 실패한다. PR CI는 `test`와
 `postgresTest`를 모두 실행하므로 PostgreSQL/Flyway 검증이 SKIP될 수 없다.
 
-7. RustFS 호환성을 다시 확인해야 할 때 전용 통합 테스트를 수동 실행한다.
+7. RustFS 호환성은 로컬 Compose 환경에서 수동으로 확인한다.
 
-```powershell
-.\gradlew.bat rustfsTest
-```
-
-`rustfsTest`는 별도의 임시 RustFS 컨테이너와 테스트 버킷을 생성해 Presigned
-PUT, HEAD, GET, DELETE를 검증한다. 로컬 Compose의 `dogether-local` 버킷을
-사용하지 않으며 일반 `test`와 CI에서는 자동 실행하지 않는다.
+현재 `rustfsTest` 태스크에는 활성화된 Testcontainers 통합 테스트가 없다.
+일반 `test`는 S3 요청 매핑과 RustFS endpoint·path-style 설정을 단위 테스트로
+검증하며, 실제 PUT·HEAD·GET·DELETE는 로컬 RustFS 버킷을 대상으로 별도 확인한다.
 
 작업을 마치면 데이터 볼륨을 유지한 채 컨테이너를 종료한다.
 
@@ -164,7 +160,7 @@ AWS S3로 전환할 때는 RustFS 컨테이너와 로컬 버킷 생성 절차를
 | Profile | 용도 | DB·Flyway |
 |---|---|---|
 | `local` | 개발 PC와 Docker Compose | PostgreSQL, Flyway 기본 비활성화, 활성화 시 migration과 seed 적용 |
-| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`와 `rustfsTest`는 Testcontainers 사용 |
+| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`만 Testcontainers 사용 |
 | `prod` | 운영 배포 | 운영 PostgreSQL, Flyway 기본 비활성화, migration만 적용 가능 |
 
 Gradle의 모든 `Test` 작업은 `test` 프로필을 자동 활성화한다. `prod` 프로필은

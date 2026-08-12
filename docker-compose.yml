@@ -17,6 +17,7 @@ services:
       S3_ENDPOINT: http://rustfs:9000
       S3_PRESIGN_ENDPOINT: http://localhost:${RUSTFS_API_PORT:-9000}
       S3_PATH_STYLE: "true"
+      S3_ALLOW_INSECURE_ENDPOINT: "true"
     depends_on:
       postgres:
         condition: service_healthy
