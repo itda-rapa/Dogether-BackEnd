@@ -13,6 +13,10 @@ import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.Delete;
+import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -28,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
 
 @Component
 @RequiredArgsConstructor
@@ -148,6 +153,141 @@ public class S3ObjectStorage implements ObjectStorage {
         } catch (SdkException exception) {
             throw unavailable("delete", exception);
         }
+    }
+
+    @Override
+    public void deleteAllVersions(String objectKey) {
+        requireObjectKey(objectKey);
+        try {
+            String keyMarker = null;
+            String versionIdMarker = null;
+            List<ObjectIdentifier> allIdentifiers = new ArrayList<>();
+            do {
+                var response = s3Client.listObjectVersions(ListObjectVersionsRequest.builder()
+                        .bucket(properties.bucket())
+                        .prefix(objectKey)
+                        .keyMarker(keyMarker)
+                        .versionIdMarker(versionIdMarker)
+                        .build());
+                if (response == null) {
+                    throw new StorageProviderUnavailableException(
+                            "deleteAllVersions",
+                            new IllegalStateException("Object storage returned no version listing"));
+                }
+                response.versions().stream()
+                        .filter(version -> objectKey.equals(version.key()))
+                        .map(version -> ObjectIdentifier.builder()
+                                .key(version.key()).versionId(version.versionId()).build())
+                        .forEach(allIdentifiers::add);
+                response.deleteMarkers().stream()
+                        .filter(marker -> objectKey.equals(marker.key()))
+                        .map(marker -> ObjectIdentifier.builder()
+                                .key(marker.key()).versionId(marker.versionId()).build())
+                        .forEach(allIdentifiers::add);
+                if (!response.isTruncated()) {
+                    break;
+                }
+                keyMarker = response.nextKeyMarker();
+                versionIdMarker = response.nextVersionIdMarker();
+            } while (true);
+            if (!allIdentifiers.isEmpty()) {
+                deleteIdentifiers(allIdentifiers, "deleteAllVersions");
+            } else {
+                // Unversioned S3-compatible providers may not expose a version listing.
+                delete(objectKey);
+            }
+        } catch (NoSuchKeyException exception) {
+            // Idempotent deletion.
+        } catch (S3Exception exception) {
+            if (exception.statusCode() != 404) {
+                throw classify("deleteAllVersions", exception);
+            }
+        } catch (SdkException exception) {
+            throw unavailable("deleteAllVersions", exception);
+        }
+    }
+
+    @Override
+    public void deleteAllVersionsExcept(String objectKey, String retainedVersionId) {
+        requireObjectKey(objectKey);
+        String retained = normalizeVersionId(retainedVersionId);
+        if (retained == null) {
+            throw new IllegalArgumentException("retainedVersionId must not be blank");
+        }
+        try {
+            String keyMarker = null;
+            String versionIdMarker = null;
+            List<ObjectIdentifier> allIdentifiers = new ArrayList<>();
+            do {
+                var response = s3Client.listObjectVersions(ListObjectVersionsRequest.builder()
+                        .bucket(properties.bucket())
+                        .prefix(objectKey)
+                        .keyMarker(keyMarker)
+                        .versionIdMarker(versionIdMarker)
+                        .build());
+                if (response == null) {
+                    throw new StorageProviderUnavailableException(
+                            "deleteAllVersionsExcept",
+                            new IllegalStateException("Object storage returned no version listing"));
+                }
+                response.versions().stream()
+                        .filter(version -> objectKey.equals(version.key()))
+                        .filter(version -> !retained.equals(version.versionId()))
+                        .map(version -> ObjectIdentifier.builder()
+                                .key(version.key()).versionId(version.versionId()).build())
+                        .forEach(allIdentifiers::add);
+                response.deleteMarkers().stream()
+                        .filter(marker -> objectKey.equals(marker.key()))
+                        .map(marker -> ObjectIdentifier.builder()
+                                .key(marker.key()).versionId(marker.versionId()).build())
+                        .forEach(allIdentifiers::add);
+                if (!response.isTruncated()) {
+                    break;
+                }
+                keyMarker = response.nextKeyMarker();
+                versionIdMarker = response.nextVersionIdMarker();
+            } while (true);
+            if (!allIdentifiers.isEmpty()) {
+                deleteIdentifiers(allIdentifiers, "deleteAllVersionsExcept");
+            }
+        } catch (NoSuchKeyException exception) {
+            // Idempotent pruning.
+        } catch (S3Exception exception) {
+            if (exception.statusCode() != 404) {
+                throw classify("deleteAllVersionsExcept", exception);
+            }
+        } catch (SdkException exception) {
+            throw unavailable("deleteAllVersionsExcept", exception);
+        }
+    }
+
+    private void deleteIdentifiers(List<ObjectIdentifier> identifiers, String operation) {
+        for (int start = 0; start < identifiers.size(); start += 1000) {
+            int end = Math.min(start + 1000, identifiers.size());
+            var response = s3Client.deleteObjects(DeleteObjectsRequest.builder()
+                    .bucket(properties.bucket())
+                    .delete(Delete.builder().objects(identifiers.subList(start, end)).quiet(true).build())
+                    .build());
+            if (response.hasErrors() && !response.errors().isEmpty()) {
+                boolean transientFailure = response.errors().stream()
+                        .map(error -> error.code() == null ? "" : error.code())
+                        .anyMatch(S3ObjectStorage::isTransientDeleteError);
+                IllegalStateException failure = new IllegalStateException(
+                        "Object storage rejected one or more deletions");
+                if (transientFailure) {
+                    throw new StorageProviderUnavailableException(operation, failure);
+                }
+                throw new StorageProviderRejectedException(operation, 400, failure);
+            }
+        }
+    }
+
+    private static boolean isTransientDeleteError(String code) {
+        return switch (code) {
+            case "InternalError", "ServiceUnavailable", "SlowDown", "RequestTimeout",
+                    "Throttling", "ThrottlingException" -> true;
+            default -> false;
+        };
     }
 
     private static void requireArguments(String objectKey, Duration ttl) {
