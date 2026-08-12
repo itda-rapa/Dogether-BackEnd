@@ -75,6 +75,14 @@ public class Setlog extends BaseEntity {
         return new Setlog(authorPet, media, caption, true);
     }
 
+    public static Setlog createUser(
+            Pet authorPet,
+            Media media,
+            String caption
+    ) {
+        return new Setlog(authorPet, media, caption, false);
+    }
+
     public void incrementReaction(ReactionType type) {
         switch (type) {
             case CUTE -> cuteCount++;

@@ -2,12 +2,15 @@ package itda.media.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
 
 import itda.common.properties.S3Properties;
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
 import itda.media.domain.Media;
 import itda.media.domain.MediaStatus;
 import itda.media.repository.MediaRepository;
@@ -16,6 +19,8 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -94,6 +99,53 @@ class MediaServiceBatchDownloadTest {
 
         then(s3Presigner).shouldHaveNoInteractions();
         then(mediaRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void ownedDownloadPinsTheVerifiedObjectVersion() throws Exception {
+        Media media = mock(Media.class);
+        given(mediaRepository.findByIdAndDeletedAtIsNull(7L))
+                .willReturn(Optional.of(media));
+        given(media.getUserId()).willReturn(1L);
+        given(media.getStatus()).willReturn(MediaStatus.COMPLETED);
+        given(media.getPath()).willReturn("setlogs/1/12/video.mp4");
+        given(media.getObjectVersionId()).willReturn("version-7");
+        PresignedGetObjectRequest signed = mock(PresignedGetObjectRequest.class);
+        given(signed.url()).willReturn(URI.create("https://example.com/video.mp4").toURL());
+        given(signed.expiration()).willReturn(Instant.parse("2026-08-12T05:00:00Z"));
+        given(s3Presigner.presignGetObject(any(GetObjectPresignRequest.class)))
+                .willReturn(signed);
+
+        MediaService.OwnedPresignedDownload result =
+                mediaService.getOwnedPresignedDownload(7L, 1L);
+
+        assertThat(result.media()).isSameAs(media);
+        ArgumentCaptor<GetObjectPresignRequest> captor =
+                ArgumentCaptor.forClass(GetObjectPresignRequest.class);
+        then(s3Presigner).should().presignGetObject(captor.capture());
+        assertThat(captor.getValue().getObjectRequest().versionId())
+                .isEqualTo("version-7");
+    }
+
+    @Test
+    void ownedDownloadHidesForeignAndMissingMediaWithSameNotFoundError() {
+        Media foreign = mock(Media.class);
+        given(foreign.getUserId()).willReturn(2L);
+        given(mediaRepository.findByIdAndDeletedAtIsNull(7L))
+                .willReturn(Optional.of(foreign));
+        given(mediaRepository.findByIdAndDeletedAtIsNull(8L))
+                .willReturn(Optional.empty());
+
+        assertMediaNotFound(() -> mediaService.getOwnedPresignedDownload(7L, 1L));
+        assertMediaNotFound(() -> mediaService.getOwnedPresignedDownload(8L, 1L));
+        then(s3Presigner).shouldHaveNoInteractions();
+    }
+
+    private void assertMediaNotFound(Runnable invocation) {
+        assertThatThrownBy(invocation::run)
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
     }
 
     private Media downloadableMedia(

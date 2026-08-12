@@ -36,6 +36,8 @@ springdoc:
 
 
 app:
+  setlog-upload:
+    require-version-id: ${SETLOG_UPLOAD_REQUIRE_VERSION_ID:true}
   jwt:
     issuer: ${JWT_ISSUER:dogether}
     secret: ${JWT_SECRET}

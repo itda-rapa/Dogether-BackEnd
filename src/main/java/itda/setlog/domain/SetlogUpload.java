@@ -11,6 +11,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Objects;
@@ -55,6 +56,17 @@ public class SetlogUpload extends BaseEntity {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    @Column(name = "completion_request_id")
+    private UUID completionRequestId;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "media_id", unique = true)
+    private itda.media.domain.Media media;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "setlog_id", unique = true)
+    private Setlog setlog;
+
     private SetlogUpload(
             UUID id,
             User owner,
@@ -95,5 +107,33 @@ public class SetlogUpload extends BaseEntity {
                 expectedSize,
                 expiresAt
         );
+    }
+
+    public boolean isExpiredAt(Instant now) {
+        return !now.isBefore(expiresAt);
+    }
+
+    public void expire() {
+        this.status = SetlogUploadStatus.EXPIRED;
+    }
+
+    public void reject() {
+        this.status = SetlogUploadStatus.REJECTED;
+    }
+
+    public void complete(
+            UUID requestId,
+            itda.media.domain.Media media,
+            Setlog setlog,
+            Instant completedAt
+    ) {
+        if (status != SetlogUploadStatus.PRESIGNED) {
+            throw new IllegalStateException("Only a presigned upload can be completed");
+        }
+        this.status = SetlogUploadStatus.COMPLETED;
+        this.completionRequestId = Objects.requireNonNull(requestId);
+        this.media = Objects.requireNonNull(media);
+        this.setlog = Objects.requireNonNull(setlog);
+        this.completedAt = Objects.requireNonNull(completedAt);
     }
 }
