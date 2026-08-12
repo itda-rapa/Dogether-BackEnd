@@ -76,8 +76,21 @@ public interface SetlogSwaggerSupporter {
                                     "items":[{
                                         "setlogId":1,
                                         "source":"SEED",
+                                        "authorPet":{
+                                            "petId":12,
+                                            "publicTag":"몽이#4A2F",
+                                            "nickname":"몽이",
+                                            "profileUrl":null,
+                                            "verified":true,
+                                            "relationship":"NONE"
+                                        },
+                                        "mediaUrl":"https://example.com/setlogs/1.mp4",
+                                        "mediaUrlExpiresAt":"2026-08-05T00:10:00Z",
                                         "caption":"오늘 산책 완료",
-                                        "reactionCount":3,
+                                        "cuteCount":2,
+                                        "likeCount":1,
+                                        "myReactions":["LIKE"],
+                                        "canInteract":true,
                                         "createdAt":"2026-08-05T00:00:00Z"
                                     }],
                                     "nextCursor":"MjAyNi0wOC0wNVQwMDowMDowMFp8MQ",
@@ -110,7 +123,8 @@ public interface SetlogSwaggerSupporter {
                                     "setlogId":1,
                                     "type":"LIKE",
                                     "reacted":true,
-                                    "reactionCount":4
+                                    "cuteCount":2,
+                                    "likeCount":2
                                 },
                                 "error":null
                             }
@@ -137,7 +151,8 @@ public interface SetlogSwaggerSupporter {
                                     "setlogId":1,
                                     "type":"LIKE",
                                     "reacted":false,
-                                    "reactionCount":3
+                                    "cuteCount":2,
+                                    "likeCount":1
                                 },
                                 "error":null
                             }

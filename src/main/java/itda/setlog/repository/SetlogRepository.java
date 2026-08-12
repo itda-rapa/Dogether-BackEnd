@@ -43,9 +43,43 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
                     where userBlock.blockerUserId = author.id
                       and userBlock.blockedUserId = :viewerUserId
                )
+             order by setlog.createdAt desc, setlog.id desc
+            """)
+    List<Setlog> findVisibleFeedFirstPage(
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("status") SetlogStatus status,
+            @Param("mediaStatuses") List<MediaStatus> mediaStatuses,
+            @Param("petStatus") PetStatus petStatus,
+            @Param("accountStatus") AccountStatus accountStatus,
+            Pageable pageable
+    );
+
+    @Query("""
+            select setlog
+              from Setlog setlog
+              join fetch setlog.authorPet authorPet
+              join fetch authorPet.owner author
+              join fetch setlog.media media
+             where setlog.status = :status
+               and media.status in :mediaStatuses
+               and media.deletedAt is null
+               and authorPet.status = :petStatus
+               and authorPet.deletedAt is null
+               and author.accountStatus = :accountStatus
+               and not exists (
+                   select userBlock.id
+                     from UserBlock userBlock
+                    where userBlock.blockerUserId = :viewerUserId
+                      and userBlock.blockedUserId = author.id
+               )
+               and not exists (
+                   select userBlock.id
+                     from UserBlock userBlock
+                    where userBlock.blockerUserId = author.id
+                      and userBlock.blockedUserId = :viewerUserId
+               )
                and (
-                   :cursorCreatedAt is null
-                   or setlog.createdAt < :cursorCreatedAt
+                   setlog.createdAt < :cursorCreatedAt
                    or (
                        setlog.createdAt = :cursorCreatedAt
                        and setlog.id < :cursorSetlogId
@@ -53,7 +87,7 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
                )
              order by setlog.createdAt desc, setlog.id desc
             """)
-    List<Setlog> findVisibleFeed(
+    List<Setlog> findVisibleFeedAfter(
             @Param("viewerUserId") Long viewerUserId,
             @Param("status") SetlogStatus status,
             @Param("mediaStatuses") List<MediaStatus> mediaStatuses,

@@ -74,8 +74,8 @@ class SetlogReadServiceTest {
     @Test
     void emptyPageUsesDefaultLimitAndSkipsBatchWork() {
         activeUser(false);
-        given(setlogRepository.findVisibleFeed(
-                any(), any(), anyList(), any(), any(), any(), any(), any()
+        given(setlogRepository.findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), any()
         )).willReturn(List.of());
 
         SetlogListResponse result = service.getSetlogs(USER_ID, null, null);
@@ -84,9 +84,8 @@ class SetlogReadServiceTest {
         assertThat(result.hasNext()).isFalse();
         assertThat(result.nextCursor()).isNull();
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        then(setlogRepository).should().findVisibleFeed(
-                any(), any(), anyList(), any(), any(), any(), any(),
-                pageable.capture()
+        then(setlogRepository).should().findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), pageable.capture()
         );
         assertThat(pageable.getValue().getPageSize()).isEqualTo(21);
         then(petDisplayQueryService).shouldHaveNoInteractions();
@@ -99,8 +98,8 @@ class SetlogReadServiceTest {
         Setlog first = setlog(30L, 130L, 230L, "2026-08-11T03:00:00Z");
         Setlog second = setlog(20L, 120L, 220L, "2026-08-11T02:00:00Z");
         Setlog extra = mock(Setlog.class);
-        given(setlogRepository.findVisibleFeed(
-                any(), any(), anyList(), any(), any(), any(), any(), any()
+        given(setlogRepository.findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), any()
         )).willReturn(List.of(first, second, extra));
         given(petDisplayQueryService.getPetDisplaySummaries(List.of(130L, 120L)))
                 .willReturn(Map.of(
@@ -141,13 +140,13 @@ class SetlogReadServiceTest {
         activeUser(false);
         Instant createdAt = Instant.parse("2026-08-11T04:00:00Z");
         String cursor = SetlogCursorCodec.encode(77L, createdAt);
-        given(setlogRepository.findVisibleFeed(
+        given(setlogRepository.findVisibleFeedAfter(
                 any(), any(), anyList(), any(), any(), any(), any(), any()
         )).willReturn(List.of());
 
         service.getSetlogs(USER_ID, cursor, 5);
 
-        then(setlogRepository).should().findVisibleFeed(
+        then(setlogRepository).should().findVisibleFeedAfter(
                 any(), any(), anyList(), any(), any(),
                 org.mockito.ArgumentMatchers.eq(createdAt),
                 org.mockito.ArgumentMatchers.eq(77L),
@@ -164,8 +163,8 @@ class SetlogReadServiceTest {
         given(activePetQueryService.requireActivePet(USER_ID))
                 .willReturn(activePet);
         Setlog setlog = setlog(30L, 130L, 230L, "2026-08-11T03:00:00Z");
-        given(setlogRepository.findVisibleFeed(
-                any(), any(), anyList(), any(), any(), any(), any(), any()
+        given(setlogRepository.findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), any()
         )).willReturn(List.of(setlog));
         given(petDisplayQueryService.getPetDisplaySummaries(List.of(130L)))
                 .willReturn(Map.of(130L, petSummary(130L, 3L)));
@@ -212,16 +211,15 @@ class SetlogReadServiceTest {
     @Test
     void acceptsMaximumSizeAndRequestsOneExtraCandidate() {
         activeUser(false);
-        given(setlogRepository.findVisibleFeed(
-                any(), any(), anyList(), any(), any(), any(), any(), any()
+        given(setlogRepository.findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), any()
         )).willReturn(List.of());
 
         service.getSetlogs(USER_ID, null, 100);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        then(setlogRepository).should().findVisibleFeed(
-                any(), any(), anyList(), any(), any(), any(), any(),
-                pageable.capture()
+        then(setlogRepository).should().findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), pageable.capture()
         );
         assertThat(pageable.getValue().getPageSize()).isEqualTo(101);
     }

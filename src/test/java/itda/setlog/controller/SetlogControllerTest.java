@@ -180,7 +180,7 @@ class SetlogControllerTest {
     }
 
     @Test
-    @DisplayName("GET /setlogs는 cursor와 limit 생략을 허용한다")
+    @DisplayName("GET /setlogs는 cursor와 size 생략을 허용한다")
     void getSetlogsAllowsOmittedPageParameters() throws Exception {
         given(setlogReadService.getSetlogs(USER_ID, null, null))
                 .willReturn(new SetlogListResponse(

@@ -90,16 +90,26 @@ public class SetlogReadService {
                 ? activePetQueryService.requireActivePet(userId)
                 : null;
 
-        List<Setlog> candidates = setlogRepository.findVisibleFeed(
-                userId,
-                SetlogStatus.VISIBLE,
-                PLAYABLE_MEDIA_STATUSES,
-                PetStatus.ACTIVE,
-                AccountStatus.ACTIVE,
-                cursorPayload == null ? null : cursorPayload.createdAt(),
-                cursorPayload == null ? null : cursorPayload.setlogId(),
-                PageRequest.of(0, size + 1)
-        );
+        PageRequest pageRequest = PageRequest.of(0, size + 1);
+        List<Setlog> candidates = cursorPayload == null
+                ? setlogRepository.findVisibleFeedFirstPage(
+                        userId,
+                        SetlogStatus.VISIBLE,
+                        PLAYABLE_MEDIA_STATUSES,
+                        PetStatus.ACTIVE,
+                        AccountStatus.ACTIVE,
+                        pageRequest
+                )
+                : setlogRepository.findVisibleFeedAfter(
+                        userId,
+                        SetlogStatus.VISIBLE,
+                        PLAYABLE_MEDIA_STATUSES,
+                        PetStatus.ACTIVE,
+                        AccountStatus.ACTIVE,
+                        cursorPayload.createdAt(),
+                        cursorPayload.setlogId(),
+                        pageRequest
+                );
         boolean hasNext = candidates.size() > size;
         List<Setlog> pageSetlogs = hasNext
                 ? List.copyOf(candidates.subList(0, size))
