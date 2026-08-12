@@ -14,8 +14,11 @@ import itda.boardpost.domain.BoardPost;
 import itda.boardpost.domain.BoardPostMedia;
 import itda.boardpost.domain.PostStatus;
 import itda.boardpost.dto.BoardPostCreateRequest;
+import itda.boardpost.dto.BoardPostReactionSnapshot;
 import itda.boardpost.repository.BoardPostMediaRepository;
+import itda.boardpost.repository.BoardPostReactionRepository;
 import itda.boardpost.repository.BoardPostRepository;
+import itda.boardpost.service.BoardPostReactionQueryService;
 import itda.boardpost.service.BoardPostService;
 import itda.boardpost.service.LockedActivePetCommandGuard;
 import itda.pet.domain.PetStatus;
@@ -49,6 +52,8 @@ class BoardPostServiceTest {
     @Mock private BlockRelationshipQueryService blocks;
     @Mock private MediaRepository media;
     @Mock private MediaService mediaService;
+    @Mock private BoardPostReactionRepository reactions;
+    @Mock private BoardPostReactionQueryService reactionQueries;
 
     @Test
     void feedDeduplicatesAuthorPetIdsAndUsesOneBatchDisplayQuery() {
@@ -64,6 +69,11 @@ class BoardPostServiceTest {
                 .willReturn(List.of(first, second, third));
         given(petDisplays.getPetDisplaySummaries(org.mockito.ArgumentMatchers.anyCollection()))
                 .willReturn(Map.of(200L, summary(200L), 201L, summary(201L)));
+        given(reactionQueries.findForPosts(1L, List.of(101L, 102L, 103L))).willReturn(Map.of(
+                101L, BoardPostReactionSnapshot.none(),
+                102L, BoardPostReactionSnapshot.none(),
+                103L, BoardPostReactionSnapshot.none()
+        ));
 
         assertThat(service.feed(1L, 10L, null, null).items()).hasSize(3);
         ArgumentCaptor<List<Long>> ids = ArgumentCaptor.forClass(List.class);
@@ -137,6 +147,10 @@ class BoardPostServiceTest {
         ));
         given(mediaService.getPresignedDownloadUrl(11L)).willReturn(new MediaService.PresignedDownloadUrl("url-11", Instant.now()));
         given(mediaService.getPresignedDownloadUrl(12L)).willReturn(new MediaService.PresignedDownloadUrl("url-12", Instant.now()));
+        given(reactionQueries.findForPosts(1L, List.of(101L, 102L))).willReturn(Map.of(
+                101L, BoardPostReactionSnapshot.none(),
+                102L, BoardPostReactionSnapshot.none()
+        ));
 
         var result = service.feed(1L, 10L, null, null);
 
@@ -215,6 +229,8 @@ class BoardPostServiceTest {
         given(mediaService.getPresignedDownloadUrl(11L)).willReturn(new MediaService.PresignedDownloadUrl("url-11", Instant.now()));
         given(mediaService.getPresignedDownloadUrl(12L)).willReturn(new MediaService.PresignedDownloadUrl("url-12", Instant.now()));
         given(actorGuard.require(1L)).willReturn(new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500"));
+        given(reactionQueries.findForPost(1L, 101L))
+                .willReturn(BoardPostReactionSnapshot.none());
 
         assertThat(service.detail(1L, 101L).images()).extracting(image -> image.mediaId()).containsExactly(11L, 12L);
         assertThat(service.update(1L, 101L, new itda.boardpost.dto.BoardPostUpdateRequest(true, "changed", false, null, 0)).images())
@@ -252,7 +268,8 @@ class BoardPostServiceTest {
     }
 
     private BoardPostService service() {
-        return new BoardPostService(posts, postMedia, boards, users, actorGuard, petDisplays, blocks, media, mediaService);
+        return new BoardPostService(posts, postMedia, boards, users, actorGuard, petDisplays, blocks,
+                media, mediaService, reactions, reactionQueries);
     }
 
     private itda.media.domain.Media media(long id, long userId) {
