@@ -12,12 +12,12 @@ import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.greeting.dto.GreetingResponse;
 import itda.setlog.domain.ReactionType;
-import itda.setlog.dto.SetlogCreateRequest;
-import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogReactionResponse;
 import itda.setlog.dto.SetlogUploadCreateRequest;
 import itda.setlog.dto.SetlogUploadCreateResponse;
+import itda.setlog.dto.SetlogUploadCompleteRequest;
+import itda.setlog.dto.SetlogResponse;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -91,40 +91,55 @@ public interface SetlogSwaggerSupporter {
             SetlogUploadCreateRequest request
     );
 
-    @Operation(summary = "셋로그 생성", description = "셋로그를 생성하는 API")
+    @Operation(
+            summary = "셋로그 업로드 완료",
+            description = "업로드 객체의 크기와 형식을 검증한 뒤 사용자 셋로그를 멱등하게 생성합니다. 같은 clientRequestId 재요청은 200을 반환합니다."
+    )
     @RequestBody(content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE,
-            schema = @Schema(implementation = SetlogCreateRequest.class),
+            schema = @Schema(implementation = SetlogUploadCompleteRequest.class),
             examples = @ExampleObject("""
                     {
-                        "mediaId":1,
-                        "caption":"오늘 산책 완료"
+                        "clientRequestId":"550e8400-e29b-41d4-a716-446655440000"
                     }
                     """)
     ))
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "201",
-            description = "셋로그 생성 성공",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    examples = @ExampleObject("""
-                            {
-                                "success":true,
-                                "message":"셋로그 생성 성공",
-                                "data":{
-                                    "setlogId":1,
-                                    "mediaId":1,
-                                    "caption":"오늘 산책 완료",
-                                    "createdAt":"2026-08-05T00:00:00Z"
-                                },
-                                "error":null
-                            }
-                            """)
-            )
+            description = "업로드 검증 및 셋로그 생성 성공"
     )
-    ResponseEntity<ApiResponse<SetlogCreateResponse>> createSetlog(
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "동일 clientRequestId 재요청 성공"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "400",
+            description = "업로드 객체 Metadata 불일치"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "비활성 계정 또는 Active Pet 불일치"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "404",
+            description = "업로드 세션 또는 스토리지 객체 없음"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "409",
+            description = "업로드 만료, 상태 또는 멱등키 충돌"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "502",
+            description = "Object Storage가 확인 요청을 거절함"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "503",
+            description = "Object Storage 일시 장애"
+    )
+    ResponseEntity<ApiResponse<SetlogResponse>> completeUpload(
             @Parameter(hidden = true) CurrentUser currentUser,
-            SetlogCreateRequest request
+            @Parameter(description = "업로드 세션 ID") java.util.UUID uploadId,
+            SetlogUploadCompleteRequest request
     );
 
     @Operation(
