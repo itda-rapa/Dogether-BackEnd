@@ -1,6 +1,7 @@
 package itda.common.config;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -50,6 +51,16 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/test")
                         .with(user("admin@example.com").roles("ADMIN")))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void unauthenticatedPostReactionPutAndDeleteReturnUnauthorizedBeforeControllerInvocation() throws Exception {
+        mockMvc.perform(put("/posts/{postId}/reactions/{type}", 1L, "LIKE"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value(ErrorCode.UNAUTHORIZED.name()));
+        mockMvc.perform(delete("/posts/{postId}/reactions/{type}", 1L, "LIKE"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value(ErrorCode.UNAUTHORIZED.name()));
     }
 
     @Nested

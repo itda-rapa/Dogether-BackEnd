@@ -70,7 +70,9 @@ class BoardPostControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.images[0].mediaId").value(10))
                 .andExpect(jsonPath("$.data.images[0].url").value("https://example.test/media/10"))
-                .andExpect(jsonPath("$.data.images[0].displayOrder").value(0));
+                .andExpect(jsonPath("$.data.images[0].displayOrder").value(0))
+                .andExpect(jsonPath("$.data.reactionCount").value(0))
+                .andExpect(jsonPath("$.data.reactedByMe").value(false));
     }
 
     @Test
@@ -91,7 +93,9 @@ class BoardPostControllerTest {
         mockMvc.perform(get("/posts/{postId}", POST_ID))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.images").isArray())
-                .andExpect(jsonPath("$.data.images").isEmpty());
+                .andExpect(jsonPath("$.data.images").isEmpty())
+                .andExpect(jsonPath("$.data.reactionCount").value(0))
+                .andExpect(jsonPath("$.data.reactedByMe").value(false));
     }
 
     @Test
@@ -115,6 +119,8 @@ class BoardPostControllerTest {
                 "title",
                 "content",
                 images,
+                0,
+                false,
                 0,
                 Instant.parse("2026-08-11T00:00:00Z"),
                 Instant.parse("2026-08-11T00:00:00Z")

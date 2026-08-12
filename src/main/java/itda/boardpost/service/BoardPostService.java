@@ -4,14 +4,18 @@ import itda.block.service.BlockRelationshipQueryService;
 import itda.board.repository.BoardRepository;
 import itda.boardpost.domain.BoardPost;
 import itda.boardpost.domain.BoardPostMedia;
+import itda.boardpost.domain.BoardPostReactionType;
 import itda.boardpost.domain.PostStatus;
 import itda.boardpost.dto.BoardPostCreateRequest;
 import itda.boardpost.dto.BoardPostCursorPage;
 import itda.boardpost.dto.BoardPostFeedResponse;
 import itda.boardpost.dto.BoardPostImageResponse;
+import itda.boardpost.dto.BoardPostReactionResponse;
+import itda.boardpost.dto.BoardPostReactionSnapshot;
 import itda.boardpost.dto.BoardPostResponse;
 import itda.boardpost.dto.BoardPostUpdateRequest;
 import itda.boardpost.repository.BoardPostMediaRepository;
+import itda.boardpost.repository.BoardPostReactionRepository;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.support.BoardPostCursorCodec;
 import itda.boardpost.support.BoardPostCursorCodec.CursorPayload;
@@ -33,6 +37,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +57,8 @@ public class BoardPostService {
     private final BlockRelationshipQueryService blocks;
     private final MediaRepository media;
     private final MediaService mediaService;
+    private final BoardPostReactionRepository reactions;
+    private final BoardPostReactionQueryService reactionQueries;
 
     public BoardPostService(
             BoardPostRepository posts,
@@ -62,7 +69,9 @@ public class BoardPostService {
             PetDisplayQueryService petDisplays,
             BlockRelationshipQueryService blocks,
             MediaRepository media,
-            MediaService mediaService
+            MediaService mediaService,
+            BoardPostReactionRepository reactions,
+            BoardPostReactionQueryService reactionQueries
     ) {
         this.posts = posts;
         this.postMedia = postMedia;
@@ -73,6 +82,8 @@ public class BoardPostService {
         this.blocks = blocks;
         this.media = media;
         this.mediaService = mediaService;
+        this.reactions = reactions;
+        this.reactionQueries = reactionQueries;
     }
 
     @Transactional
@@ -104,7 +115,8 @@ public class BoardPostService {
         return BoardPostResponse.of(
                 post,
                 petDisplays.getPetDisplaySummary(actor.petId()),
-                images(links)
+                images(links),
+                BoardPostReactionSnapshot.none()
         );
     }
 
@@ -146,11 +158,19 @@ public class BoardPostService {
         Map<Long, List<BoardPostMedia>> attachments = attachmentsByPostId(
                 page.stream().map(BoardPost::getId).toList()
         );
+        Map<Long, BoardPostReactionSnapshot> reactionStates = reactionStates(
+                userId,
+                page.stream().map(BoardPost::getId).toList()
+        );
         List<BoardPostResponse> items = page.stream()
                 .map(post -> BoardPostResponse.of(
                         post,
                         pets.get(post.getAuthorPetId()),
-                        images(attachments.getOrDefault(post.getId(), List.of()))
+                        images(attachments.getOrDefault(post.getId(), List.of())),
+                        Objects.requireNonNull(
+                                reactionStates.get(post.getId()),
+                                "reaction snapshot must exist for every feed post"
+                        )
                 ))
                 .toList();
         String next = hasNext && !page.isEmpty()
@@ -181,7 +201,8 @@ public class BoardPostService {
         return BoardPostResponse.of(
                 post,
                 petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
-                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId()))
+                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
+                reactionState(userId, postId)
         );
     }
 
@@ -211,7 +232,8 @@ public class BoardPostService {
         return BoardPostResponse.of(
                 post,
                 petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
-                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId()))
+                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
+                new BoardPostReactionSnapshot(reactionCount(postId), false)
         );
     }
 
@@ -221,6 +243,58 @@ public class BoardPostService {
         BoardPost post = published(postId);
         requireAuthor(actor, post);
         post.delete(Instant.now());
+    }
+
+    @Transactional
+    public BoardPostReactionResponse addReaction(
+            Long userId,
+            Long postId,
+            BoardPostReactionType type
+    ) {
+        LockedActivePetCommandGuard.LockedActor actor = reactionActor(userId, postId);
+        reactions.insertIgnore(postId, actor.petId(), type.name());
+        return reactionResponse(postId, type, true);
+    }
+
+    @Transactional
+    public BoardPostReactionResponse removeReaction(
+            Long userId,
+            Long postId,
+            BoardPostReactionType type
+    ) {
+        LockedActivePetCommandGuard.LockedActor actor = reactionActor(userId, postId);
+        reactions.deleteReaction(postId, actor.petId(), type.name());
+        return reactionResponse(postId, type, false);
+    }
+
+    private LockedActivePetCommandGuard.LockedActor reactionActor(
+            Long userId,
+            Long postId
+    ) {
+        LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
+        BoardPost post = published(postId);
+        if ((!post.getAuthorUserId().equals(actor.userId())
+                && !post.getNeighborhoodCode().equals(actor.neighborhoodCode()))
+                || blocks.existsBlockBetween(actor.userId(), post.getAuthorUserId())) {
+            throw notFound();
+        }
+        if (post.getAuthorUserId().equals(actor.userId())) {
+            throw new BusinessException(ErrorCode.BOARD_POST_SELF_REACTION_FORBIDDEN);
+        }
+        return actor;
+    }
+
+    private BoardPostReactionResponse reactionResponse(
+            Long postId,
+            BoardPostReactionType type,
+            boolean reacted
+    ) {
+        return new BoardPostReactionResponse(
+                postId,
+                type,
+                reacted,
+                reactions.countForPost(postId, type.name())
+        );
     }
 
     private BoardPost published(Long id) {
@@ -269,6 +343,24 @@ public class BoardPostService {
 
     private BusinessException notFound() {
         return new BusinessException(ErrorCode.BOARD_POST_NOT_FOUND);
+    }
+
+    private BoardPostReactionSnapshot reactionState(Long userId, Long postId) {
+        return reactionQueries.findForPost(userId, postId);
+    }
+
+    private Map<Long, BoardPostReactionSnapshot> reactionStates(
+            Long userId,
+            Collection<Long> postIds
+    ) {
+        if (postIds.isEmpty()) {
+            return Map.of();
+        }
+        return reactionQueries.findForPosts(userId, postIds);
+    }
+
+    private long reactionCount(Long postId) {
+        return reactionQueries.countForPost(postId);
     }
 
     private List<Media> validAttachments(List<Long> mediaIds, Long userId) {
