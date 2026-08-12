@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
 import itda.common.filter.JwtFilter;
 import itda.common.security.CurrentUser;
 import itda.friend.domain.FriendRelationship;
@@ -27,6 +28,11 @@ import itda.setlog.domain.SetlogStatus;
 import itda.setlog.service.SetlogCreationService;
 import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
+import itda.setlog.service.SetlogUploadSessionService;
+import itda.setlog.dto.SetlogUploadCreateRequest;
+import itda.setlog.dto.SetlogUploadCreateResponse;
+import java.util.Map;
+import java.util.UUID;
 import itda.user.domain.Role;
 import java.time.Instant;
 import java.util.List;
@@ -62,6 +68,9 @@ class SetlogControllerTest {
 
     @MockitoBean
     private SetlogCreationService setlogCreationService;
+
+    @MockitoBean
+    private SetlogUploadSessionService setlogUploadSessionService;
 
     @MockitoBean
     private GreetingService greetingService;
@@ -127,6 +136,95 @@ class SetlogControllerTest {
                 USER_ID,
                 new SetlogCreateRequest(30L, "같이 놀아요")
         );
+    }
+
+    @Test
+    @DisplayName("POST /setlogs/uploads는 Presigned PUT 세션을 201로 반환한다")
+    void createUploadSessionReturnsCreated() throws Exception {
+        UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
+        Instant expiresAt = Instant.parse("2026-08-12T01:15:00Z");
+        SetlogUploadCreateRequest request = new SetlogUploadCreateRequest(
+                12L, "walk.mp4", "video/mp4", 12582912L
+        );
+        given(setlogUploadSessionService.create(USER_ID, request)).willReturn(
+                new SetlogUploadCreateResponse(
+                        uploadId,
+                        "https://storage.example/upload",
+                        "setlogs/1/12/10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35.mp4",
+                        Map.of("Content-Type", "video/mp4"),
+                        expiresAt
+                )
+        );
+
+        mockMvc.perform(post("/setlogs/uploads")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "petId": 12,
+                                  "fileName": "walk.mp4",
+                                  "contentType": "video/mp4",
+                                  "size": 12582912
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.uploadId").value(uploadId.toString()))
+                .andExpect(jsonPath("$.data.uploadUrl").value("https://storage.example/upload"))
+                .andExpect(jsonPath("$.data.headers.Content-Type").value("video/mp4"))
+                .andExpect(jsonPath("$.data.expiresAt").value(expiresAt.toString()));
+
+        then(setlogUploadSessionService).should().create(USER_ID, request);
+    }
+
+    @Test
+    @DisplayName("POST /setlogs/uploads는 필수 메타데이터가 없으면 400을 반환한다")
+    void createUploadSessionRejectsMissingMetadata() throws Exception {
+        mockMvc.perform(post("/setlogs/uploads")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"petId":12,"fileName":"walk.mp4"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+
+        then(setlogUploadSessionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("POST /setlogs/uploads는 크기 초과를 413으로 반환한다")
+    void createUploadSessionReturnsPayloadTooLarge() throws Exception {
+        SetlogUploadCreateRequest request = new SetlogUploadCreateRequest(
+                12L, "walk.mp4", "video/mp4", 209715201L
+        );
+        given(setlogUploadSessionService.create(USER_ID, request))
+                .willThrow(new BusinessException(ErrorCode.UPLOAD_SIZE_EXCEEDED));
+
+        mockMvc.perform(post("/setlogs/uploads")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"petId":12,"fileName":"walk.mp4","contentType":"video/mp4","size":209715201}
+                                """))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.error.code").value(ErrorCode.UPLOAD_SIZE_EXCEEDED.name()));
+    }
+
+    @Test
+    @DisplayName("POST /setlogs/uploads는 지원하지 않는 타입을 415로 반환한다")
+    void createUploadSessionReturnsUnsupportedMediaType() throws Exception {
+        SetlogUploadCreateRequest request = new SetlogUploadCreateRequest(
+                12L, "walk.mov", "video/quicktime", 1024L
+        );
+        given(setlogUploadSessionService.create(USER_ID, request))
+                .willThrow(new BusinessException(ErrorCode.UPLOAD_CONTENT_TYPE_UNSUPPORTED));
+
+        mockMvc.perform(post("/setlogs/uploads")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"petId":12,"fileName":"walk.mov","contentType":"video/quicktime","size":1024}
+                                """))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error.code")
+                        .value(ErrorCode.UPLOAD_CONTENT_TYPE_UNSUPPORTED.name()));
     }
 
     @Test

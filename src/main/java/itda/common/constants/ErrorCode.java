@@ -43,6 +43,13 @@ public enum ErrorCode {
     MEDIA_STATE_CONFLICT(HttpStatus.CONFLICT, "현재 미디어 상태에서는 요청을 처리할 수 없습니다."),
     MEDIA_PURPOSE_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 마일스톤에서 해당 미디어를 업로드할 수 없습니다."),
     SETLOG_MEDIA_ALREADY_USED(HttpStatus.CONFLICT, "이미 셋로그에 사용된 미디어입니다."),
+    SETLOG_UPLOAD_PET_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 활동 반려견으로만 셋로그를 업로드할 수 있습니다."),
+    SETLOG_UPLOAD_FILE_NAME_INVALID(HttpStatus.BAD_REQUEST, "올바르지 않은 파일명입니다."),
+    SETLOG_UPLOAD_SIZE_INVALID(HttpStatus.BAD_REQUEST, "업로드 파일 크기는 1바이트 이상이어야 합니다."),
+    UPLOAD_SIZE_EXCEEDED(HttpStatus.PAYLOAD_TOO_LARGE, "업로드 파일은 200 MiB를 초과할 수 없습니다."),
+    UPLOAD_CONTENT_TYPE_UNSUPPORTED(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "MP4 또는 WebM 영상만 업로드할 수 있습니다."),
+    SETLOG_UPLOAD_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "업로드 URL을 발급할 수 없습니다. 잠시 후 다시 시도해주세요."),
+    SETLOG_UPLOAD_STORAGE_REJECTED(HttpStatus.BAD_GATEWAY, "스토리지에서 업로드 URL 발급 요청을 거절했습니다."),
 
     PET_REQUIRED(HttpStatus.FORBIDDEN, "반려견 등록이 필요한 기능입니다."),
     ACTIVE_PET_REQUIRED(HttpStatus.FORBIDDEN, "활동할 반려견을 먼저 선택해주세요."),

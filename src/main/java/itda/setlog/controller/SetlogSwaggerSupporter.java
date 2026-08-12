@@ -16,12 +16,80 @@ import itda.setlog.dto.SetlogCreateRequest;
 import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogReactionResponse;
+import itda.setlog.dto.SetlogUploadCreateRequest;
+import itda.setlog.dto.SetlogUploadCreateResponse;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 @Tag(name = "Setlog", description = "셋로그 관련 API")
 @SecurityRequirement(name = "bearerAuth")
 public interface SetlogSwaggerSupporter {
+
+    @Operation(
+            summary = "셋로그 업로드 세션 생성",
+            description = "Active Pet의 MP4 또는 WebM 영상을 직접 업로드할 수 있는 15분 유효 Presigned PUT 세션을 생성합니다."
+    )
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = SetlogUploadCreateRequest.class),
+            examples = @ExampleObject("""
+                    {
+                        "petId":12,
+                        "fileName":"walk.mp4",
+                        "contentType":"video/mp4",
+                        "size":12582912
+                    }
+                    """)
+    ))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "201",
+            description = "업로드 세션 생성 성공",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {
+                                "success":true,
+                                "message":"셋로그 업로드 세션 생성 성공",
+                                "data":{
+                                    "uploadId":"10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35",
+                                    "uploadUrl":"https://example.com/presigned-put",
+                                    "objectKey":"setlogs/1/12/10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35.mp4",
+                                    "headers":{"Content-Type":"video/mp4","Content-Length":"12582912"},
+                                    "expiresAt":"2026-08-12T09:15:00Z"
+                                },
+                                "error":null
+                            }
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "400",
+            description = "파일명 또는 파일 크기 검증 실패"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "비활성 계정 또는 Active Pet 불일치"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "413",
+            description = "파일 크기 200 MiB 초과"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "415",
+            description = "지원하지 않는 Content-Type"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "503",
+            description = "Object Storage 일시 장애"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "502",
+            description = "Object Storage가 URL 발급 요청을 거절함"
+    )
+    ResponseEntity<ApiResponse<SetlogUploadCreateResponse>> createUploadSession(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            SetlogUploadCreateRequest request
+    );
 
     @Operation(summary = "셋로그 생성", description = "셋로그를 생성하는 API")
     @RequestBody(content = @Content(
