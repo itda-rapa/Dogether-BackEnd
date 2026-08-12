@@ -167,6 +167,15 @@ public class Pet extends BaseEntity {
         return status == PetStatus.DELETED;
     }
 
+    public void setInitialProfileAsset(Media profileAsset) {
+        if (this.profileAsset != null) {
+            throw new IllegalStateException(
+                    "Pet profile asset is already set"
+            );
+        }
+        this.profileAsset = Objects.requireNonNull(profileAsset);
+    }
+
     public void changeNickname(String nickname) {
         if (!Objects.equals(this.nickname, nickname)) {
             this.nickname = nickname;

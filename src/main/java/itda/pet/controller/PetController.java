@@ -7,6 +7,7 @@ import itda.common.security.CurrentUser;
 import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
 import itda.pet.dto.PetResponse;
+import itda.pet.dto.PetProfileImageRequest;
 import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.dto.PetUpdateRequest;
 import itda.pet.dto.PetUpdateRequestParser;
@@ -14,6 +15,7 @@ import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
 import itda.pet.service.PetUpdateService;
+import itda.pet.service.PetProfileImageService;
 import itda.pet.service.query.PetSearchQueryService;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,19 +44,22 @@ public class PetController implements PetSwaggerSupporter {
     private final PetSearchQueryService petSearchQueryService;
     private final PetUpdateRequestParser petUpdateRequestParser;
     private final PetUpdateService petUpdateService;
+    private final PetProfileImageService petProfileImageService;
 
     public PetController(
             PetCreationService petCreationService,
             MyPetQueryService myPetQueryService,
             PetSearchQueryService petSearchQueryService,
             PetUpdateRequestParser petUpdateRequestParser,
-            PetUpdateService petUpdateService
+            PetUpdateService petUpdateService,
+            PetProfileImageService petProfileImageService
     ) {
         this.petCreationService = petCreationService;
         this.myPetQueryService = myPetQueryService;
         this.petSearchQueryService = petSearchQueryService;
         this.petUpdateRequestParser = petUpdateRequestParser;
         this.petUpdateService = petUpdateService;
+        this.petProfileImageService = petProfileImageService;
     }
 
     @PostMapping
@@ -117,6 +122,23 @@ public class PetController implements PetSwaggerSupporter {
                 myPetQueryService.getMyPet(currentUser.id(), petId),
                 "Pet 상세 정보가 조회되었습니다."
         ));
+    }
+
+    @PostMapping("/{petId}/profile-image")
+    public ResponseEntity<ApiResponse<PetResponse>> setInitialProfileImage(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId,
+            @Valid @RequestBody PetProfileImageRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.created(
+                        petProfileImageService.setInitialProfileImage(
+                                currentUser.id(),
+                                petId,
+                                request.mediaId()
+                        ),
+                        "Pet 프로필 이미지가 설정되었습니다."
+                ));
     }
 
     @PatchMapping("/{petId}")

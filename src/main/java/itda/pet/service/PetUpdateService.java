@@ -6,6 +6,7 @@ import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.media.service.MediaService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,9 +14,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class PetUpdateService {
 
     private final PetRepository petRepository;
+    private final MediaService mediaService;
 
-    public PetUpdateService(PetRepository petRepository) {
+    public PetUpdateService(
+            PetRepository petRepository,
+            MediaService mediaService
+    ) {
         this.petRepository = petRepository;
+        this.mediaService = mediaService;
     }
 
     @Transactional
@@ -40,10 +46,8 @@ public class PetUpdateService {
 
         applyUpdate(pet, command);
 
-        return PetResponse.from(
-                pet,
-                pet.getOwner().isActivePet(petId)
-        );
+        return PetResponse.from(pet, pet.getOwner().isActivePet(petId),
+                profileUrlOf(pet));
     }
 
     private void validateCommand(PetUpdateCommand command) {
@@ -88,5 +92,14 @@ public class PetUpdateService {
         if (command.careNote().present()) {
             pet.changeCareNote(command.careNote().value());
         }
+    }
+
+    private String profileUrlOf(Pet pet) {
+        if (pet.getProfileAsset() == null) {
+            return null;
+        }
+        return mediaService.getPresignedDownloadUrl(
+                pet.getProfileAsset().getId()
+        ).url();
     }
 }
