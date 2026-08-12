@@ -7,12 +7,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import itda.common.properties.S3Properties;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.FileSystemResource;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
@@ -185,6 +190,45 @@ class S3ConfigTest {
                         "app.s3.region=ap-northeast-2",
                         "app.s3.presigned-url-expiration-seconds=0")
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void localProfileBridgesDotenvRustFsSettings() throws Exception {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().addFirst(new MapPropertySource("local-dotenv", Map.of(
+                "AWS_ACCESS_KEY_ID", "rustfsadmin",
+                "AWS_SECRET_ACCESS_KEY", "rustfsadmin",
+                "S3_ENDPOINT", "http://localhost:9000",
+                "S3_ALLOW_INSECURE_ENDPOINT", "true")));
+
+        YamlPropertySourceLoader loader = new YamlPropertySourceLoader();
+        loader.load("application-local",
+                        new FileSystemResource("src/main/resources/application-local.yaml"))
+                .forEach(environment.getPropertySources()::addLast);
+        loader.load("application", new FileSystemResource("src/main/resources/application.yaml"))
+                .forEach(environment.getPropertySources()::addLast);
+
+        assertThat(environment.getProperty("app.s3.access-key")).isEqualTo("rustfsadmin");
+        assertThat(environment.getProperty("app.s3.secret-key")).isEqualTo("rustfsadmin");
+        assertThat(environment.getProperty("app.s3.endpoint"))
+                .isEqualTo("http://localhost:9000");
+        assertThat(environment.getProperty("app.s3.allow-insecure-endpoint", Boolean.class))
+                .isTrue();
+    }
+
+    @Test
+    void productionProfileKeepsInsecureEndpointDisabled() throws Exception {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.getPropertySources().addFirst(new MapPropertySource("environment", Map.of(
+                "S3_ALLOW_INSECURE_ENDPOINT", "true")));
+
+        new YamlPropertySourceLoader()
+                .load("application-prod",
+                        new FileSystemResource("src/main/resources/application-prod.yaml"))
+                .forEach(environment.getPropertySources()::addLast);
+
+        assertThat(environment.getProperty("app.s3.allow-insecure-endpoint", Boolean.class))
+                .isFalse();
     }
 
     @Test
