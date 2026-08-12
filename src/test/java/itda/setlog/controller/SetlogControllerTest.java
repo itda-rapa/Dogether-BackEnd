@@ -22,9 +22,10 @@ import itda.setlog.dto.SetlogCreateRequest;
 import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogReactionResponse;
 import itda.setlog.dto.SetlogResponse;
+import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.domain.SetlogStatus;
 import itda.setlog.service.SetlogCreationService;
-import itda.setlog.service.SetlogQueryService;
+import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
 import itda.user.domain.Role;
 import java.time.Instant;
@@ -54,7 +55,7 @@ class SetlogControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private SetlogQueryService setlogQueryService;
+    private SetlogReadService setlogReadService;
 
     @MockitoBean
     private SetlogReactionService setlogReactionService;
@@ -146,24 +147,54 @@ class SetlogControllerTest {
     }
 
     @Test
-    @DisplayName("GET /setlogs는 시드 셋로그 배열을 반환한다")
-    void getSetlogsReturnsSeedSetlogs() throws Exception {
-        given(setlogQueryService.getSeedSetlogs(USER_ID))
-                .willReturn(List.of(setlogResponse()));
+    @DisplayName("GET /setlogs는 cursor 페이지 응답을 반환한다")
+    void getSetlogsReturnsCursorPage() throws Exception {
+        given(setlogReadService.getSetlogs(USER_ID, "next-from-client", 5))
+                .willReturn(new SetlogListResponse(
+                        List.of(setlogResponse()),
+                        "next-from-server",
+                        true
+                ));
+
+        mockMvc.perform(get("/setlogs")
+                        .param("cursor", "next-from-client")
+                        .param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].setlogId").value(SETLOG_ID))
+                .andExpect(jsonPath("$.data.items[0].source").value("SEED"))
+                .andExpect(jsonPath("$.data.items[0].authorPet.petId").value(20L))
+                .andExpect(jsonPath("$.data.items[0].mediaUrl")
+                        .value("https://example.com/seed.mp4"))
+                .andExpect(jsonPath("$.data.items[0].myReactions[0]")
+                        .value("CUTE"))
+                .andExpect(jsonPath("$.data.items[0].canInteract").value(true))
+                .andExpect(jsonPath("$.data.nextCursor")
+                        .value("next-from-server"))
+                .andExpect(jsonPath("$.data.hasNext").value(true))
+                .andExpect(jsonPath("$.data.page").doesNotExist());
+
+        then(setlogReadService).should()
+                .getSetlogs(USER_ID, "next-from-client", 5);
+    }
+
+    @Test
+    @DisplayName("GET /setlogs는 cursor와 size 생략을 허용한다")
+    void getSetlogsAllowsOmittedPageParameters() throws Exception {
+        given(setlogReadService.getSetlogs(USER_ID, null, null))
+                .willReturn(new SetlogListResponse(
+                        List.of(),
+                        null,
+                        false
+                ));
 
         mockMvc.perform(get("/setlogs"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].setlogId").value(SETLOG_ID))
-                .andExpect(jsonPath("$.data[0].authorPet.petId").value(20L))
-                .andExpect(jsonPath("$.data[0].mediaUrl")
-                        .value("https://example.com/seed.mp4"))
-                .andExpect(jsonPath("$.data[0].myReactions[0]")
-                        .value("CUTE"))
-                .andExpect(jsonPath("$.data[0].canInteract").value(true));
+                .andExpect(jsonPath("$.data.items.length()").value(0))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
 
-        then(setlogQueryService).should().getSeedSetlogs(USER_ID);
+        then(setlogReadService).should().getSetlogs(USER_ID, null, null);
     }
 
     @Test

@@ -24,6 +24,8 @@ import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignReques
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -157,12 +159,45 @@ public class MediaService {
 
     public PresignedDownloadUrl getPresignedDownloadUrl(Long id) {
         Media foundedMedia = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(id);
-        // Media가 INIT & FAILED 상태 인 경우 비허용
-        if (foundedMedia.getStatus() == MediaStatus.INIT
-                || foundedMedia.getStatus() == MediaStatus.FAILED
-        ) {
-            throw new IllegalArgumentException("Media is in FAILED or INIT status");
+        validateDownloadable(foundedMedia);
+        return presignDownload(foundedMedia);
+    }
+
+    /**
+     * Signs already-loaded media without repeating a repository lookup.
+     * Every item receives the same status and soft-delete validation as the
+     * single-item download path.
+     */
+    public Map<Long, PresignedDownloadUrl> getPresignedDownloadUrls(
+            Collection<Media> mediaItems
+    ) {
+        if (mediaItems == null) {
+            throw new IllegalArgumentException("Media items must not be null");
         }
+        for (Media media : mediaItems) {
+            validateDownloadable(media);
+            if (media.getId() == null || media.getId() <= 0) {
+                throw new IllegalArgumentException("Media must be persisted");
+            }
+        }
+        Map<Long, PresignedDownloadUrl> result = new LinkedHashMap<>();
+        for (Media media : mediaItems) {
+            result.put(media.getId(), presignDownload(media));
+        }
+        return Map.copyOf(result);
+    }
+
+    private void validateDownloadable(Media media) {
+        if (media == null || media.getDeletedAt() != null) {
+            throw new IllegalArgumentException("Media is deleted or missing");
+        }
+        if (media.getStatus() != MediaStatus.UPLOADED
+                && media.getStatus() != MediaStatus.COMPLETED) {
+            throw new IllegalArgumentException("Media is not downloadable");
+        }
+    }
+
+    private PresignedDownloadUrl presignDownload(Media foundedMedia) {
         // 다운로드할 미디어 파일의 요청객체를 생성
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket(s3Properties.bucket()) // 다운로드할 파일의 버킷
