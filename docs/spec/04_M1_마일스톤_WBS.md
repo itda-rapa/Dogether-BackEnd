@@ -4,7 +4,7 @@
 > 목표일: 2026-07-30
 > 범위: M1만 상세 관리한다. M2·M3는 후속 문서에서 추가한다.
 > 상태 기준: 현재 Git 저장소의 구현·테스트 파일을 기준으로 판정한다.
-> 상태 정정: 2026-08-10, `dev` `ec16ecd` 기준으로 41개 항목 전부를 저장소와 대조했다. 기존 `미착수` 24건을 전수 재검토해 22건을 정정하고 2건(M1-013A·M1-026)은 `미착수`로 유지했다. 판정 기준은 §1의 상태 표기 정의를 따른다.
+> 상태 정정: 2026-08-10, `dev` `ec16ecd` 기준으로 41개 항목 전부를 저장소와 대조했다. 기존 `미착수` 24건을 전수 재검토해 22건을 정정하고 2건(M1-013A·M1-026)은 `미착수`로 유지했다. 2026-08-12에는 이 문서 PR이 rebase된 `dev` `a54122f`에서 `test`(617)와 추가 필터 없는 `postgresTest`(363)를 강제 재실행해 M1-014·015·028·030·038·039의 완료 근거를 갱신했다. 판정 기준은 §1의 상태 표기 정의를 따른다.
 
 ## 1. 정본과 적용 원칙
 
@@ -31,17 +31,11 @@
 
 네 가지 중 하나라도 확인하지 못하면 `완료`가 아니라 `구현 확인 / 추가 검증 필요`다. **기능에 결함이 있다는 뜻이 아니라 완료를 증명할 근거가 아직 없다는 뜻이다.** 담당이 누구인지는 여기서도 기준이 아니다. 미확인 항목이 무엇인지는 비고에 적는다.
 
-**4의 근거로 PR CI를 쓸 수 없다.** `ci-test.yml`은 `./gradlew test`만 실행하는데, `build.gradle`의 `tasks.named('test')`가 이 태스크에서 `postgres`·`rustfs`·`redis` 태그를 제외한다. `*PostgreSqlIntegrationTest`와 `BlockIntegrationTest`는 `@Tag("postgres")`이므로 **지금까지 어떤 PR CI에도 포함된 적이 없다.** `./gradlew test postgresTest`를 도는 `ci.yml`은 `main` push 전용이고 실행 이력이 0건이다.
+**PR CI만으로 4를 닫을 수는 없다.** `ci-test.yml`은 `./gradlew test`만 실행하고, `build.gradle`의 `tasks.named('test')`는 `postgres`·`rustfs`·`redis` 태그를 제외한다. 따라서 `*PostgreSqlIntegrationTest`와 `BlockIntegrationTest`는 PR CI에 포함되지 않는다.
 
-그래서 2026-08-10 정정에서 `완료`로 올린 것은 태그 없는 단위 테스트만으로 3·4가 닫히는 M1-037 하나다. 수용 조건 검증을 `@Tag("postgres")` 테스트에 의존하는 M1-014·015·030·038·039는 3까지 확인했으나 4를 확인할 수단이 없어 `구현 확인 / 추가 검증 필요`로 둔다.
+다만 2026-08-12에 이 문서 PR이 rebase된 `dev` `a54122f`에서 `./gradlew.bat test --no-daemon --rerun-tasks`와 필터 없는 `./gradlew.bat postgresTest --no-daemon --rerun-tasks`를 직접 실행했다. 두 task 모두 `5 actionable tasks: 5 executed`로 수행됐고 XML 집계는 각각 617/0/0/0, 363/0/0/0이었다. M1-014·015·030·038·039의 비고에 적은 PostgreSQL 클래스가 모두 결과 XML에 포함된 것을 확인했으므로, 이 다섯 항목은 완료로 승격한다. M1-028도 요청·수락·거절·취소·목록·삭제·역방향 자동 수락·7일 만료의 핵심 테스트와 해당 PostgreSQL XML을 대조해 완료로 승격한다.
 
-`./gradlew postgresTest`가 성공하면 이 5건을 `완료`로 승격한다. 승격 전에 `BUILD SUCCESSFUL`만 보지 말고 다음을 함께 확인한다. `test` 태스크가 녹색인데도 통합 테스트를 한 건도 돌리지 않았던 것과 같은 함정을 피하기 위해서다.
-
-- `postgresTest` 태스크가 `UP-TO-DATE`나 `NO-SOURCE`로 건너뛰지 않았다.
-- 비고에 적힌 테스트 클래스가 실제 실행 목록에 있다.
-- 태그 외에 추가 필터가 걸려 있지 않다.
-
-이 CI 공백 자체는 본 문서의 범위가 아니며 별도 인프라 과제로 다룬다.
+`ci.yml`의 main push 실행은 PR CI와 다른 보조 근거다. 2026-08-11 main CI run #30도 `./gradlew test postgresTest`를 실제 실행해 성공했지만, 이 문서의 현재 완료 판정은 위 최신 `a54122f` 재실행 결과를 정본 근거로 삼는다.
 
 상태 표기는 다음과 같다.
 
@@ -133,8 +127,8 @@
 | M1-012 | — | 검증 사진 처리 | BE-1 | — | — | 기존 검증 사진 승격·삭제 | — | CANCELED |
 | M1-013 | 7/27~7/28 | Pet Core | BE-3 | BE-2 | M1-006 | 미삭제 Pet 최대 5마리·owner 동시성 제어, 삭제 상태 CHECK, 생성 전 후보 확정, 생성·Active 지정 독립 Commit, L1 수동 복구 | P0 병목 | 구현 확인 / 추가 검증 필요(pet 30파일·테스트 23. 그 테스트가 수용 조건을 덮는지 미확인) |
 | M1-013A | 7/28~7/29 | 등록 인증 | BE-3 | BE-2 | M1-013 | 동기 Provider 최종 상태 저장, canonical 부재 REJECTED, consume·배지·스냅샷·fingerprint·PII 미저장 | P1 | 미착수(pet 30파일 어디에도 등록 인증·canonical·fingerprint 구현이 없다) |
-| M1-014 | 7/27~7/28 | 채팅 Core | BE-2 | BE-3 검토 | M1-002, M1-003, M1-013 인터페이스 | DIRECT room·participant·message schema/service, Pet pair 정합. Fixture 병렬 개발 가능, 최종 통합은 M1-013 병합 후 | P0 | 구현 확인 / 추가 검증 필요(ChatPostgreSqlIntegrationTest·ChatServicePostgreSqlIntegrationTest·ChatConcurrencyPostgreSqlIntegrationTest가 pair 정규화·중복 방 거부·동시 생성 단일성을 검증한다. 셋 다 `@Tag("postgres")`라 PR CI가 제외하므로 4 미검증. postgresTest 성공 확인 후 완료 승격) |
-| M1-015 | 7/25~7/27 | 채팅 API | BE-2 | — | M1-014 | 방 목록·메시지 이력·TEXT 전송 polling API | P0 | 구현 확인 / 추가 검증 필요(ChatRestPollingApiPostgreSqlIntegrationTest·ChatApiContractPostgreSqlIntegrationTest가 방 목록 정렬·커서·이력 폴링·TEXT 전송 멱등을 검증한다. 둘 다 `@Tag("postgres")`라 PR CI가 제외하므로 4 미검증. postgresTest 성공 확인 후 완료 승격) |
+| M1-014 | 7/27~7/28 | 채팅 Core | BE-2 | BE-3 검토 | M1-002, M1-003, M1-013 인터페이스 | DIRECT room·participant·message schema/service, Pet pair 정합. Fixture 병렬 개발 가능, 최종 통합은 M1-013 병합 후 | P0 | 완료(`ChatPostgreSqlIntegrationTest` 13, `ChatServicePostgreSqlIntegrationTest` 12, `ChatConcurrencyPostgreSqlIntegrationTest` 3이 pair 정규화·중복 방 거부·동시 생성 단일성을 검증. 2026-08-12 최신 dev `postgresTest` XML 모두 0 실패·0 오류) |
+| M1-015 | 7/25~7/27 | 채팅 API | BE-2 | — | M1-014 | 방 목록·메시지 이력·TEXT 전송 polling API | P0 | 완료(`ChatRestPollingApiPostgreSqlIntegrationTest` 35, `ChatApiContractPostgreSqlIntegrationTest` 10이 방 목록 정렬·커서·이력 폴링·TEXT 전송 멱등을 검증. 2026-08-12 최신 dev `postgresTest` XML 모두 0 실패·0 오류) |
 | M1-017 | 7/26~7/28 | 채팅 Web | BE-2 | — | M1-004, M1-015 | 방 목록·대화·전송 UI, polling, 오류별 입력 제한 | P0 | 확인 불가(프론트) |
 | M1-019 | — | Mobile | BE-2 | — | — | React Native 앱 | — | MOVED(POST-M1) |
 | M1-020 | 7/25~7/29 | 배포 | BE-1 | BE-3 | M1-005 | 서버·DB·S3·환경변수·TLS·로그·health가 연결된 dev URL | P0 | 확인 불가(배포) |
@@ -145,18 +139,18 @@
 | M1-025 | 7/24~7/26 | 관리자 인증 | BE-3 | BE-2 | M1-007 | `users.role`, 공통 로그인, ADMIN 접근 검사와 DB 재검증 | P0 | 부분완료 |
 | M1-026 | 7/28~7/30 | 일반 관리자 | BE-3 | BE-2 | M1-013, M1-025 | 사용자·Pet·등록결과 조회·정지 API | P2 | 미착수(`/admin` 컨트롤러가 하나도 없다. AdminBootstrapRunner는 초기 계정 생성용이라 별개다) |
 | M1-027 | 7/28~7/30 | 일반 관리자 Web | BE-3 | BE-2 | M1-004, M1-026 | 사용자·Pet·등록결과 조회·정지 화면 | P2 | 확인 불가(프론트. 선행 M1-026 관리자 API가 이 저장소에 없다) |
-| M1-028 | 7/25~7/27 | 친구 API | BE-3 | BE-2 | M1-006, M1-013 | 요청·수락·거절·취소·목록·삭제, 상호요청 자동수락, 7일 만료 | P1 | 구현 확인 / 추가 검증 필요(friend 30파일·테스트 26. 그 테스트가 수용 조건을 덮는지 미확인) |
+| M1-028 | 7/25~7/27 | 친구 API | BE-3 | BE-2 | M1-006, M1-013 | 요청·수락·거절·취소·목록·삭제, 상호요청 자동수락, 7일 만료 | P1 | 완료(`FriendRequestApiContractPostgreSqlIntegrationTest` 19가 요청·역방향 자동 수락·명시 수락·거절·취소·목록을, `FriendshipDeletionApiContractPostgreSqlIntegrationTest` 7이 삭제를 검증. `FriendRequestCommandTransactionServiceTest`가 7일 만료와 만료 요청 교체를 검증. 2026-08-12 최신 dev XML 모두 0 실패·0 오류) |
 | M1-029 | 7/26~7/28 | Pet·친구 Web | BE-2 | BE-3 | M1-004, M1-013, M1-028 | Pet 공개 태그 검색, 친구 요청·받은·보낸·목록 화면 | P1 | 확인 불가(프론트) |
-| M1-030 | 7/26~7/28 | 약속 카드 | BE-2 | AI-1 | M1-015, M1-033 | 2개 이상 메시지에서 버튼 활성, 초안·빈 폼 fallback·확정·조회·취소, CARD·SYSTEM polling 반영 | P0 | 구현 확인 / 추가 검증 필요(MeetingCardPostgreSqlIntegrationTest·CardDraftPostgreSqlIntegrationTest·MeetingCardPolicyTest가 초안·확정·조회·취소·CARD 메시지를 검증한다. 앞 둘이 `@Tag("postgres")`라 PR CI가 제외하므로 4 미검증. postgresTest 성공 확인 후 완료 승격) |
+| M1-030 | 7/26~7/28 | 약속 카드 | BE-2 | AI-1 | M1-015, M1-033 | 2개 이상 메시지에서 버튼 활성, 초안·빈 폼 fallback·확정·조회·취소, CARD·SYSTEM polling 반영 | P0 | 완료(`MeetingCardPostgreSqlIntegrationTest` 29, `CardDraftPostgreSqlIntegrationTest` 21, `MeetingCardPolicyTest` 2가 초안·빈 폼 fallback·확정·조회·취소·CARD/SYSTEM 반영을 검증. 2026-08-12 최신 dev XML 모두 0 실패·0 오류) |
 | M1-031 | — | 일일 검열 | BE-2 | AI-1 | — | 일일 AI 검열 배치 | — | CANCELED |
 | M1-032 | — | 검열 UI | BE-2 | — | — | 위험 메시지·case 검열 화면 | — | CANCELED |
 | M1-033 | 7/24~7/26 | AI 계약 | AI-1 | BE-2 | M1-003 | 최근 30개·24시간 이내 입력, 5초 제한, EMPTY_FORM fixture | P0 의존 | 구현 확인 / 추가 검증 필요(meetingcard/ai 8파일·HttpMeetingDraftAiClientContractTest·MeetingCardAiAdapterTest. 그 테스트가 30개·24시간·5초 제한을 덮는지 미확인) |
 | M1-034 | — | 검열 AI | AI-1 | — | — | moderate-batch 계약 | — | CANCELED |
 | M1-035 | 7/27~7/28 | 시드 셋로그 | BE-1 | BE-3 검토 | M1-005, M1-006, M1-013 또는 Pet Fixture | S3 시드 영상 3개, Presigned GET, L1 홈 조회 API와 화면 | P0 | 구현 확인 / 추가 검증 필요(setlog 16파일·테스트 5. 그 테스트가 수용 조건을 덮는지 미확인) |
 | M1-036 | 7/26~7/28 | 셋로그 반응 | BE-1 | BE-2 | M1-035, M1-013 | CUTE·LIKE 독립 추가/취소, 자기 Pet 금지, 카운트 API와 화면 | P1 | 구현 확인 / 추가 검증 필요(PUT·DELETE `/setlogs/{id}/reactions/{type}` 구현. setlog 테스트 5개가 반응 수용 조건을 덮는지 미확인) |
-| M1-037 | 7/25~7/27 | 인사 | BE-2 | BE-3 검토 | M1-014, M1-035 | 인사→DIRECT·최초 고정 메시지, Pet당 일 10명, 재인사 영구 금지 | P0 | 완료(GreetingServiceTest — 인사 방·고정 메시지 단일 흐름, 일 10명 초과 거부, 재인사 영구 금지 검증. 태그가 없어 PR CI가 실행하므로 4까지 확인됨. 정정 대상 중 유일하게 네 기준을 모두 만족한다) |
-| M1-038 | 7/26~7/28 | 방 수명주기 | BE-2 | BE-3 검토 | M1-037 | 답변 전 추가 전송 금지, 24시간 무답 정리, 신고 방 보존, 30일 보관·복구 | P0 | 구현 확인 / 추가 검증 필요(ChatRoomLifecyclePostgreSqlIntegrationTest가 24시간 무답 정리·신고 방 보존·30일 보관과 복구를, ChatMessageServiceTest가 답변 전 전송 금지를 검증한다. 뒤는 PR CI로 4까지 확인됐으나 앞이 `@Tag("postgres")`라 미검증. postgresTest 성공 확인 후 완료 승격) |
-| M1-039 | 7/26~7/28 | 차단 | BE-2 | BE-3 검토 | M1-006, M1-028 | User 단위 차단 API·검사·UI, 관계 정리, 콘텐츠 숨김, 해제 없음 | P0 | 구현 확인 / 추가 검증 필요(BlockServiceTest가 친구 관계 정리를, BlockIntegrationTest가 양방향 차단 판정·동시 요청 단일 행·정리 실패 시 롤백을 검증한다. 앞은 PR CI로 4까지 확인됐으나 뒤가 `@Tag("postgres")`라 미검증. postgresTest 성공 확인 후 완료 승격) |
+| M1-037 | 7/25~7/27 | 인사 | BE-2 | BE-3 검토 | M1-014, M1-035 | 인사→DIRECT·최초 고정 메시지, Pet당 일 10명, 재인사 영구 금지 | P0 | 완료(GreetingServiceTest — 인사 방·고정 메시지 단일 흐름, 일 10명 초과 거부, 재인사 영구 금지 검증. 태그가 없어 PR CI가 실행하므로 4까지 확인됨) |
+| M1-038 | 7/26~7/28 | 방 수명주기 | BE-2 | BE-3 검토 | M1-037 | 답변 전 추가 전송 금지, 24시간 무답 정리, 신고 방 보존, 30일 보관·복구 | P0 | 완료(`ChatRoomLifecyclePostgreSqlIntegrationTest` 10이 24시간 무답 정리·신고 방 보존·30일 보관과 복구를, `ChatMessageServiceTest` 14가 답변 전 전송 금지를 검증. 2026-08-12 최신 dev XML 모두 0 실패·0 오류) |
+| M1-039 | 7/26~7/28 | 차단 | BE-2 | BE-3 검토 | M1-006, M1-028 | User 단위 차단 API·검사·UI, 관계 정리, 콘텐츠 숨김, 해제 없음 | P0 | 완료(`BlockApiContractPostgreSqlIntegrationTest`와 `BlockIntegrationTest`의 PostgreSQL nested suites가 User 차단 API·양방향 판정·중복 요청 단일 행·정리 실패 rollback을, `BlockServiceTest`가 관계 정리를 검증. 2026-08-12 최신 dev XML 모두 0 실패·0 오류) |
 | M1-040 | 7/27~7/29 | 신고·관리자 신고 | BE-2 | BE-3(RBAC) | M1-015, M1-025 | DIRECT 신고, 관리자 큐·전체 방 이력·처리 API와 화면 | P0 | 부분 구현 / 추가 검증 필요(POST /reports는 구현. /admin/reports 큐·처리 API 없음) |
 | M1-041 | 7/27~7/28 | 시드 데이터 | BE-1 | BE-3 검토 | M1-006, M1-013 또는 Pet Fixture, M1-035 | 시드 User·Pet·Setlog와 영상 3개, local·dev·demo 재현 절차 | P0 | 부분 구현 / 추가 검증 필요(db/demo/R__zz_home_setlogs.sql 1개 확인. 시드 User·Pet과 재현 절차는 미확인) |
 | M1-042 | 7/27~7/29 | Web 통합 | BE-2 | BE-1, BE-3 | M1-004, 각 Web 작업 | 공통 라우팅·인증 상태·API client·화면 merge, 반응형 확인 | P0 | 확인 불가(프론트) |
