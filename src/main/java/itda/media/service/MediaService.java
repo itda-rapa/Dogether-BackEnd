@@ -1,5 +1,7 @@
 package itda.media.service;
 
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
 import itda.common.properties.S3Properties;
 import itda.media.domain.Media;
 import itda.media.domain.MediaStatus;
@@ -163,6 +165,20 @@ public class MediaService {
         return presignDownload(foundedMedia);
     }
 
+    public OwnedPresignedDownload getOwnedPresignedDownload(
+            Long id,
+            Long ownerUserId
+    ) {
+        Media media = mediaRepository.findByIdAndDeletedAtIsNull(id)
+                .filter(candidate -> ownerUserId != null
+                        && ownerUserId.equals(candidate.getUserId()))
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.MEDIA_NOT_FOUND)
+                );
+        validateDownloadable(media);
+        return new OwnedPresignedDownload(media, presignDownload(media));
+    }
+
     /**
      * Signs already-loaded media without repeating a repository lookup.
      * Every item receives the same status and soft-delete validation as the
@@ -202,6 +218,7 @@ public class MediaService {
         GetObjectRequest getObjectRequest = GetObjectRequest.builder()
                 .bucket(s3Properties.bucket()) // 다운로드할 파일의 버킷
                 .key(foundedMedia.getPath()) // 다운로드할 파일의 경로/파일.확장자
+                .versionId(foundedMedia.getObjectVersionId())
                 .build();
         // `GetObjectRequest`와 `URL 만료시간`을 지정하여 다운로드 PresignedURL을 요청하는 `객체` 생성
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
@@ -219,6 +236,12 @@ public class MediaService {
     public record PresignedDownloadUrl(
             String url,
             Instant expiresAt
+    ) {
+    }
+
+    public record OwnedPresignedDownload(
+            Media media,
+            PresignedDownloadUrl download
     ) {
     }
 }

@@ -5,18 +5,18 @@ import itda.common.security.CurrentUser;
 import itda.media.domain.Media;
 import itda.media.dto.downloaddto.PresignedUrlResponse;
 import itda.media.dto.uploaddto.*;
-import itda.media.repository.MediaRepository;
 import itda.media.service.MediaService;
 import itda.user.domain.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
 public class MediaController implements MediaSwaggerSupporter {
     private final MediaService mediaService;
-    private final MediaRepository mediaRepository;
     // ...
 
     @PostMapping("/api/v1/media/init")
@@ -56,12 +56,21 @@ public class MediaController implements MediaSwaggerSupporter {
     }
 
     @GetMapping("/api/v1/media/{id}/presigned-url")
-    public ApiResponse<PresignedUrlResponse> getPresignedUrl(@PathVariable Long id) {
-        Media media = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(id);
-        String presignedUrl = mediaService.getPresignedUrl(id);
-        return ApiResponse.ok(
-                new PresignedUrlResponse(presignedUrl, MediaResponse.from(media)),
+    public ResponseEntity<ApiResponse<PresignedUrlResponse>> getPresignedUrl(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long id
+    ) {
+        MediaService.OwnedPresignedDownload result =
+                mediaService.getOwnedPresignedDownload(id, user.id());
+        ApiResponse<PresignedUrlResponse> body = ApiResponse.ok(
+                new PresignedUrlResponse(
+                        result.download().url(),
+                        MediaResponse.from(result.media())
+                ),
                 "다운로드용 PresignedURL이 발급되었습니다."
         );
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(body);
     }
 }
