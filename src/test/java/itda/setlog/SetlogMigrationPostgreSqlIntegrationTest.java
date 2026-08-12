@@ -3,6 +3,7 @@ package itda.setlog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -48,15 +49,56 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                        'media',
                        'setlogs',
                        'setlog_reactions',
-                       'greetings'
+                       'greetings',
+                       'setlog_uploads'
                    )
                 """, String.class);
         assertThat(tables).containsExactlyInAnyOrder(
                 "media",
                 "setlogs",
                 "setlog_reactions",
-                "greetings"
+                "greetings",
+                "setlog_uploads"
         );
+
+        Map<String, Object> uploadColumns = jdbcTemplate.queryForMap("""
+                select count(*) filter (where data_type = 'uuid') as uuid_columns,
+                       count(*) filter (where column_name = 'expires_at'
+                           and data_type = 'timestamp with time zone') as expiry_columns
+                  from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'setlog_uploads'
+                   and column_name in ('id', 'expires_at')
+                """);
+        assertThat(((Number) uploadColumns.get("uuid_columns")).intValue()).isEqualTo(1);
+        assertThat(((Number) uploadColumns.get("expiry_columns")).intValue()).isEqualTo(1);
+
+        List<String> uploadConstraints = jdbcTemplate.queryForList("""
+                select constraint_name
+                  from information_schema.table_constraints
+                 where table_schema = 'public'
+                   and table_name = 'setlog_uploads'
+                """, String.class);
+        assertThat(uploadConstraints).contains(
+                "fk_setlog_uploads_owner",
+                "fk_setlog_uploads_pet",
+                "uk_setlog_uploads_object_key",
+                "ck_setlog_uploads_content_type",
+                "ck_setlog_uploads_expected_size",
+                "ck_setlog_uploads_status"
+        );
+
+        String partialIndex = jdbcTemplate.queryForObject("""
+                select indexdef
+                  from pg_indexes
+                 where schemaname = 'public'
+                   and tablename = 'setlog_uploads'
+                   and indexname = 'ix_setlog_uploads_presigned_expires'
+                """, String.class);
+        assertThat(partialIndex)
+                .contains("expires_at", "id")
+                .containsIgnoringCase("WHERE")
+                .contains("PRESIGNED");
 
         String referencedTable = jdbcTemplate.queryForObject("""
                 select referenced_table.table_name

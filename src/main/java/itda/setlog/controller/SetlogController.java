@@ -9,9 +9,12 @@ import itda.setlog.dto.SetlogCreateRequest;
 import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogReactionResponse;
+import itda.setlog.dto.SetlogUploadCreateRequest;
+import itda.setlog.dto.SetlogUploadCreateResponse;
 import itda.setlog.service.SetlogCreationService;
 import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
+import itda.setlog.service.SetlogUploadSessionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -34,7 +37,22 @@ public class SetlogController implements SetlogSwaggerSupporter {
     private final SetlogReadService setlogReadService;
     private final SetlogReactionService setlogReactionService;
     private final SetlogCreationService setlogCreationService;
+    private final SetlogUploadSessionService setlogUploadSessionService;
     private final GreetingService greetingService;
+
+    @PostMapping("/uploads")
+    public ResponseEntity<ApiResponse<SetlogUploadCreateResponse>> createUploadSession(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @Valid @RequestBody SetlogUploadCreateRequest request
+    ) {
+        SetlogUploadCreateResponse upload = setlogUploadSessionService.create(
+                currentUser.id(),
+                request
+        );
+        return ResponseEntity.status(201).body(
+                ApiResponse.created(upload, "셋로그 업로드 세션 생성 성공")
+        );
+    }
 
     @PostMapping
     public ResponseEntity<ApiResponse<SetlogCreateResponse>> createSetlog(
