@@ -6,7 +6,7 @@ import itda.meetingcard.domain.MeetingCardType;
 import java.time.Instant;
 
 /**
- * OpenAPI {@code CardDraft} 스키마. 단건 객체이며 배열이 아니다.
+ * OpenAPI {@code CardDraft} 스키마의 배열 원소.
  *
  * <p>{@code fallback} 은 저장된 컬럼이 아니라 {@code fallbackReason != null} 파생값이다.
  */

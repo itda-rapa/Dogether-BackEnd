@@ -2,6 +2,10 @@ package itda.meetingcard.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import itda.chat.domain.RoomOrigin;
 import itda.chat.repository.ChatMessageRepository;
@@ -10,14 +14,21 @@ import itda.chat.service.ChatRoomService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.meetingcard.ai.FixtureMeetingDraftAiClient;
+import itda.meetingcard.ai.AiDraftResult;
+import itda.meetingcard.ai.MeetingCardAiAdapter;
+import itda.common.security.CurrentUser;
 import itda.meetingcard.domain.CardDraftFallbackReason;
 import itda.meetingcard.domain.MeetingCardType;
+import itda.meetingcard.dto.MeetingCardCreateRequest;
 import itda.meetingcard.dto.response.CardDraftResponse;
+import itda.meetingcard.dto.response.MeetingCardResponse;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.user.domain.Role;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -25,8 +36,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -41,6 +55,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("postgres")
 @Testcontainers
 @SpringBootTest
+@AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
@@ -66,9 +81,15 @@ class CardDraftPostgreSqlIntegrationTest {
     @Autowired
     private CardDraftTransactionService cardDraftTransactionService;
     @Autowired
+    private MeetingCardService meetingCardService;
+    @Autowired
     private ChatRoomService chatRoomService;
     @Autowired
     private JdbcTemplate jdbcTemplate;
+    @Autowired
+    private MockMvc mockMvc;
+    @MockitoBean(name = "meetingCardAiAdapter")
+    private MeetingCardAiAdapter productionAiClient;
 
     private static final long USER_1 = 1L;
     private static final long USER_2 = 2L;
@@ -117,7 +138,7 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(2);
         ai.prepareFullExtraction("WALK", "2026-07-31", "19:00", "중앙공원");
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.fallback()).isFalse();
         assertThat(draft.fallbackReason()).isNull();
@@ -133,7 +154,7 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(2);
         ai.prepareHospitalExtraction("2026-07-31", "10:00", "동물병원");
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.cardType()).isEqualTo(MeetingCardType.HOSPITAL);
         assertThat(jdbcTemplate.queryForObject(
@@ -147,7 +168,9 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(2);
         ai.prepareEmptyArray();
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        List<CardDraftResponse> drafts = service().createDraft(USER_1, roomId);
+        assertThat(drafts).hasSize(1);
+        CardDraftResponse draft = drafts.get(0);
 
         assertThat(draft.fallback()).isFalse();
         assertThat(draft.fallbackReason()).isNull();
@@ -162,7 +185,7 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(2);
         ai.prepareUnknownType("DINNER", "2026-07-31", "19:00", "중앙공원");
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.fallback()).isFalse();
         assertThat(draft.cardType()).isNull();
@@ -175,7 +198,7 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(2);
         ai.prepareDateOnly("WALK", "2026-07-31", "중앙공원");
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.fallback()).isFalse();
         assertThat(draft.meetAt()).isNull();
@@ -188,7 +211,9 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(2);
         ai.prepareTimeout();
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        List<CardDraftResponse> drafts = service().createDraft(USER_1, roomId);
+        assertThat(drafts).hasSize(1);
+        CardDraftResponse draft = drafts.get(0);
 
         assertThat(draft.fallback()).isTrue();
         assertThat(draft.fallbackReason()).isEqualTo(CardDraftFallbackReason.TIMEOUT);
@@ -200,22 +225,115 @@ class CardDraftPostgreSqlIntegrationTest {
     void modelErrorAndConnectionFailureBecomeEmptyForm() {
         insertTextMessages(2);
         ai.prepareModelError();
-        assertThat(service().createDraft(USER_1, roomId).fallbackReason())
+        List<CardDraftResponse> modelErrorDrafts = service().createDraft(USER_1, roomId);
+        assertThat(modelErrorDrafts).hasSize(1);
+        assertThat(modelErrorDrafts.get(0).fallbackReason())
                 .isEqualTo(CardDraftFallbackReason.MODEL_ERROR);
 
         ai.prepareConnectionFailure();
-        assertThat(service().createDraft(USER_1, roomId).fallbackReason())
+        List<CardDraftResponse> connectionFailureDrafts = service().createDraft(USER_1, roomId);
+        assertThat(connectionFailureDrafts).hasSize(1);
+        assertThat(connectionFailureDrafts.get(0).fallbackReason())
                 .isEqualTo(CardDraftFallbackReason.MODEL_ERROR);
     }
 
     @Test
-    @DisplayName("원소가 둘 이상이면 MODEL_ERROR 다")
-    void twoElementsBecomeModelError() {
+    @DisplayName("원소가 둘이면 두 초안을 순서대로 저장한다")
+    void twoElementsBecomeTwoOrderedDrafts() {
         insertTextMessages(2);
         ai.prepareTwoElements();
 
-        assertThat(service().createDraft(USER_1, roomId).fallbackReason())
-                .isEqualTo(CardDraftFallbackReason.MODEL_ERROR);
+        var drafts = service().createDraft(USER_1, roomId);
+
+        assertThat(drafts).hasSize(2);
+        assertThat(drafts).extracting(CardDraftResponse::draftId)
+                .doesNotHaveDuplicates();
+        assertThat(drafts).extracting(CardDraftResponse::cardType)
+                .containsExactly(MeetingCardType.WALK, MeetingCardType.PLAY);
+        assertThat(drafts).extracting(CardDraftResponse::placeText)
+                .containsExactly("중앙공원", "댕댕카페");
+        assertThat(drafts).extracting(CardDraftResponse::meetAt)
+                .containsExactly(
+                        Instant.parse("2026-07-31T10:00:00Z"),
+                        Instant.parse("2026-08-01T01:00:00Z"));
+        assertThat(drafts).allMatch(draft -> !draft.fallback());
+        assertThat(countOf("card_drafts")).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("REST 단건 응답도 data 배열이다")
+    void restSingleCandidateUsesArrayData() throws Exception {
+        insertRecentTextMessages(2);
+        whenProductionAiReturns(List.of(candidate("WALK", "2026-07-31", "19:00", "중앙공원")));
+
+        mockMvc.perform(post("/chat/rooms/{roomId}/card-drafts", roomId)
+                        .with(user(new CurrentUser(USER_1, "user1@test.com", Role.USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].cardType").value("WALK"));
+    }
+
+    @Test
+    @DisplayName("REST 다건 응답은 AI 순서와 후보 필드를 보존한다")
+    void restMultipleCandidatesUsesOrderedArrayData() throws Exception {
+        insertRecentTextMessages(2);
+        whenProductionAiReturns(List.of(
+                candidate("WALK", "2026-07-31", "19:00", "중앙공원"),
+                candidate("PLAY", "2026-08-01", "10:00", "댕댕카페")));
+
+        mockMvc.perform(post("/chat/rooms/{roomId}/card-drafts", roomId)
+                        .with(user(new CurrentUser(USER_1, "user1@test.com", Role.USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].cardType").value("WALK"))
+                .andExpect(jsonPath("$.data[0].placeText").value("중앙공원"))
+                .andExpect(jsonPath("$.data[0].meetAt").value("2026-07-31T10:00:00Z"))
+                .andExpect(jsonPath("$.data[1].cardType").value("PLAY"))
+                .andExpect(jsonPath("$.data[1].placeText").value("댕댕카페"))
+                .andExpect(jsonPath("$.data[1].meetAt").value("2026-08-01T01:00:00Z"));
+
+        assertThat(countOf("card_drafts")).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("REST fallback은 blank 초안 한 건을 배열로 반환한다")
+    void restFallbackUsesSingleBlankCandidateArray() throws Exception {
+        insertRecentTextMessages(2);
+        org.mockito.Mockito.when(productionAiClient.extract(
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(AiDraftResult.fallback(CardDraftFallbackReason.TIMEOUT));
+
+        mockMvc.perform(post("/chat/rooms/{roomId}/card-drafts", roomId)
+                        .with(user(new CurrentUser(USER_1, "user1@test.com", Role.USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].fallback").value(true))
+                .andExpect(jsonPath("$.data[0].fallbackReason").value("TIMEOUT"));
+    }
+
+    @Test
+    @DisplayName("다건 초안 중 선택한 draftId로 약속 카드를 확정한다")
+    void selectedMultiCandidateDraftCanConfirmCard() {
+        insertTextMessages(2);
+        ai.prepareTwoElements();
+        var drafts = service().createDraft(USER_1, roomId);
+
+        MeetingCardResponse card = meetingCardService.confirm(USER_1,
+                new MeetingCardCreateRequest(
+                        roomId,
+                        drafts.get(1).draftId(),
+                        MeetingCardType.PLAY,
+                        "댕댕카페",
+                        Instant.parse("2026-08-01T01:00:00Z")));
+
+        assertThat(card.cardType()).isEqualTo(MeetingCardType.PLAY);
+        assertThat(jdbcTemplate.queryForObject(
+                "select source_draft_id from meeting_cards where id = ?",
+                Long.class,
+                card.cardId())).isEqualTo(drafts.get(1).draftId());
     }
 
     @Test
@@ -225,7 +343,7 @@ class CardDraftPostgreSqlIntegrationTest {
         // AI 가 장소를 못 뽑고 대화 문장을 그대로 넣어 보내는 경우를 재현한다.
         ai.prepareFullExtraction("WALK", "2026-07-31", "19:00", "가".repeat(700));
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.placeText()).hasSize(500);
         assertThat(draft.fallback()).isFalse();
@@ -241,7 +359,7 @@ class CardDraftPostgreSqlIntegrationTest {
     void zeroMessagesBypassesAi() {
         ai.prepareFullExtraction("WALK", "2026-07-31", "19:00", "중앙공원");
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.fallbackReason())
                 .isEqualTo(CardDraftFallbackReason.INSUFFICIENT_CONTEXT);
@@ -254,7 +372,7 @@ class CardDraftPostgreSqlIntegrationTest {
         insertTextMessages(1);
         ai.prepareFullExtraction("WALK", "2026-07-31", "19:00", "중앙공원");
 
-        CardDraftResponse draft = service().createDraft(USER_1, roomId);
+        CardDraftResponse draft = service().createDraft(USER_1, roomId).get(0);
 
         assertThat(draft.fallbackReason())
                 .isEqualTo(CardDraftFallbackReason.INSUFFICIENT_CONTEXT);
@@ -270,7 +388,7 @@ class CardDraftPostgreSqlIntegrationTest {
         ai.prepareFullExtraction("WALK", "2026-07-31", "19:00", "중앙공원");
 
         // 24시간 내 메시지가 1건뿐이라 AI 를 부르지 않아야 한다.
-        assertThat(service().createDraft(USER_1, roomId).fallbackReason())
+        assertThat(service().createDraft(USER_1, roomId).get(0).fallbackReason())
                 .isEqualTo(CardDraftFallbackReason.INSUFFICIENT_CONTEXT);
         assertThat(ai.callCount()).isZero();
     }
@@ -283,7 +401,7 @@ class CardDraftPostgreSqlIntegrationTest {
         ai.prepareFullExtraction("WALK", "2026-07-31", "19:00", "중앙공원");
 
         // TEXT 1건 + SYSTEM 1건이지만 TEXT 만 세므로 AI 를 부르지 않는다.
-        assertThat(service().createDraft(USER_1, roomId).fallbackReason())
+        assertThat(service().createDraft(USER_1, roomId).get(0).fallbackReason())
                 .isEqualTo(CardDraftFallbackReason.INSUFFICIENT_CONTEXT);
         assertThat(ai.callCount()).isZero();
     }
@@ -415,6 +533,38 @@ class CardDraftPostgreSqlIntegrationTest {
             insertTextMessage(i % 2 == 0 ? PET_1 : PET_2, "메시지" + i,
                     NOW.minusSeconds(600L - i));
         }
+    }
+
+    private void insertRecentTextMessages(int count) {
+        Instant recent = Instant.now().minusSeconds(60);
+        for (int i = 0; i < count; i++) {
+            insertTextMessage(i % 2 == 0 ? PET_1 : PET_2, "최근 메시지" + i,
+                    recent.plusSeconds(i));
+        }
+    }
+
+    private void whenProductionAiReturns(List<AiDraftResult.Candidate> candidates) {
+        org.mockito.Mockito.when(productionAiClient.extract(
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(AiDraftResult.success(candidates));
+    }
+
+    private AiDraftResult.Candidate candidate(
+            String cardType,
+            String date,
+            String time,
+            String place
+    ) {
+        return new AiDraftResult.Candidate(
+                MeetingCardType.valueOf(cardType),
+                date,
+                time,
+                place,
+                java.time.ZonedDateTime.of(
+                                java.time.LocalDate.parse(date),
+                                java.time.LocalTime.parse(time),
+                                SEOUL)
+                        .toInstant());
     }
 
     private void insertTextMessage(long senderPetId, String body, Instant createdAt) {

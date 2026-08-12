@@ -2010,7 +2010,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
-| `200` | 카드 초안 또는 빈 폼 | [`CardDraftEnvelope`](#schema-carddraftenvelope) |
+| `200` | 카드 초안 후보 배열 또는 빈 폼 후보 1건 | [`CardDraftEnvelope`](#schema-carddraftenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
@@ -2021,7 +2021,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 {
   "success": true,
   "message": "처리 내용입니다.",
-  "data": {
+  "data": [{
     "draftId": 1,
     "roomId": 1,
     "cardType": "WALK",
@@ -2030,7 +2030,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
     "fallback": true,
     "fallbackReason": "INSUFFICIENT_CONTEXT",
     "createdAt": "2026-07-24T09:00:00Z"
-  },
+  }],
   "error": null
 }
 ```
@@ -3293,7 +3293,7 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 |---|---:|---|---|---|
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
-| `data` | ㅇ | [`CardDraft`](#schema-carddraft) | - | [`CardDraft`](#schema-carddraft) |
+| `data` | ㅇ | array<[`CardDraft`](#schema-carddraft)> | - | AI 후보 순서를 유지한 카드 초안 배열. AI 빈 배열·fallback은 빈 초안 1건 |
 | `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-meetingcardenvelope"></a>

@@ -2374,7 +2374,9 @@ components:
       properties:
         success: { type: boolean, const: true }
         message: { type: string }
-        data: { $ref: '#/components/schemas/CardDraft' }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CardDraft' }
         error: { type: 'null' }
     MeetingCardEnvelope:
       type: object

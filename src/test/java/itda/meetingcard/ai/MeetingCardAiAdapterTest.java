@@ -180,23 +180,23 @@ class MeetingCardAiAdapterTest {
     }
 
     @Nested
-    @DisplayName("Outcome 6: more than one array element → MODEL_ERROR")
+    @DisplayName("Outcome 6: more than one array element is preserved")
     class TwoElements {
 
         @Test
-        @DisplayName("two elements yield MODEL_ERROR")
+        @DisplayName("two elements keep count and order without fallback")
         void twoElements() {
             var fixture = new FixtureMeetingDraftAiClient()
                     .prepareTwoElements();
 
             AiDraftResult result = fixture.extract(dummyCommand());
 
-            assertThat(result.fallbackReason()).isEqualTo(CardDraftFallbackReason.MODEL_ERROR);
-            assertThat(result.cardType()).isNull();
-            assertThat(result.date()).isNull();
-            assertThat(result.time()).isNull();
-            assertThat(result.place()).isNull();
-            assertThat(result.combinedInstant()).isNull();
+            assertThat(result.fallbackReason()).isNull();
+            assertThat(result.candidates()).hasSize(2);
+            assertThat(result.candidates()).extracting(AiDraftResult.Candidate::cardType)
+                    .containsExactly(MeetingCardType.WALK, MeetingCardType.PLAY);
+            assertThat(result.candidates()).extracting(AiDraftResult.Candidate::place)
+                    .containsExactly("중앙공원", "댕댕카페");
         }
     }
 
