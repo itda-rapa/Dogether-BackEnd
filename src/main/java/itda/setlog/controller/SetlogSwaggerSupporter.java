@@ -80,7 +80,7 @@ public interface SetlogSwaggerSupporter {
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "503",
-            description = "Object Storage 일시 장애"
+            description = "Object Storage 일시 장애 또는 Bucket Versioning 정보 누락"
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "502",

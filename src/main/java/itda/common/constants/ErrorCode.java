@@ -56,6 +56,7 @@ public enum ErrorCode {
     SETLOG_UPLOAD_STATE_CONFLICT(HttpStatus.CONFLICT, "완료할 수 없는 셋로그 업로드 상태입니다."),
     SETLOG_UPLOAD_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "다른 요청 ID로 이미 완료된 업로드입니다."),
     SETLOG_UPLOAD_METADATA_MISMATCH(HttpStatus.BAD_REQUEST, "업로드된 객체의 크기 또는 형식이 요청과 일치하지 않습니다."),
+    SETLOG_UPLOAD_VERSIONING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "스토리지 버전 정보를 확인할 수 없습니다. 잠시 후 다시 시도해주세요."),
     SETLOG_UPLOAD_COMPLETE_STORAGE_REJECTED(HttpStatus.BAD_GATEWAY, "스토리지에서 업로드 확인 요청을 거절했습니다."),
 
     PET_REQUIRED(HttpStatus.FORBIDDEN, "반려견 등록이 필요한 기능입니다."),
