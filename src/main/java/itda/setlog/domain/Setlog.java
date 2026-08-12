@@ -96,4 +96,11 @@ public class Setlog extends BaseEntity {
             case LIKE -> likeCount = Math.max(0, likeCount - 1);
         }
     }
+
+    public void deleteByAuthor() {
+        if (seed) {
+            throw new IllegalStateException("Seed setlogs cannot be deleted by an author");
+        }
+        this.status = SetlogStatus.DELETED_BY_AUTHOR;
+    }
 }

@@ -85,6 +85,9 @@ public enum ErrorCode {
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
 
     SETLOG_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그를 찾을 수 없습니다."),
+    SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "작성자만 셋로그를 삭제할 수 있습니다."),
+    SEED_SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "시드 셋로그는 삭제할 수 없습니다."),
+    SETLOG_ALREADY_DELETED(HttpStatus.CONFLICT, "이미 삭제된 셋로그입니다."),
     SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),
     MEETING_CARD_NOT_EDITABLE(HttpStatus.CONFLICT, "M1에서는 약속 카드를 수정할 수 없습니다."),
     MEETING_CARD_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "약속 참여 반려견만 카드를 취소할 수 있습니다."),

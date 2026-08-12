@@ -116,4 +116,10 @@ public class Media extends BaseEntity {
         media.verifiedAt = verifiedAt;
         return media;
     }
+
+    public void markDeleted(Instant deletedAt) {
+        if (this.deletedAt == null) {
+            this.deletedAt = java.util.Objects.requireNonNull(deletedAt);
+        }
+    }
 }

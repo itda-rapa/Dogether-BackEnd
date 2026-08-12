@@ -58,4 +58,16 @@ class SetlogUploadOpenApiTest {
                 .andExpect(jsonPath("$.components.schemas.SetlogUploadCompleteRequest"
                         + ".properties.clientRequestId.format").value("uuid"));
     }
+
+    @Test
+    void runtimeOpenApiExposesSetlogDeleteContract() throws Exception {
+        String operation = "$.paths['/setlogs/{setlogId}'].delete";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(operation + ".responses['204']").exists())
+                .andExpect(jsonPath(operation + ".responses['403']").exists())
+                .andExpect(jsonPath(operation + ".responses['404']").exists())
+                .andExpect(jsonPath(operation + ".responses['409']").exists());
+    }
 }

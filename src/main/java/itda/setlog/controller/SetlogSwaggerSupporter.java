@@ -192,6 +192,16 @@ public interface SetlogSwaggerSupporter {
             Integer size
     );
 
+    @Operation(summary = "셋로그 삭제", description = "작성자가 자신의 사용자 셋로그를 논리 삭제하고 스토리지 객체 삭제를 예약합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "삭제 성공")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "소유한 시드 셋로그")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "셋로그 없음 또는 다른 사용자의 셋로그")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "이미 삭제됨")
+    ResponseEntity<Void> deleteSetlog(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            @Parameter(description = "셋로그 ID") Long setlogId
+    );
+
     @Operation(summary = "셋로그 반응 추가", description = "셋로그에 반응을 추가하는 API")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
