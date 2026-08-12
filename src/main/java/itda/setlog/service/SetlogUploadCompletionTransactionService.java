@@ -25,6 +25,7 @@ public class SetlogUploadCompletionTransactionService {
     private final SetlogUploadRepository uploadRepository;
     private final MediaRepository mediaRepository;
     private final SetlogRepository setlogRepository;
+    private final SetlogUploadProperties uploadProperties;
 
     @Transactional
     public PreparedUpload prepare(
@@ -70,6 +71,12 @@ public class SetlogUploadCompletionTransactionService {
             return CompletionAttempt.failed(ErrorCode.SETLOG_UPLOAD_EXPIRED);
         }
         requireEligibleOwnerAndPet(upload);
+        if (uploadProperties.requireVersionId()
+                && normalizeVersionId(metadata == null ? null : metadata.versionId()) == null) {
+            return CompletionAttempt.failed(
+                    ErrorCode.SETLOG_UPLOAD_VERSIONING_UNAVAILABLE
+            );
+        }
         if (!isValidMetadata(upload, metadata)) {
             upload.reject();
             return CompletionAttempt.failed(

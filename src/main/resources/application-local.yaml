@@ -14,6 +14,9 @@ spring:
       - classpath:db/demo
 
 app:
+  setlog-upload:
+    # Local RustFS may run without Bucket Versioning.
+    require-version-id: false
   s3:
     # Spring imports local .env values, while the AWS SDK default credential
     # chain only reads process-level environment variables. Bridge the local

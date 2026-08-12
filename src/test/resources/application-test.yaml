@@ -16,6 +16,8 @@ spring:
     bootstrap-servers: localhost:9092
 
 app:
+  setlog-upload:
+    require-version-id: false
   jwt:
     issuer: dogether-test
     secret: test-secret-key-must-be-at-least-32-bytes-long

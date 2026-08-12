@@ -48,7 +48,8 @@ class SetlogUploadCompletionTransactionServiceTest {
     @BeforeEach
     void setUp() {
         service = new SetlogUploadCompletionTransactionService(
-                uploadRepository, mediaRepository, setlogRepository
+                uploadRepository, mediaRepository, setlogRepository,
+                new SetlogUploadProperties(false)
         );
     }
 
@@ -59,6 +60,31 @@ class SetlogUploadCompletionTransactionServiceTest {
 
         assertError(() -> service.prepare(OWNER_ID, UPLOAD_ID, REQUEST_ID, NOW),
                 ErrorCode.SETLOG_UPLOAD_NOT_FOUND);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.NullAndEmptySource
+    @org.junit.jupiter.params.provider.ValueSource(strings = {" ", "null", "NULL"})
+    void requiredVersionIdFailsClosedButKeepsPresignedForRetry(
+            String versionId
+    ) {
+        service = new SetlogUploadCompletionTransactionService(
+                uploadRepository, mediaRepository, setlogRepository,
+                new SetlogUploadProperties(true)
+        );
+        SetlogUpload upload = upload(EXPIRES_AT);
+        stubOwned(upload);
+
+        var result = service.finalizeUpload(
+                OWNER_ID, UPLOAD_ID, REQUEST_ID,
+                new ObjectMetadata(1024L, "video/mp4", "etag", NOW, versionId),
+                NOW
+        );
+
+        assertThat(result.failure()).isEqualTo(ErrorCode.SETLOG_UPLOAD_VERSIONING_UNAVAILABLE);
+        assertThat(upload.getStatus()).isEqualTo(SetlogUploadStatus.PRESIGNED);
+        then(mediaRepository).shouldHaveNoInteractions();
+        then(setlogRepository).shouldHaveNoInteractions();
     }
 
     @Test

@@ -29,7 +29,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.flyway.locations=classpath:db/migration"
+        "spring.flyway.locations=classpath:db/migration",
+        "app.setlog-upload.require-version-id=true"
 })
 class SetlogUploadCompletionPostgreSqlIntegrationTest {
 
@@ -81,6 +82,26 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from media where path = ?",
                 Long.class, fixture.objectKey())).isZero();
+    }
+
+    @Test
+    void missingVersionFailsClosedWithoutRejectingSessionOrCreatingArtifacts() {
+        Fixture fixture = createFixture(Instant.now().plusSeconds(900));
+
+        var attempt = transactions.finalizeUpload(
+                fixture.userId(), fixture.uploadId(), UUID.randomUUID(),
+                metadata(" "), Instant.now());
+
+        assertThat(attempt.failure()).isEqualTo(ErrorCode.SETLOG_UPLOAD_VERSIONING_UNAVAILABLE);
+        assertThat(jdbcTemplate.queryForObject(
+                "select status from setlog_uploads where id = ?",
+                String.class, fixture.uploadId())).isEqualTo("PRESIGNED");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from media where path = ?",
+                Long.class, fixture.objectKey())).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from setlogs where author_pet_id = ? and is_seed = false",
+                Long.class, fixture.petId())).isZero();
     }
 
     @Test
@@ -216,7 +237,8 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
                     id, owner_user_id, pet_id, object_key, content_type,
                     expected_size, status, expires_at
                 ) values (?, ?, ?, ?, 'video/mp4', 1024, 'PRESIGNED', ?)
-                """, uploadId, userId, petId, objectKey, expiresAt);
+                """, uploadId, userId, petId, objectKey,
+                java.sql.Timestamp.from(expiresAt));
         return new Fixture(userId, petId, uploadId, objectKey);
     }
 
