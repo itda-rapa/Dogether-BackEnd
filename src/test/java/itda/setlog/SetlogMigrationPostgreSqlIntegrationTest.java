@@ -50,7 +50,8 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                        'setlogs',
                        'setlog_reactions',
                        'greetings',
-                       'setlog_uploads'
+                       'setlog_uploads',
+                       'storage_delete_jobs'
                    )
                 """, String.class);
         assertThat(tables).containsExactlyInAnyOrder(
@@ -58,7 +59,8 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                 "setlogs",
                 "setlog_reactions",
                 "greetings",
-                "setlog_uploads"
+                "setlog_uploads",
+                "storage_delete_jobs"
         );
 
         Map<String, Object> uploadColumns = jdbcTemplate.queryForMap("""
@@ -118,5 +120,42 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                    and constraint_info.constraint_name = 'fk_setlogs_media'
                 """, String.class);
         assertThat(referencedTable).isEqualTo("media");
+
+        List<String> deleteJobConstraints = jdbcTemplate.queryForList("""
+                select constraint_name
+                  from information_schema.table_constraints
+                 where table_schema = 'public'
+                   and table_name = 'storage_delete_jobs'
+                """, String.class);
+        assertThat(deleteJobConstraints).contains(
+                "uk_storage_delete_jobs_object_key_reason",
+                "ck_storage_delete_jobs_reason",
+                "ck_storage_delete_jobs_status",
+                "ck_storage_delete_jobs_attempts"
+        );
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'storage_delete_jobs'
+                   and column_name = 'deleted_once_at'
+                   and data_type = 'timestamp with time zone'
+                """, Long.class)).isEqualTo(1L);
+
+        String claimIndex = jdbcTemplate.queryForObject("""
+                select indexdef from pg_indexes
+                 where schemaname = 'public'
+                   and tablename = 'storage_delete_jobs'
+                   and indexname = 'ix_storage_delete_jobs_claim'
+                """, String.class);
+        assertThat(claimIndex)
+                .contains("next_retry_at", "id")
+                .contains("PENDING", "RETRY", "PROCESSING");
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> jdbcTemplate.update("""
+                insert into storage_delete_jobs
+                    (object_key, reason, status, attempts, next_retry_at)
+                values ('invalid-attempt', 'UPLOAD_EXPIRED', 'PENDING', -1, now())
+                """))).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 }

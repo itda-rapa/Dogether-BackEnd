@@ -18,6 +18,10 @@ springdoc:
     enabled: false
 
 app:
+  setlog-upload:
+    # Production cleanup relies on exact object versions. Fail closed when HEAD
+    # does not return one; this requires Bucket Versioning to be enabled.
+    require-version-id: true
   jwt:
     issuer: ${JWT_ISSUER}
     secret: ${JWT_SECRET}

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 
 import itda.common.properties.S3Properties;
 import itda.media.storage.ObjectNotFoundException;
@@ -35,6 +36,12 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest;
+import software.amazon.awssdk.services.s3.model.ObjectVersion;
+import software.amazon.awssdk.services.s3.model.DeleteMarkerEntry;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
@@ -96,6 +103,238 @@ class S3ObjectStorageTest {
                 "Content-Length", "1234"
         ));
         assertThat(result.expiresAt()).isEqualTo(expiresAt);
+    }
+
+    @Test
+    void deleteAllVersionsRemovesVersionsAndDeleteMarkersForExactKey() {
+        given(s3Client.listObjectVersions(any(software.amazon.awssdk.services.s3.model.ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .versions(ObjectVersion.builder().key(OBJECT_KEY).versionId("v1").build())
+                        .deleteMarkers(DeleteMarkerEntry.builder().key(OBJECT_KEY).versionId("m1").build())
+                        .build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder().build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        then(s3Client).should().deleteObjects(captor.capture());
+        assertThat(captor.getValue().delete().objects())
+                .extracting(object -> object.versionId())
+                .containsExactly("v1", "m1");
+    }
+
+    @Test
+    void emptyVersionListingAndMissingHeadIsAlreadyDeleted() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .build());
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willThrow(s3Error(404));
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        then(s3Client).should().headObject(any(HeadObjectRequest.class));
+        then(s3Client).should(org.mockito.Mockito.never())
+                .deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void emptyVersionListingDeletesVersionReturnedByHead() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .build());
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willReturn(HeadObjectResponse.builder()
+                        .contentLength(1L)
+                        .versionId("current-v7")
+                        .build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        then(s3Client).should().deleteObject(deleteCaptor.capture());
+        assertThat(deleteCaptor.getValue().key()).isEqualTo(OBJECT_KEY);
+        assertThat(deleteCaptor.getValue().versionId()).isEqualTo("current-v7");
+    }
+
+    @Test
+    void emptyVersionListingDeletesUnversionedObjectReturnedByHead() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .build());
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willReturn(HeadObjectResponse.builder()
+                        .contentLength(1L)
+                        .build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        then(s3Client).should().deleteObject(deleteCaptor.capture());
+        assertThat(deleteCaptor.getValue().key()).isEqualTo(OBJECT_KEY);
+        assertThat(deleteCaptor.getValue().versionId()).isNull();
+    }
+
+    @Test
+    void deleteAllVersionsExceptRetainsVerifiedVersionAndRemovesMarkers() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .versions(
+                                ObjectVersion.builder().key(OBJECT_KEY).versionId("A-verified").build(),
+                                ObjectVersion.builder().key(OBJECT_KEY).versionId("B-surplus").build(),
+                                ObjectVersion.builder().key(OBJECT_KEY).versionId("C-surplus").build())
+                        .deleteMarkers(
+                                DeleteMarkerEntry.builder().key(OBJECT_KEY).versionId("marker-1").build(),
+                                DeleteMarkerEntry.builder().key(OBJECT_KEY).versionId("marker-2").build())
+                        .build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder().build());
+
+        storage.deleteAllVersionsExcept(OBJECT_KEY, "A-verified");
+
+        ArgumentCaptor<DeleteObjectsRequest> captor = ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        then(s3Client).should().deleteObjects(captor.capture());
+        assertThat(captor.getValue().delete().objects())
+                .extracting(object -> object.versionId())
+                .containsExactly("B-surplus", "C-surplus", "marker-1", "marker-2")
+                .doesNotContain("A-verified");
+    }
+
+    @Test
+    void deleteAllVersionsFollowsPaginationMarkersAndFiltersPrefixCollisions() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(
+                        ListObjectVersionsResponse.builder()
+                                .isTruncated(true)
+                                .nextKeyMarker(OBJECT_KEY)
+                                .nextVersionIdMarker("v1")
+                                .versions(
+                                        ObjectVersion.builder().key(OBJECT_KEY).versionId("v1").build(),
+                                        ObjectVersion.builder().key(OBJECT_KEY + ".bak").versionId("other").build())
+                                .build(),
+                        ListObjectVersionsResponse.builder()
+                                .isTruncated(false)
+                                .deleteMarkers(DeleteMarkerEntry.builder()
+                                        .key(OBJECT_KEY).versionId("marker-2").build())
+                                .build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder().build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        ArgumentCaptor<ListObjectVersionsRequest> pages =
+                ArgumentCaptor.forClass(ListObjectVersionsRequest.class);
+        then(s3Client).should(org.mockito.Mockito.times(2)).listObjectVersions(pages.capture());
+        assertThat(pages.getAllValues().get(1).keyMarker()).isEqualTo(OBJECT_KEY);
+        assertThat(pages.getAllValues().get(1).versionIdMarker()).isEqualTo("v1");
+        ArgumentCaptor<DeleteObjectsRequest> deletes =
+                ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        then(s3Client).should().deleteObjects(deletes.capture());
+        assertThat(deletes.getValue().delete().objects())
+                .extracting(identifier -> identifier.versionId())
+                .containsExactly("v1", "marker-2");
+    }
+
+    @Test
+    void deleteAllVersionsChunksMoreThanOneThousandIdentifiers() {
+        List<ObjectVersion> versions = java.util.stream.IntStream.rangeClosed(1, 1001)
+                .mapToObj(index -> ObjectVersion.builder()
+                        .key(OBJECT_KEY).versionId("v" + index).build())
+                .toList();
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false).versions(versions).build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder().build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        ArgumentCaptor<DeleteObjectsRequest> deletes =
+                ArgumentCaptor.forClass(DeleteObjectsRequest.class);
+        then(s3Client).should(org.mockito.Mockito.times(2)).deleteObjects(deletes.capture());
+        assertThat(deletes.getAllValues())
+                .extracting(request -> request.delete().objects().size())
+                .containsExactly(1000, 1);
+    }
+
+    @Test
+    void deleteAllVersionsRejectsPartialBatchErrorsWithoutLeakingKey() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .versions(ObjectVersion.builder().key(OBJECT_KEY).versionId("v1").build())
+                        .build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder()
+                        .errors(software.amazon.awssdk.services.s3.model.S3Error.builder()
+                                .key(OBJECT_KEY).versionId("v1")
+                                .code("AccessDenied").message("denied").build())
+                        .build());
+
+        assertThatThrownBy(() -> storage.deleteAllVersions(OBJECT_KEY))
+                .isInstanceOf(StorageProviderRejectedException.class)
+                .hasMessageNotContaining(OBJECT_KEY);
+    }
+
+    @Test
+    void mixedDeleteErrorsPreferRetryableUnavailableClassification() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .versions(ObjectVersion.builder().key(OBJECT_KEY).versionId("v1").build())
+                        .build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder().errors(
+                        software.amazon.awssdk.services.s3.model.S3Error.builder()
+                                .code("AccessDenied").build(),
+                        software.amazon.awssdk.services.s3.model.S3Error.builder()
+                                .code("SlowDown").build()).build());
+
+        assertThatThrownBy(() -> storage.deleteAllVersions(OBJECT_KEY))
+                .isInstanceOf(StorageProviderUnavailableException.class)
+                .hasMessageNotContaining(OBJECT_KEY);
+    }
+
+    @Test
+    void paginationFailureIsUnavailableAndDoesNotContinueDeleting() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(true)
+                        .nextKeyMarker(OBJECT_KEY)
+                        .nextVersionIdMarker("v1")
+                        .versions(ObjectVersion.builder().key(OBJECT_KEY).versionId("v1").build())
+                        .build())
+                .willThrow(SdkClientException.create("network"));
+        assertThatThrownBy(() -> storage.deleteAllVersions(OBJECT_KEY))
+                .isInstanceOf(StorageProviderUnavailableException.class)
+                .hasMessageNotContaining(OBJECT_KEY);
+        then(s3Client).should(org.mockito.Mockito.never())
+                .deleteObjects(any(DeleteObjectsRequest.class));
+    }
+
+    @Test
+    void deleteAllVersionsRetriesMixedErrorsWhenAnyErrorIsTransient() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .versions(ObjectVersion.builder().key(OBJECT_KEY).versionId("v1").build())
+                        .build());
+        given(s3Client.deleteObjects(any(DeleteObjectsRequest.class)))
+                .willReturn(DeleteObjectsResponse.builder()
+                        .errors(
+                                software.amazon.awssdk.services.s3.model.S3Error.builder()
+                                        .code("AccessDenied").build(),
+                                software.amazon.awssdk.services.s3.model.S3Error.builder()
+                                        .code("SlowDown").build())
+                        .build());
+
+        assertThatThrownBy(() -> storage.deleteAllVersions(OBJECT_KEY))
+                .isInstanceOf(StorageProviderUnavailableException.class)
+                .hasMessageNotContaining(OBJECT_KEY);
     }
 
     @Test

@@ -36,6 +36,8 @@ springdoc:
 
 
 app:
+  setlog-upload:
+    require-version-id: ${SETLOG_UPLOAD_REQUIRE_VERSION_ID:true}
   jwt:
     issuer: ${JWT_ISSUER:dogether}
     secret: ${JWT_SECRET}
@@ -61,6 +63,16 @@ app:
     view-url-ttl: ${MEDIA_VIEW_URL_TTL:10m}
     max-upload-bytes: ${MEDIA_MAX_UPLOAD_BYTES:10485760}
     maintenance-delay: ${MEDIA_MAINTENANCE_DELAY:1m}
+  storage-cleanup:
+    enabled: ${STORAGE_CLEANUP_ENABLED:true}
+    delay-ms: ${STORAGE_CLEANUP_DELAY_MS:60000}
+    batch-size: ${STORAGE_CLEANUP_BATCH_SIZE:50}
+    lease: ${STORAGE_CLEANUP_LEASE:5m}
+    max-attempts: ${STORAGE_CLEANUP_MAX_ATTEMPTS:10}
+    max-upload-duration: ${STORAGE_CLEANUP_MAX_UPLOAD_DURATION:20m}
+    upload-settle-grace: ${STORAGE_CLEANUP_UPLOAD_SETTLE_GRACE:30m}
+    base-backoff: ${STORAGE_CLEANUP_BASE_BACKOFF:30s}
+    max-backoff: ${STORAGE_CLEANUP_MAX_BACKOFF:6h}
   bootstrap-admin:
     enabled: ${INITIAL_ADMIN_ENABLED:false}
     email: ${INITIAL_ADMIN_EMAIL:}

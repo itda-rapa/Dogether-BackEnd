@@ -21,15 +21,20 @@ import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.dto.GreetingResponse;
 import itda.greeting.repository.GreetingRepository;
+import itda.interaction.dto.InteractionPairContext;
+import itda.interaction.dto.LockedPetContext;
+import itda.interaction.dto.LockedUserContext;
+import itda.interaction.service.InteractionPairLockService;
 import itda.media.domain.MediaStatus;
 import itda.pet.domain.Pet;
+import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
 import itda.setlog.domain.Setlog;
 import itda.setlog.domain.SetlogStatus;
 import itda.setlog.repository.SetlogRepository;
-import itda.user.domain.User;
+import itda.user.domain.AccountStatus;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -62,6 +67,8 @@ class GreetingServiceTest {
     @Mock
     private ActivePetQueryService activePetQueryService;
     @Mock
+    private InteractionPairLockService interactionPairLockService;
+    @Mock
     private BlockRelationshipQueryService blockRelationshipQueryService;
     @Mock
     private ChatRoomService chatRoomService;
@@ -77,6 +84,7 @@ class GreetingServiceTest {
                 setlogRepository,
                 petRepository,
                 activePetQueryService,
+                interactionPairLockService,
                 blockRelationshipQueryService,
                 chatRoomService,
                 chatMessageService,
@@ -174,8 +182,10 @@ class GreetingServiceTest {
 
     @Test
     void sameOwnerGreetingIsRejected() {
-        Fixture fixture = stubAllowedGreeting();
-        given(fixture.toOwner().getId()).willReturn(USER_ID);
+        stubAllowedGreeting();
+        given(interactionPairLockService.lockInteractionPair(
+                FROM_PET_ID, TO_PET_ID
+        )).willReturn(pair(USER_ID, PetStatus.ACTIVE, null));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,
@@ -191,6 +201,68 @@ class GreetingServiceTest {
                 );
     }
 
+    @Test
+    void blockedAuthorGreetingIsRejected() {
+        stubAllowedGreeting();
+        given(blockRelationshipQueryService.existsBlockBetween(
+                USER_ID, TO_USER_ID
+        )).willReturn(true);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> greetingService.send(USER_ID, SETLOG_ID)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.BLOCKED_USER);
+        then(greetingRepository).shouldHaveNoInteractions();
+        then(chatRoomService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void deletedAuthorPetGreetingIsRejectedAsNotFound() {
+        stubAllowedGreeting();
+        given(interactionPairLockService.lockInteractionPair(
+                FROM_PET_ID, TO_PET_ID
+        )).willReturn(pair(TO_USER_ID, PetStatus.DELETED, NOW));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> greetingService.send(USER_ID, SETLOG_ID)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ErrorCode.SETLOG_NOT_FOUND);
+        then(chatRoomService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void nonInteractableSetlogGreetingIsReportedAsNotFound() {
+        ActivePetContext activePet = new ActivePetContext(
+                FROM_PET_ID, USER_ID, "나#A7K2", "나", null, false
+        );
+        given(activePetQueryService.requireActivePet(USER_ID))
+                .willReturn(activePet);
+        given(setlogRepository.findAuthorPetIdById(SETLOG_ID))
+                .willReturn(Optional.of(TO_PET_ID));
+        given(interactionPairLockService.lockInteractionPair(
+                FROM_PET_ID, TO_PET_ID
+        )).willReturn(pair(TO_USER_ID, PetStatus.ACTIVE, null));
+        given(setlogRepository.findInteractableByIdForUpdate(
+                SETLOG_ID,
+                SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
+        )).willReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> greetingService.send(USER_ID, SETLOG_ID)
+        );
+
+        assertThat(exception.getErrorCode())
+                .isEqualTo(ErrorCode.SETLOG_NOT_FOUND);
+        then(greetingRepository).shouldHaveNoInteractions();
+    }
+
     private Fixture stubAllowedGreeting() {
         ActivePetContext activePet = new ActivePetContext(
                 FROM_PET_ID,
@@ -202,36 +274,58 @@ class GreetingServiceTest {
         );
         Pet fromPet = mock(Pet.class);
         Pet toPet = mock(Pet.class);
-        User toOwner = mock(User.class);
         Setlog setlog = mock(Setlog.class);
 
-        given(activePetQueryService.requireActivePet(USER_ID))
-                .willReturn(activePet);
-        given(petRepository.findByIdForUpdate(FROM_PET_ID))
-                .willReturn(Optional.of(fromPet));
+        lenient().when(activePetQueryService.requireActivePet(USER_ID))
+                .thenReturn(activePet);
+        lenient().when(setlogRepository.findAuthorPetIdById(SETLOG_ID))
+                .thenReturn(Optional.of(TO_PET_ID));
+        lenient().when(interactionPairLockService.lockInteractionPair(
+                FROM_PET_ID, TO_PET_ID
+        )).thenReturn(pair(TO_USER_ID, PetStatus.ACTIVE, null));
+        lenient().when(petRepository.findById(FROM_PET_ID))
+                .thenReturn(Optional.of(fromPet));
         lenient().when(fromPet.getId()).thenReturn(FROM_PET_ID);
-        given(setlogRepository.findVisibleSeedById(
+        lenient().when(setlogRepository.findInteractableByIdForUpdate(
                 SETLOG_ID,
                 SetlogStatus.VISIBLE,
                 List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
-        )).willReturn(Optional.of(setlog));
-        given(setlog.getAuthorPet()).willReturn(toPet);
+        )).thenReturn(Optional.of(setlog));
+        lenient().when(setlog.getAuthorPet()).thenReturn(toPet);
         lenient().when(toPet.getId()).thenReturn(TO_PET_ID);
-        given(toPet.isActive()).willReturn(true);
-        given(toPet.getOwner()).willReturn(toOwner);
-        given(toOwner.getId()).willReturn(TO_USER_ID);
         lenient().when(blockRelationshipQueryService.existsBlockBetween(
                 USER_ID,
                 TO_USER_ID
         )).thenReturn(false);
 
-        return new Fixture(fromPet, toPet, toOwner, setlog);
+        return new Fixture(fromPet, toPet, setlog);
+    }
+
+    private InteractionPairContext pair(
+            Long targetOwnerId,
+            PetStatus targetStatus,
+            Instant targetDeletedAt
+    ) {
+        return new InteractionPairContext(
+                new LockedUserContext(
+                        USER_ID, AccountStatus.ACTIVE, FROM_PET_ID, "나#A7K2"
+                ),
+                new LockedUserContext(
+                        targetOwnerId, AccountStatus.ACTIVE, TO_PET_ID,
+                        "상대#B7K2"
+                ),
+                new LockedPetContext(
+                        FROM_PET_ID, USER_ID, PetStatus.ACTIVE, null
+                ),
+                new LockedPetContext(
+                        TO_PET_ID, targetOwnerId, targetStatus, targetDeletedAt
+                )
+        );
     }
 
     private record Fixture(
             Pet fromPet,
             Pet toPet,
-            User toOwner,
             Setlog setlog
     ) {
     }

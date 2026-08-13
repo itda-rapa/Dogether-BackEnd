@@ -19,16 +19,16 @@ import itda.greeting.dto.GreetingResponse;
 import itda.greeting.service.GreetingService;
 import itda.setlog.domain.ReactionType;
 import itda.setlog.dto.SetlogAuthorPetResponse;
-import itda.setlog.dto.SetlogCreateRequest;
-import itda.setlog.dto.SetlogCreateResponse;
 import itda.setlog.dto.SetlogReactionResponse;
 import itda.setlog.dto.SetlogResponse;
 import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.domain.SetlogStatus;
-import itda.setlog.service.SetlogCreationService;
 import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
 import itda.setlog.service.SetlogUploadSessionService;
+import itda.setlog.service.SetlogUploadCompletionService;
+import itda.setlog.service.SetlogDeleteService;
+import itda.setlog.dto.SetlogUploadCompleteRequest;
 import itda.setlog.dto.SetlogUploadCreateRequest;
 import itda.setlog.dto.SetlogUploadCreateResponse;
 import java.util.Map;
@@ -67,10 +67,13 @@ class SetlogControllerTest {
     private SetlogReactionService setlogReactionService;
 
     @MockitoBean
-    private SetlogCreationService setlogCreationService;
+    private SetlogUploadSessionService setlogUploadSessionService;
 
     @MockitoBean
-    private SetlogUploadSessionService setlogUploadSessionService;
+    private SetlogUploadCompletionService setlogUploadCompletionService;
+
+    @MockitoBean
+    private SetlogDeleteService setlogDeleteService;
 
     @MockitoBean
     private GreetingService greetingService;
@@ -97,45 +100,6 @@ class SetlogControllerTest {
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
-    }
-
-    @Test
-    @DisplayName("POST /setlogs는 업로드된 영상으로 셋로그를 생성한다")
-    void createSetlogReturnsCreated() throws Exception {
-        Instant createdAt = Instant.parse("2026-07-30T01:00:00Z");
-        given(setlogCreationService.create(
-                USER_ID,
-                new SetlogCreateRequest(30L, "같이 놀아요")
-        )).willReturn(new SetlogCreateResponse(
-                SETLOG_ID,
-                20L,
-                30L,
-                "같이 놀아요",
-                SetlogStatus.VISIBLE,
-                createdAt
-        ));
-
-        mockMvc.perform(post("/setlogs")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "mediaId": 30,
-                                  "caption": "같이 놀아요"
-                                }
-                                """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.setlogId")
-                        .value(SETLOG_ID))
-                .andExpect(jsonPath("$.data.authorPetId").value(20L))
-                .andExpect(jsonPath("$.data.mediaId").value(30L))
-                .andExpect(jsonPath("$.data.status")
-                        .value("VISIBLE"));
-
-        then(setlogCreationService).should().create(
-                USER_ID,
-                new SetlogCreateRequest(30L, "같이 놀아요")
-        );
     }
 
     @Test
@@ -167,6 +131,8 @@ class SetlogControllerTest {
                                 }
                                 """))
                 .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.uploadId").value(uploadId.toString()))
                 .andExpect(jsonPath("$.data.uploadUrl").value("https://storage.example/upload"))
@@ -174,6 +140,80 @@ class SetlogControllerTest {
                 .andExpect(jsonPath("$.data.expiresAt").value(expiresAt.toString()));
 
         then(setlogUploadSessionService).should().create(USER_ID, request);
+    }
+
+    @Test
+    @DisplayName("POST complete 최초 요청은 USER 셋로그를 201로 반환한다")
+    void completeUploadReturnsCreated() throws Exception {
+        UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
+        UUID requestId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId))
+                .willReturn(new SetlogUploadCompletionService.CompletionResult(
+                        completedResponse(), false));
+
+        mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", uploadId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"clientRequestId":"550e8400-e29b-41d4-a716-446655440000"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.setlogId").value(SETLOG_ID))
+                .andExpect(jsonPath("$.data.source").value("USER"));
+
+        then(setlogUploadCompletionService).should().complete(USER_ID, uploadId, requestId);
+    }
+
+    @Test
+    @DisplayName("POST complete 동일 멱등 요청은 기존 셋로그를 200으로 반환한다")
+    void replayCompleteUploadReturnsOk() throws Exception {
+        UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
+        UUID requestId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId))
+                .willReturn(new SetlogUploadCompletionService.CompletionResult(
+                        completedResponse(), true));
+
+        mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", uploadId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"clientRequestId":"550e8400-e29b-41d4-a716-446655440000"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.data.setlogId").value(SETLOG_ID));
+    }
+
+    @Test
+    @DisplayName("POST complete는 clientRequestId가 없으면 400을 반환한다")
+    void completeUploadRequiresClientRequestId() throws Exception {
+        mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+
+        then(setlogUploadCompletionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("기존 POST /setlogs HEAD 우회 경로는 제거된다")
+    void directSetlogCreationRouteIsRemoved() throws Exception {
+        mockMvc.perform(post("/setlogs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mediaId\":30}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("DELETE /setlogs/{setlogId}는 작성자의 셋로그를 204로 삭제한다")
+    void deleteSetlogReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/setlogs/{setlogId}", SETLOG_ID))
+                .andExpect(status().isNoContent());
+
+        then(setlogDeleteService).should().delete(USER_ID, SETLOG_ID);
     }
 
     @Test
@@ -225,23 +265,6 @@ class SetlogControllerTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.error.code")
                         .value(ErrorCode.UPLOAD_CONTENT_TYPE_UNSUPPORTED.name()));
-    }
-
-    @Test
-    @DisplayName("POST /setlogs는 mediaId가 없으면 400을 반환한다")
-    void createSetlogRejectsMissingMediaId() throws Exception {
-        mockMvc.perform(post("/setlogs")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "caption": "같이 놀아요"
-                                }
-                                """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code")
-                        .value(ErrorCode.VALIDATION_FAILED.name()));
-
-        then(setlogCreationService).shouldHaveNoInteractions();
     }
 
     @Test
@@ -396,6 +419,25 @@ class SetlogControllerTest {
                 List.of(ReactionType.CUTE),
                 true,
                 Instant.parse("2026-07-30T01:00:00Z")
+        );
+    }
+
+    private SetlogResponse completedResponse() {
+        return new SetlogResponse(
+                SETLOG_ID,
+                itda.setlog.dto.SetlogSource.USER,
+                new SetlogAuthorPetResponse(
+                        20L, "몽이#A7K2", "몽이", null, false,
+                        FriendRelationship.NONE
+                ),
+                "https://example.com/user.mp4",
+                Instant.parse("2026-08-12T01:10:00Z"),
+                null,
+                0,
+                0,
+                List.of(),
+                false,
+                Instant.parse("2026-08-12T01:00:00Z")
         );
     }
 }

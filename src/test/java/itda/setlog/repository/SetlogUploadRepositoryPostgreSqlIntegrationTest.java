@@ -105,4 +105,35 @@ class SetlogUploadRepositoryPostgreSqlIntegrationTest {
                 """, UUID.randomUUID(), Long.MAX_VALUE, petId, "setlogs/invalid/" + UUID.randomUUID()))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    void persistsVerifiedObjectMetadataIncludingVersionId() {
+        Long mediaId = jdbcTemplate.queryForObject("""
+                insert into media (
+                    media_type, path, status, user_id, file_size,
+                    content_type, etag, object_version_id,
+                    storage_last_modified, verified_at,
+                    created_at, updated_at
+                ) values (
+                    'VIDEO', ?, 'COMPLETED', ?, 1024,
+                    'video/mp4', 'etag-7', 'version-7',
+                    '2026-08-12T01:00:00Z', '2026-08-12T01:01:00Z',
+                    now(), now()
+                ) returning id
+                """, Long.class, "setlogs/%d/%d/video.mp4".formatted(userId, petId), userId);
+
+        var row = jdbcTemplate.queryForMap("""
+                select content_type, etag, object_version_id,
+                       storage_last_modified, verified_at
+                  from media
+                 where id = ?
+                """, mediaId);
+
+        assertThat(row)
+                .containsEntry("content_type", "video/mp4")
+                .containsEntry("etag", "etag-7")
+                .containsEntry("object_version_id", "version-7");
+        assertThat(row.get("storage_last_modified")).isNotNull();
+        assertThat(row.get("verified_at")).isNotNull();
+    }
 }

@@ -17,6 +17,19 @@ import org.springframework.data.repository.query.Param;
 
 public interface SetlogRepository extends JpaRepository<Setlog, Long> {
 
+    @Query("select setlog.authorPet.id from Setlog setlog where setlog.id = :setlogId")
+    Optional<Long> findAuthorPetIdById(@Param("setlogId") Long setlogId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select setlog from Setlog setlog
+              join fetch setlog.authorPet pet
+              join fetch pet.owner owner
+              join fetch setlog.media media
+             where setlog.id = :setlogId
+            """)
+    Optional<Setlog> findByIdForDelete(@Param("setlogId") Long setlogId);
+
     boolean existsByMedia_Id(Long mediaId);
 
     @Query("""
@@ -122,11 +135,14 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
               join fetch authorPet.owner
               join fetch setlog.media media
              where setlog.id = :setlogId
-               and setlog.seed = true
                and setlog.status = :status
                and media.status in :mediaStatuses
+               and media.deletedAt is null
+               and authorPet.status = itda.pet.domain.PetStatus.ACTIVE
+               and authorPet.deletedAt is null
+               and authorPet.owner.accountStatus = itda.user.domain.AccountStatus.ACTIVE
             """)
-    Optional<Setlog> findVisibleSeedByIdForUpdate(
+    Optional<Setlog> findInteractableByIdForUpdate(
             @Param("setlogId") Long setlogId,
             @Param("status") SetlogStatus status,
             @Param("mediaStatuses") List<MediaStatus> mediaStatuses
@@ -139,11 +155,14 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
               join fetch authorPet.owner
               join fetch setlog.media media
              where setlog.id = :setlogId
-               and setlog.seed = true
                and setlog.status = :status
                and media.status in :mediaStatuses
+               and media.deletedAt is null
+               and authorPet.status = itda.pet.domain.PetStatus.ACTIVE
+               and authorPet.deletedAt is null
+               and authorPet.owner.accountStatus = itda.user.domain.AccountStatus.ACTIVE
             """)
-    Optional<Setlog> findVisibleSeedById(
+    Optional<Setlog> findInteractableById(
             @Param("setlogId") Long setlogId,
             @Param("status") SetlogStatus status,
             @Param("mediaStatuses") List<MediaStatus> mediaStatuses

@@ -41,6 +41,21 @@ public class Media extends BaseEntity {
     @Column
     private Long fileSize; // 업로드 파일 크기
 
+    @Column(name = "content_type", length = 100)
+    private String contentType;
+
+    @Column(length = 512)
+    private String etag;
+
+    @Column(name = "object_version_id", length = 1024)
+    private String objectVersionId;
+
+    @Column(name = "storage_last_modified")
+    private Instant storageLastModified;
+
+    @Column(name = "verified_at")
+    private Instant verifiedAt;
+
     @Column
     private Instant deletedAt;
     //
@@ -80,5 +95,31 @@ public class Media extends BaseEntity {
     }
     public void updateAttributes(Map<String, Object> attributes) {
         this.attributes = attributes;
+    }
+
+    public static Media verifiedVideo(
+            String path,
+            Long userId,
+            long fileSize,
+            String contentType,
+            String etag,
+            String objectVersionId,
+            Instant storageLastModified,
+            Instant verifiedAt
+    ) {
+        Media media = new Media(MediaType.VIDEO, path, userId, fileSize);
+        media.status = MediaStatus.COMPLETED;
+        media.contentType = contentType;
+        media.etag = etag;
+        media.objectVersionId = objectVersionId;
+        media.storageLastModified = storageLastModified;
+        media.verifiedAt = verifiedAt;
+        return media;
+    }
+
+    public void markDeleted(Instant deletedAt) {
+        if (this.deletedAt == null) {
+            this.deletedAt = java.util.Objects.requireNonNull(deletedAt);
+        }
     }
 }

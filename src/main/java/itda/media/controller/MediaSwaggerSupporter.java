@@ -16,6 +16,7 @@ import itda.media.dto.uploaddto.MediaInitResponse;
 import itda.media.dto.uploaddto.MediaResponse;
 import itda.media.dto.uploaddto.MediaUploadedRequest;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 @Tag(name = "Media", description = "미디어 관련 API")
 @SecurityRequirement(name = "bearerAuth")
@@ -126,7 +127,8 @@ public interface MediaSwaggerSupporter {
                             """)
             )
     )
-    ApiResponse<PresignedUrlResponse> getPresignedUrl(
+    ResponseEntity<ApiResponse<PresignedUrlResponse>> getPresignedUrl(
+            @Parameter(hidden = true) CurrentUser user,
             @Parameter(description = "미디어 ID") Long id
     );
 }
