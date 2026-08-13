@@ -27,6 +27,8 @@ import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.repository.GreetingRepository;
+import itda.pet.domain.Pet;
+import itda.pet.repository.PetRepository;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +58,9 @@ class ChatMessageServiceTest {
     private GreetingRepository greetingRepository;
 
     @Mock
+    private PetRepository petRepository;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     private ChatMessageService chatMessageService;
@@ -67,6 +72,7 @@ class ChatMessageServiceTest {
                 chatRoomRepository,
                 participantRepository,
                 greetingRepository,
+                petRepository,
                 eventPublisher
         );
     }
@@ -143,12 +149,18 @@ class ChatMessageServiceTest {
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
                 .thenReturn(upsert);
         when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
+        Pet sender = mock(Pet.class);
+        when(sender.getNickname()).thenReturn("Mong");
+        when(petRepository.findById(10L)).thenReturn(Optional.of(sender));
 
         ChatMessageResult result = chatMessageService.sendText(1L, 10L, request("idem-2", "hello"));
 
         assertThat(result.created()).isTrue();
         assertThat(result.message().getId()).isEqualTo(2L);
         verify(chatRoomRepository).activateAndTouchLastMessageAt(1L);
+        verify(eventPublisher).publishEvent(org.mockito.ArgumentMatchers.<Object>argThat(event ->
+                event instanceof itda.chat.event.ChatMessageCommittedEvent committed
+                        && "Mong".equals(committed.message().senderPetNickname())));
     }
 
     @Test

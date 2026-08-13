@@ -16,6 +16,8 @@ import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.repository.GreetingRepository;
+import itda.pet.domain.Pet;
+import itda.pet.repository.PetRepository;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,6 +37,7 @@ public class ChatMessageService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomParticipantRepository participantRepository;
     private final GreetingRepository greetingRepository;
+    private final PetRepository petRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     /**
@@ -181,10 +184,19 @@ public class ChatMessageService {
             chatRoomRepository.activateAndTouchLastMessageAt(roomId);
             eventPublisher.publishEvent(new ChatMessageCommittedEvent(
                     message.getRoom().getType(),
-                    ChatMessageResponse.from(message)
+                    ChatMessageResponse.from(message, senderPetNickname(message.getSenderPetId()))
             ));
         }
         return new ChatMessageResult(message, created);
+    }
+
+    private String senderPetNickname(Long senderPetId) {
+        if (senderPetId == null) {
+            return null;
+        }
+        return petRepository.findById(senderPetId)
+                .map(Pet::getNickname)
+                .orElse(null);
     }
 
     /**

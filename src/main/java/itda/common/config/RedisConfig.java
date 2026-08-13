@@ -148,11 +148,11 @@ public class RedisConfig {
     @Bean(name = "redisTemplate")
     @Profile("test")
     public RedisTemplate<Object, Object> testRedisTemplate(
-            @Qualifier("chatAuthorizationRedisConnectionFactory")
-            RedisConnectionFactory chatAuthorizationRedisConnectionFactory
+            @Qualifier("emailRedisConnectionFactory")
+            RedisConnectionFactory emailRedisConnectionFactory
     ) {
         RedisTemplate<Object, Object> template = new RedisTemplate<>();
-        template.setConnectionFactory(chatAuthorizationRedisConnectionFactory);
+        template.setConnectionFactory(emailRedisConnectionFactory);
         return template;
     }
 }
