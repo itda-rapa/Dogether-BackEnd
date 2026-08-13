@@ -1,8 +1,8 @@
 # 같이놀개 M2 마일스톤·WBS
 
-> 상태: **초안 — 채팅·제안(BE-2·BE-4) 외 항목은 담당·일정 미배정**
+> 상태: **계획 갱신본 — M2-002는 PR #67 리뷰·병합 대기이며, 나머지 항목은 담당·일정 미배정 또는 계획 상태**
 > 기준일: 2026-08-07
-> 저장소 기준: `dev` `ec16ecd`(PR #62 머지 시점). 이 문서의 구현 상태 판정은 전부 이 커밋을 본 것이다. 코드 대조는 `d27f3ac`에서 시작했고 `ec16ecd`로 갱신하며 영향받는 서술을 다시 확인했다.
+> **과거 조사 이력:** 이 문서의 초기 저장소 대조는 `dev` `ec16ecd`(PR #62 머지 시점)와 그 이전 `d27f3ac`에서 수행됐다. 아래에 남은 SHA·파일 수·테스트 수치는 당시 조사 근거일 뿐 현재 구현·PR 상태 판정에는 쓰지 않는다. 현재 상태는 각 작업 행과 해당 PR을 기준으로 재확인한다.
 > 목표일: 미정(팀 합의 필요)
 > 범위: `00_최신_제품정책.md`의 M2 8개 항목과, 정책 문서 반영 대기 중인 아침 리마인드(UC-07)를 다룬다. 실제 진행 상태가 있는 채팅/실시간 인프라와 UC-07만 상세 WBS로 관리하고, 나머지는 뼈대만 세우고 담당자 배정 이후 갱신한다.
 > 상태 기준: 현재 Git 저장소의 구현·PR 상태를 기준으로 판정한다.
@@ -533,7 +533,7 @@ BE-2/BE-4는 `06_M2_WebSocket_계약.md` **9. BE-2 / BE-4 책임 경계**의 세
 | 작업 ID | 분류 | 주담당 | 선행 | 산출물·완료 기준 | 상태 |
 |---|---|---|---|---|---|
 | M2-001 | 계약 | BE-2 | 없음 | DIRECT WebSocket 계약 문서(`06_M2_WebSocket_계약.md`), BE-4·프론트 리뷰 | 초안 — PR #54 OPEN |
-| M2-002 | 채팅 | BE-2 | M2-001 | DIRECT WebSocket Controller·`WebSocketConfig`·CONNECT JWT 인터셉터·개인 큐 발행 Gateway 구현. **destination 인가 allowlist(`06` §2.1), access token `exp` 기반 세션 예약 종료(`06` §3 항목 7), 그리고 인터셉터 거부와 STOMP 파싱 오류가 같은 `{code, message}` ERROR body를 내도록 하는 protocol error handler 구성(`06` §7)을 포함한다.** `org.springframework.boot:spring-boot-starter-websocket:4.1.0`이 `d27f3ac`의 `build.gradle`에 없어 의존성 추가부터 시작한다(아티팩트 이름은 Boot 4.1에서도 동일하며 Gradle 캐시에 존재함을 확인). 이 스타터가 들어오면 `spring-boot-websocket` 모듈의 `WebSocketMessagingAutoConfiguration`이 애플리케이션 `JsonMapper`를 메시지 컨버터에 연결하므로 **직렬화는 별도 배선이 필요 없고, 컨버터를 직접 갈아끼우지 않는 것이 요구사항이다.** 함께 필요한 것: `SecurityConfig`의 `permitAll`에 `/ws` 추가, STOMP 엔드포인트 allowed origin을 `CorsProperties`에서 가져오기(`06_M2_WebSocket_계약.md` §3) | 미착수 — 브랜치 `feature/ws-chat-realtime-foundation-58` 생성됨(코드 없음) |
+| M2-002 | 채팅 | BE-2 | M2-001 | DIRECT WebSocket Controller·`WebSocketConfig`·CONNECT JWT 인터셉터·개인 큐 발행 Gateway 구현. **destination 인가 allowlist(`06` §2.1), access token `exp` 기반 세션 예약 종료(`06` §3 항목 7), 그리고 인터셉터 거부와 STOMP 파싱 오류가 같은 `{code, message}` ERROR body를 내도록 하는 protocol error handler 구성(`06` §7)을 포함한다.** `SecurityConfig`의 `permitAll`에 `/ws`를 등록하고 STOMP 엔드포인트 allowed origin은 `CorsProperties`에서 가져온다(`06_M2_WebSocket_계약.md` §3). | 구현 진행 — PR #67 리뷰·병합 대기 |
 | M2-003 | 그룹채팅 | BE-4 | **G-M2-I**(§6) | GROUP REST 도메인(Entity·참여자·나가기, REST API). WebSocket 계약과 독립적으로 먼저 설계 가능 | 미착수 |
 | M2-004 | 그룹채팅 | BE-4 | M2-002, M2-003 | GROUP WebSocket destination, Kafka consumer, `roomId` partition key 확정. `M2-008`의 공용 `KafkaTemplate` 재사용 여부를 여기서 결정한다 — 현재 value serializer가 `StringSerializer`라 String 외 페이로드는 그대로 못 보낸다(`06_M2_WebSocket_계약.md` §9) | 미착수 |
 | M2-005 | 검열 | 미배정 | M2-003 | 대화 맥락 검열 대상에 GROUP 포함 여부 결정, 계약 초안. 검열 기능 전체는 §2.2의 미배정 항목이며 여기서는 GROUP 경계만 다룬다 | 미착수 |
@@ -678,7 +678,7 @@ Gate가 없는 작업은 `M2-001`·`M2-002`(정본이 `06_M2_WebSocket_계약.md
 |---|---|---|
 | WebSocket 다중 replica 방안 미확정(M2-006) | `replicas=1` 전제가 배포 규모 확장을 막음 | `M2-008`의 `RedisConfig`·`KafkaProducerConfig`를 그대로 재사용할 수 없다는 점을 배포 문서에 명시하고, 필요 시점 이전에 BE-2·BE-4가 별도 설계 착수 |
 | GROUP 도메인 미착수 상태에서 Kafka producer bean만 먼저 존재(`M2-008`) | `KafkaTemplate<String, Object>`인데 value serializer가 `StringSerializer`라 String 아닌 페이로드는 런타임에 실패. 다른 도메인이 이를 모르고 재사용하면 배포 후에야 드러남 | M2-004에서 serializer 방식을 확정하고, GROUP 전용 설정이 필요하면 그때 분리. 확정 전까지 다른 도메인의 재사용 금지 |
-| PR #54 브랜치(`docs/chat-websocket-contract-53`)가 `4604034` 기반이라 dev보다 두 단계 낡음 | 이 문서와 계약 문서가 인용하는 `ChatRoomLifecycleScheduler`·`RedisConfig`·`KafkaProducerConfig`가 그 브랜치 트리에는 없어 리뷰어가 근거를 확인할 수 없음 | 머지 전 dev(`d27f3ac`) 반영. 문서 검증은 dev 기준으로만 수행 |
+
 | `M1-038` 채팅방 수명주기 배치(물리 삭제)와 WebSocket 세션 생존 구간이 겹침 | 구독 중인 방이 배치로 사라져도 클라이언트가 즉시 알 수 없음 | `06_M2_WebSocket_계약.md` §4·§10에 명시한 대로 **단건 조회(`GET /chat/rooms/{roomId}`)가 `404`인지로 판정**하고, 실시간 알림을 추가로 구현하지 않음. 방 목록은 커서 페이지네이션이라 특정 방의 소멸 판정에 쓸 수 없다 |
 | `04_M1_마일스톤_WBS.md`가 두 곳에서 낡음 — `M1-038` 상태가 "미착수"인데 실제로는 PR #50(2026-08-06)으로 완료, 그리고 마지막 문단이 M2 후속 항목에 React Native를 넣어 둠 | M1 WBS를 신뢰해 이 문서의 전제나 M2 범위를 잘못 판단할 위험 | 이 문서가 아닌 M1 WBS 자체를 별도 PR로 갱신 필요 — §2.1·§2.2에 교차 기록만 남김 |
 | 7개 항목(Google 로그인·GPS·셋로그 업로드·지도/장소·만남 확인·후기/발자국·대화 맥락 검열) 담당·일정 미배정 | M2 전체 일정 추정 불가 | 팀 회의에서 담당자·우선순위 배정 후 이 문서의 §2.2·§4를 갱신 |
