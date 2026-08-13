@@ -37,7 +37,8 @@ public class SetlogUploadCompletionService {
     public CompletionResult complete(
             Long ownerUserId,
             UUID uploadId,
-            UUID requestId
+            UUID requestId,
+            String caption
     ) {
         if (ownerUserId == null || uploadId == null || requestId == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
@@ -58,6 +59,7 @@ public class SetlogUploadCompletionService {
                         ownerUserId,
                         uploadId,
                         requestId,
+                        caption,
                         metadata,
                         Instant.now()
                 );
@@ -90,7 +92,7 @@ public class SetlogUploadCompletionService {
                 ),
                 download.url(),
                 download.expiresAt(),
-                null,
+                completed.caption(),
                 0,
                 0,
                 List.of(),

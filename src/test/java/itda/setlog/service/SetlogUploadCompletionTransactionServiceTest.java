@@ -77,6 +77,7 @@ class SetlogUploadCompletionTransactionServiceTest {
 
         var result = service.finalizeUpload(
                 OWNER_ID, UPLOAD_ID, REQUEST_ID,
+                null,
                 new ObjectMetadata(1024L, "video/mp4", "etag", NOW, versionId),
                 NOW
         );
@@ -120,7 +121,7 @@ class SetlogUploadCompletionTransactionServiceTest {
         );
 
         SetlogUploadCompletionTransactionService.CompletionAttempt result =
-                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, wrongSize, NOW);
+                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, null, wrongSize, NOW);
 
         assertThat(result.failure()).isEqualTo(ErrorCode.SETLOG_UPLOAD_METADATA_MISMATCH);
         assertThat(upload.getStatus()).isEqualTo(SetlogUploadStatus.REJECTED);
@@ -137,7 +138,7 @@ class SetlogUploadCompletionTransactionServiceTest {
         );
 
         SetlogUploadCompletionTransactionService.CompletionAttempt result =
-                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, wrongType, NOW);
+                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, null, wrongType, NOW);
 
         assertThat(result.failure()).isEqualTo(ErrorCode.SETLOG_UPLOAD_METADATA_MISMATCH);
         assertThat(upload.getStatus()).isEqualTo(SetlogUploadStatus.REJECTED);
@@ -158,11 +159,12 @@ class SetlogUploadCompletionTransactionServiceTest {
         given(persistedMedia.getObjectVersionId()).willReturn(null);
         given(persistedSetlog.getId()).willReturn(77L);
         given(persistedSetlog.getCreatedAt()).willReturn(NOW);
+        given(persistedSetlog.getCaption()).willReturn(null);
         given(mediaRepository.saveAndFlush(any(Media.class))).willReturn(persistedMedia);
         given(setlogRepository.saveAndFlush(any(Setlog.class))).willReturn(persistedSetlog);
 
         SetlogUploadCompletionTransactionService.CompletionAttempt result =
-                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, metadata, NOW);
+                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, null, metadata, NOW);
 
         assertThat(result.failure()).isNull();
         assertThat(upload.getStatus()).isEqualTo(SetlogUploadStatus.COMPLETED);
@@ -178,7 +180,7 @@ class SetlogUploadCompletionTransactionServiceTest {
         stubOwned(upload);
 
         SetlogUploadCompletionTransactionService.CompletionAttempt result =
-                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, null, NOW);
+                service.finalizeUpload(OWNER_ID, UPLOAD_ID, REQUEST_ID, null, null, NOW);
 
         assertThat(result.failure()).isEqualTo(ErrorCode.SETLOG_UPLOAD_METADATA_MISMATCH);
         assertThat(upload.getStatus()).isEqualTo(SetlogUploadStatus.REJECTED);
@@ -194,6 +196,7 @@ class SetlogUploadCompletionTransactionServiceTest {
         given(persistedMedia.getObjectVersionId()).willReturn("v7");
         given(persistedSetlog.getId()).willReturn(77L);
         given(persistedSetlog.getCreatedAt()).willReturn(NOW);
+        given(persistedSetlog.getCaption()).willReturn("설명 캡션");
         given(mediaRepository.saveAndFlush(any(Media.class))).willReturn(persistedMedia);
         given(setlogRepository.saveAndFlush(any(Setlog.class))).willReturn(persistedSetlog);
 
@@ -202,12 +205,14 @@ class SetlogUploadCompletionTransactionServiceTest {
                         OWNER_ID,
                         UPLOAD_ID,
                         REQUEST_ID,
+                        "설명 캡션",
                         new ObjectMetadata(1024L, "video/mp4", "etag", NOW, "v7"),
                         NOW
                 );
 
         assertThat(attempt.failure()).isNull();
         assertThat(attempt.completed().setlogId()).isEqualTo(77L);
+        assertThat(attempt.completed().caption()).isEqualTo("설명 캡션");
         assertThat(attempt.completed().replayed()).isFalse();
         assertThat(upload.getStatus()).isEqualTo(SetlogUploadStatus.COMPLETED);
         assertThat(upload.getCompletionRequestId()).isEqualTo(REQUEST_ID);
@@ -227,6 +232,7 @@ class SetlogUploadCompletionTransactionServiceTest {
         given(media.getObjectVersionId()).willReturn(null);
         given(setlog.getId()).willReturn(77L);
         given(setlog.getCreatedAt()).willReturn(NOW);
+        given(setlog.getCaption()).willReturn("최초 캡션");
         upload.complete(REQUEST_ID, media, setlog, NOW);
         stubOwned(upload);
 
@@ -235,6 +241,7 @@ class SetlogUploadCompletionTransactionServiceTest {
 
         assertThat(replay.isReplay()).isTrue();
         assertThat(replay.replay().setlogId()).isEqualTo(77L);
+        assertThat(replay.replay().caption()).isEqualTo("최초 캡션");
         assertThat(replay.replay().replayed()).isTrue();
 
         assertError(() -> service.prepare(

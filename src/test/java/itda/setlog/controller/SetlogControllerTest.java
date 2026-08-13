@@ -147,23 +147,24 @@ class SetlogControllerTest {
     void completeUploadReturnsCreated() throws Exception {
         UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
         UUID requestId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
-        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId))
+        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId, "오늘 산책"))
                 .willReturn(new SetlogUploadCompletionService.CompletionResult(
-                        completedResponse(), false));
+                        completedResponse("오늘 산책"), false));
 
         mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", uploadId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"clientRequestId":"550e8400-e29b-41d4-a716-446655440000"}
+                                {"clientRequestId":"550e8400-e29b-41d4-a716-446655440000","caption":"  오늘 산책  "}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
                         .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.setlogId").value(SETLOG_ID))
-                .andExpect(jsonPath("$.data.source").value("USER"));
+                .andExpect(jsonPath("$.data.source").value("USER"))
+                .andExpect(jsonPath("$.data.caption").value("오늘 산책"));
 
-        then(setlogUploadCompletionService).should().complete(USER_ID, uploadId, requestId);
+        then(setlogUploadCompletionService).should().complete(USER_ID, uploadId, requestId, "오늘 산책");
     }
 
     @Test
@@ -171,7 +172,7 @@ class SetlogControllerTest {
     void replayCompleteUploadReturnsOk() throws Exception {
         UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
         UUID requestId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
-        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId))
+        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId, null))
                 .willReturn(new SetlogUploadCompletionService.CompletionResult(
                         completedResponse(), true));
 
@@ -196,6 +197,61 @@ class SetlogControllerTest {
                 .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
 
         then(setlogUploadCompletionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("POST complete는 공백 caption을 null로 정규화한다")
+    void completeUploadNormalizesBlankCaption() throws Exception {
+        UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
+        UUID requestId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId, null))
+                .willReturn(new SetlogUploadCompletionService.CompletionResult(
+                        completedResponse(), false));
+
+        mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", uploadId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"clientRequestId":"550e8400-e29b-41d4-a716-446655440000","caption":"   "}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.caption").doesNotExist());
+
+        then(setlogUploadCompletionService).should().complete(USER_ID, uploadId, requestId, null);
+    }
+
+    @Test
+    @DisplayName("POST complete는 501자 caption을 400으로 거부한다")
+    void completeUploadRejectsCaptionOver500Characters() throws Exception {
+        String caption = "가".repeat(501);
+
+        mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clientRequestId\":\"550e8400-e29b-41d4-a716-446655440000\",\"caption\":\""
+                                + caption + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+
+        then(setlogUploadCompletionService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("POST complete는 500자 caption을 허용한다")
+    void completeUploadAcceptsCaptionOf500Characters() throws Exception {
+        UUID uploadId = UUID.fromString("10f7ed34-8aa7-4ffc-b3be-7a72c5d3bf35");
+        UUID requestId = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
+        String caption = "가".repeat(500);
+        given(setlogUploadCompletionService.complete(USER_ID, uploadId, requestId, caption))
+                .willReturn(new SetlogUploadCompletionService.CompletionResult(
+                        completedResponse(caption), false));
+
+        mockMvc.perform(post("/setlogs/uploads/{uploadId}/complete", uploadId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clientRequestId\":\"550e8400-e29b-41d4-a716-446655440000\",\"caption\":\""
+                                + caption + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.caption").value(caption));
+
+        then(setlogUploadCompletionService).should().complete(USER_ID, uploadId, requestId, caption);
     }
 
     @Test
@@ -423,6 +479,10 @@ class SetlogControllerTest {
     }
 
     private SetlogResponse completedResponse() {
+        return completedResponse(null);
+    }
+
+    private SetlogResponse completedResponse(String caption) {
         return new SetlogResponse(
                 SETLOG_ID,
                 itda.setlog.dto.SetlogSource.USER,
@@ -432,7 +492,7 @@ class SetlogControllerTest {
                 ),
                 "https://example.com/user.mp4",
                 Instant.parse("2026-08-12T01:10:00Z"),
-                null,
+                caption,
                 0,
                 0,
                 List.of(),

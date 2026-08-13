@@ -67,7 +67,7 @@ public class SetlogController implements SetlogSwaggerSupporter {
     ) {
         SetlogUploadCompletionService.CompletionResult result =
                 setlogUploadCompletionService.complete(
-                        currentUser.id(), uploadId, request.clientRequestId()
+                        currentUser.id(), uploadId, request.clientRequestId(), request.caption()
                 );
         ApiResponse<SetlogResponse> body = result.replayed()
                 ? ApiResponse.ok(result.response(), "셋로그 업로드 완료 재처리 성공")

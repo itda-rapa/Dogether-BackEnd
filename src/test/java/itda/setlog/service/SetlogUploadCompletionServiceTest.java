@@ -74,13 +74,14 @@ class SetlogUploadCompletionServiceTest {
         given(objectStorage.head(KEY)).willReturn(metadata);
         given(transactions.finalizeUpload(org.mockito.ArgumentMatchers.eq(OWNER_ID),
                 org.mockito.ArgumentMatchers.eq(UPLOAD_ID), org.mockito.ArgumentMatchers.eq(REQUEST_ID),
+                org.mockito.ArgumentMatchers.eq("오늘 산책"),
                 org.mockito.ArgumentMatchers.eq(metadata), org.mockito.ArgumentMatchers.any(Instant.class)))
                 .willReturn(CompletionAttempt.completed(completed));
         given(objectStorage.presignGet(KEY, "version-7", Duration.ofMinutes(10)))
                 .willReturn(new PresignedDownload("https://storage.example/video", LAST_MODIFIED.plusSeconds(600)));
 
         SetlogUploadCompletionService.CompletionResult result =
-                service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID);
+                service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID, "오늘 산책");
 
         assertThat(result.replayed()).isFalse();
         assertThat(result.response().source().name()).isEqualTo("USER");
@@ -89,6 +90,7 @@ class SetlogUploadCompletionServiceTest {
         assertThat(result.response().authorPet().profileUrl())
                 .isEqualTo("https://example.com/profile.jpg");
         assertThat(result.response().authorPet().verified()).isTrue();
+        assertThat(result.response().caption()).isEqualTo("오늘 산책");
         then(objectStorage).should().head(KEY);
         then(objectStorage).should().presignGet(KEY, "version-7", Duration.ofMinutes(10));
     }
@@ -103,7 +105,7 @@ class SetlogUploadCompletionServiceTest {
                 .willReturn(new PresignedDownload("https://storage.example/video", LAST_MODIFIED));
 
         SetlogUploadCompletionService.CompletionResult result =
-                service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID);
+                service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID, "다른 캡션");
 
         assertThat(result.replayed()).isTrue();
         assertThat(result.response().setlogId()).isEqualTo(77L);
@@ -111,7 +113,7 @@ class SetlogUploadCompletionServiceTest {
         then(transactions).should(never()).finalizeUpload(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -125,7 +127,7 @@ class SetlogUploadCompletionServiceTest {
         then(transactions).should(never()).finalizeUpload(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -148,7 +150,7 @@ class SetlogUploadCompletionServiceTest {
 
     @Test
     void rejectsNullInputsBeforeStorageOrDatabaseAccess() {
-        assertThatThrownBy(() -> service.complete(null, UPLOAD_ID, REQUEST_ID))
+        assertThatThrownBy(() -> service.complete(null, UPLOAD_ID, REQUEST_ID, null))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(ErrorCode.VALIDATION_FAILED));
@@ -163,6 +165,7 @@ class SetlogUploadCompletionServiceTest {
         given(objectStorage.head(KEY)).willReturn(metadata);
         given(transactions.finalizeUpload(org.mockito.ArgumentMatchers.eq(OWNER_ID),
                 org.mockito.ArgumentMatchers.eq(UPLOAD_ID), org.mockito.ArgumentMatchers.eq(REQUEST_ID),
+                org.mockito.ArgumentMatchers.eq(null),
                 org.mockito.ArgumentMatchers.eq(metadata), org.mockito.ArgumentMatchers.any(Instant.class)))
                 .willThrow(new DataIntegrityViolationException(
                         "duplicate key violates uk_setlogs_media"));
@@ -179,10 +182,11 @@ class SetlogUploadCompletionServiceTest {
                 new DataIntegrityViolationException("fk_media_user violated");
         given(transactions.finalizeUpload(org.mockito.ArgumentMatchers.eq(OWNER_ID),
                 org.mockito.ArgumentMatchers.eq(UPLOAD_ID), org.mockito.ArgumentMatchers.eq(REQUEST_ID),
+                org.mockito.ArgumentMatchers.eq(null),
                 org.mockito.ArgumentMatchers.eq(metadata), org.mockito.ArgumentMatchers.any(Instant.class)))
                 .willThrow(failure);
 
-        assertThatThrownBy(() -> service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID))
+        assertThatThrownBy(() -> service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID, null))
                 .isSameAs(failure);
     }
 
@@ -194,7 +198,7 @@ class SetlogUploadCompletionServiceTest {
     }
 
     private void assertError(ErrorCode expected) {
-        assertThatThrownBy(() -> service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID))
+        assertThatThrownBy(() -> service.complete(OWNER_ID, UPLOAD_ID, REQUEST_ID, null))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(expected));
     }
@@ -205,7 +209,7 @@ class SetlogUploadCompletionServiceTest {
 
     private CompletionSnapshot snapshot(boolean replayed, String versionId) {
         return new CompletionSnapshot(
-                77L, 12L, "몽이#A7K2", "몽이", KEY, versionId,
+                77L, 12L, "몽이#A7K2", "몽이", "오늘 산책", KEY, versionId,
                 Instant.parse("2026-08-12T01:01:00Z"), replayed
         );
     }
