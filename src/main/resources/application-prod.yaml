@@ -10,6 +10,9 @@ spring:
     enabled: ${FLYWAY_ENABLED:false}
     locations:
       - classpath:db/migration
+  kafka:
+    #    kafka서버의 url
+    bootstrap-servers: localhost:9092
 
 springdoc:
   api-docs:

@@ -101,7 +101,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 999L)).thenReturn(false);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 999L)).thenReturn(false);
 
         assertThatThrownBy(() -> chatMessageService.sendText(1L, 999L, request("idem-1", "hello")))
                 .isInstanceOf(BusinessException.class)
@@ -132,7 +132,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
                 .thenReturn(upsert);
@@ -174,7 +174,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
                 .thenReturn(upsert);
@@ -270,7 +270,7 @@ class ChatMessageServiceTest {
                 "reply-1"
         )).thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 20L))
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 20L))
                 .thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L,
@@ -317,7 +317,8 @@ class ChatMessageServiceTest {
         assertThat(result.message().getSenderPetId()).isNull();
         // Without a key there is nothing to look up, and a system notice has no sending Pet to check.
         verify(chatMessageRepository, never()).findByRoomIdAndClientMessageId(any(), any());
-        verify(participantRepository, never()).existsByRoomIdAndPetId(anyLong(), anyLong());
+        verify(participantRepository, never())
+                .existsByRoomIdAndPetIdAndLeftAtIsNull(anyLong(), anyLong());
     }
 
     @Test
@@ -329,7 +330,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "card-7"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "CARD", null, 7L, "card-7"))
                 .thenReturn(upsert);

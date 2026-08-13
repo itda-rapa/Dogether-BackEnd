@@ -1,14 +1,7 @@
 package itda.chat.domain;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+
 import java.time.Instant;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,11 +30,23 @@ public class ChatRoomParticipant {
     @Column(name = "left_at")
     private Instant leftAt;
 
-    public static ChatRoomParticipant join(ChatRoom room, long petId) {
+    public static ChatRoomParticipant join(
+            ChatRoom room,
+            long petId
+    ) {
         ChatRoomParticipant participant = new ChatRoomParticipant();
         participant.room = room;
         participant.petId = petId;
         participant.joinedAt = Instant.now();
+        room.addParticipant(participant);
         return participant;
+    }
+
+    public void rejoin() {
+        this.leftAt = null;
+    }
+
+    public void leave(Instant leftAt) {
+        this.leftAt = leftAt;
     }
 }

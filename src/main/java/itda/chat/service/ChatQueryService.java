@@ -52,6 +52,7 @@ public class ChatQueryService {
     private final GreetingRepository greetingRepository;
     private final ActivePetQueryService activePetQueryService;
     private final PetDisplayQueryService petDisplayQueryService;
+    private final ChatMessageEventPublisher chatMessageEventPublisher;
 
     // ── GET /chat/rooms ──────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ public class ChatQueryService {
      * a future block relationship excludes it.
      */
     public void requireParticipant(long roomId, long petId) {
-        if (!chatRoomRepository.existsAccessibleDirectRoomForPet(roomId, petId)) {
+        if (!chatRoomRepository.existsAccessibleRoomForPet(roomId, petId)) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
         }
     }
@@ -270,6 +271,9 @@ public class ChatQueryService {
         requireParticipant(roomId, actor.petId());
         ChatMessageResult result = chatMessageService.sendText(roomId, actor.petId(), request);
         ChatMessageResponse dto = ChatMessageResponse.from(result.message());
+        if (result.created()) {
+            chatMessageEventPublisher.publishAfterCommit(dto);
+        }
         return new SendMessageResult(dto, result.created());
     }
 

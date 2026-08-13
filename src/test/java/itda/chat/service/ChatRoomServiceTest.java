@@ -20,6 +20,7 @@ import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.pet.service.query.ActivePetQueryService;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +36,12 @@ class ChatRoomServiceTest {
 
     @Mock
     private ChatRoomParticipantRepository participantRepository;
+
+    @Mock
+    private ActivePetQueryService activePetQueryService;
+
+    @Mock
+    private ChatAuthorizationCacheService chatAuthorizationCacheService;
 
     @InjectMocks
     private ChatRoomService chatRoomService;

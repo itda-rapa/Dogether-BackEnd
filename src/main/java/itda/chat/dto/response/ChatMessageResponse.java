@@ -1,8 +1,10 @@
 package itda.chat.dto.response;
 
+import com.querydsl.core.annotations.QueryProjection;
 import itda.chat.domain.ChatMessage;
 import itda.chat.domain.SenderType;
 import java.time.Instant;
+import java.util.UUID;
 
 public record ChatMessageResponse(
         Long messageId,
@@ -15,6 +17,9 @@ public record ChatMessageResponse(
         String clientMessageId,
         Instant createdAt
 ) {
+
+    @QueryProjection
+    public ChatMessageResponse{}
 
     public static ChatMessageResponse from(ChatMessage message) {
         return new ChatMessageResponse(

@@ -17,7 +17,7 @@ public enum ErrorCode {
             HttpStatus.CONFLICT,
             "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
     ),
-
+    CHAT_MESSAGE_SEND_FAILED(HttpStatus.BAD_REQUEST, "채팅메시지 전송에 실패했습니다."),
 
     USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
     PUBLIC_TAG_GENERATION_FAILED(HttpStatus.CONFLICT, "공개 사용자 태그를 생성하지 못했습니다."),
@@ -68,6 +68,10 @@ public enum ErrorCode {
     FRIEND_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "친구 요청을 찾을 수 없습니다."),
     FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
+
+    // 채팅방
+    CHATROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 채팅방을 찾을 수 없습니다."),
+    NOT_PARTICIPANT_OF_CHAT_ROOM(HttpStatus.NOT_FOUND, "해당 채팅방의 참여자가 아닙니다."),
 
     SETLOG_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그를 찾을 수 없습니다."),
     SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),

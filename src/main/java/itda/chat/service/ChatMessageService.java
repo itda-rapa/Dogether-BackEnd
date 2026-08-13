@@ -154,7 +154,8 @@ public class ChatMessageService {
         // Only members may speak in a room. This is a chat invariant rather than an access-control
         // detail, so it belongs here and not in a controller — and no DB constraint covers it:
         // ck_chat_message_sender only checks that a PET sender has an id at all.
-        if (senderPetId != null && !participantRepository.existsByRoomIdAndPetId(roomId, senderPetId)) {
+        if (senderPetId != null
+                && !participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(roomId, senderPetId)) {
             throw new BusinessException(ErrorCode.CHAT_SENDER_NOT_PARTICIPANT);
         }
 

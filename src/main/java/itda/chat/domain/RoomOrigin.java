@@ -2,5 +2,6 @@ package itda.chat.domain;
 
 public enum RoomOrigin {
     GREETING,
-    FRIEND
+    FRIEND,
+    OPEN_CHAT
 }

@@ -103,4 +103,35 @@ public class RedisConfig {
         redisTemplate.setConnectionFactory(new LettuceConnectionFactory(config));
         return redisTemplate;
     }
+
+    @Bean(name = "chatAuthorizationRedisConnectionFactory")
+    public RedisConnectionFactory chatAuthorizationRedisConnectionFactory() {
+        RedisStandaloneConfiguration config =
+                new RedisStandaloneConfiguration(
+                        redisProperties.host(),
+                        Integer.parseInt(redisProperties.port())
+                );
+        config.setDatabase(3);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean(name = "chatAuthorizationStringRedisTemplate")
+    public StringRedisTemplate chatAuthorizationStringRedisTemplate(
+            @Qualifier("chatAuthorizationRedisConnectionFactory")
+            RedisConnectionFactory chatAuthorizationRedisConnectionFactory
+    ) {
+        return new StringRedisTemplate(chatAuthorizationRedisConnectionFactory);
+    }
+
+    /** Spring Data Redis repositories resolve this conventional bean name in the test profile. */
+    @Bean(name = "redisTemplate")
+    @Profile("test")
+    public RedisTemplate<Object, Object> testRedisTemplate(
+            @Qualifier("chatAuthorizationRedisConnectionFactory")
+            RedisConnectionFactory chatAuthorizationRedisConnectionFactory
+    ) {
+        RedisTemplate<Object, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(chatAuthorizationRedisConnectionFactory);
+        return template;
+    }
 }

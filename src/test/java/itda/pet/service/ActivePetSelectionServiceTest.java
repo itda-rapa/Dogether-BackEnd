@@ -9,6 +9,7 @@ import static org.mockito.Mockito.inOrder;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.chat.service.ChatAuthorizationCacheService;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
@@ -40,13 +41,17 @@ class ActivePetSelectionServiceTest {
     @Mock
     private PetRepository petRepository;
 
+    @Mock
+    private ChatAuthorizationCacheService chatAuthorizationCacheService;
+
     private ActivePetSelectionService service;
 
     @BeforeEach
     void setUp() {
         service = new ActivePetSelectionService(
                 userRepository,
-                petRepository
+                petRepository,
+                chatAuthorizationCacheService
         );
     }
 
