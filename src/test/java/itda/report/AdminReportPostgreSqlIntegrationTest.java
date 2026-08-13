@@ -55,6 +55,7 @@ class AdminReportPostgreSqlIntegrationTest {
 
     private static final long REPORT_ID = 1L;
     private static final long ADMIN_ID = 99L;
+    private static final long SUPER_ADMIN_ID = 199L;
     private static final long USER_1 = 1L;
     private static final long USER_2 = 2L;
     private static final long PET_1 = 11L;
@@ -81,6 +82,7 @@ class AdminReportPostgreSqlIntegrationTest {
         insertUser(USER_1, "USER");
         insertUser(USER_2, "USER");
         insertUser(ADMIN_ID, "ADMIN");
+        insertUser(SUPER_ADMIN_ID, "SUPER_ADMIN");
         insertPet(PET_1, USER_1);
         insertPet(PET_2, USER_2);
         jdbcTemplate.update("update users set active_pet_id = ? where id = ?", PET_1, USER_1);
@@ -139,6 +141,41 @@ class AdminReportPostgreSqlIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"actionType\":\"DISMISSED\",\"reason\":\"no issue\"}"))
                 .andExpect(status().isForbidden());
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select status from reports where id = ?", String.class, REPORT_ID
+        )).isEqualTo("OPEN");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from admin_actions where target_id = ?", Long.class, REPORT_ID
+        )).isZero();
+    }
+
+    @Test
+    @DisplayName("비활성 ADMIN과 SUPER_ADMIN은 신고 조회·처리를 할 수 없다")
+    void inactiveAdminRolesCannotUseAdminReportApis() throws Exception {
+        jdbcTemplate.update(
+                "update users set account_status = 'SUSPENDED' where id in (?, ?)",
+                ADMIN_ID,
+                SUPER_ADMIN_ID
+        );
+
+        for (Map.Entry<Long, Role> entry : Map.of(
+                ADMIN_ID, Role.ADMIN,
+                SUPER_ADMIN_ID, Role.SUPER_ADMIN
+        ).entrySet()) {
+            CurrentUser inactiveAdmin = principal(entry.getKey(), entry.getValue());
+
+            mockMvc.perform(get("/admin/reports").with(user(inactiveAdmin)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(get("/admin/reports/{id}", REPORT_ID)
+                            .with(user(inactiveAdmin)))
+                    .andExpect(status().isForbidden());
+            mockMvc.perform(post("/admin/reports/{id}/actions", REPORT_ID)
+                            .with(user(inactiveAdmin))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"actionType\":\"DISMISSED\",\"reason\":\"inactive\"}"))
+                    .andExpect(status().isForbidden());
+        }
 
         assertThat(jdbcTemplate.queryForObject(
                 "select status from reports where id = ?", String.class, REPORT_ID
@@ -278,9 +315,9 @@ class AdminReportPostgreSqlIntegrationTest {
         int workers = 2;
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(workers);
-        List<Future<Boolean>> futures = new ArrayList<>();
+        List<Future<String>> futures = new ArrayList<>();
         for (int i = 0; i < workers; i++) {
-            futures.add(executor.submit((Callable<Boolean>) () -> {
+            futures.add(executor.submit((Callable<String>) () -> {
                 start.await(10, TimeUnit.SECONDS);
                 try {
                     adminReportService.resolveReport(
@@ -288,21 +325,21 @@ class AdminReportPostgreSqlIntegrationTest {
                             REPORT_ID,
                             new AdminReportActionRequest(AdminActionType.WARNING, "race")
                     );
-                    return true;
+                    return "SUCCESS";
                 } catch (BusinessException exception) {
-                    return false;
+                    return exception.getErrorCode().name();
                 }
             }));
         }
         start.countDown();
 
-        List<Boolean> results = new ArrayList<>();
-        for (Future<Boolean> future : futures) {
+        List<String> results = new ArrayList<>();
+        for (Future<String> future : futures) {
             results.add(future.get(30, TimeUnit.SECONDS));
         }
         executor.shutdownNow();
 
-        assertThat(results).containsExactlyInAnyOrder(true, false);
+        assertThat(results).containsExactlyInAnyOrder("SUCCESS", "CONCURRENT_UPDATE_CONFLICT");
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from admin_actions where target_id = ?", Long.class, REPORT_ID
         )).isEqualTo(1L);

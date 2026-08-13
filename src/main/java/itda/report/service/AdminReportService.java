@@ -138,7 +138,8 @@ public class AdminReportService {
 
     private void requireAdmin(Long adminId) {
         boolean isAdmin = userRepository.findById(adminId)
-                .map(user -> user.getRole() == Role.ADMIN || user.getRole() == Role.SUPER_ADMIN)
+                .map(user -> user.isActive()
+                        && (user.getRole() == Role.ADMIN || user.getRole() == Role.SUPER_ADMIN))
                 .orElse(false);
         if (!isAdmin) {
             throw new BusinessException(ErrorCode.FORBIDDEN);

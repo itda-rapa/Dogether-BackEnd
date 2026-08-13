@@ -14,3 +14,6 @@ CREATE TABLE admin_actions (
 
 CREATE INDEX ix_admin_actions_target_created
     ON admin_actions (target_type, target_id, created_at DESC, id DESC);
+
+CREATE INDEX ix_reports_status_created_id
+    ON reports (status, created_at DESC, id DESC);
