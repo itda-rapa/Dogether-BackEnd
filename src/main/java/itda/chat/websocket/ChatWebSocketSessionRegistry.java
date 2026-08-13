@@ -29,10 +29,13 @@ import org.springframework.web.socket.WebSocketSession;
 @Slf4j
 public class ChatWebSocketSessionRegistry {
 
-    private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
-    private final Map<String, ScheduledFuture<?>> expiries = new ConcurrentHashMap<>();
+    private static final long CLOSE_RETRY_DELAY_MILLIS = 1_000L;
+
+    private final Map<String, SessionRegistration> sessions = new ConcurrentHashMap<>();
+    private final Map<String, ExpiryRegistration> expiries = new ConcurrentHashMap<>();
     private final TaskScheduler scheduler;
     private final ThreadPoolTaskScheduler ownedScheduler;
+    private long nextGeneration;
 
     /**
      * Owns its scheduler rather than reusing the broker heartbeat one. Taking that bean would
@@ -53,48 +56,93 @@ public class ChatWebSocketSessionRegistry {
         this.ownedScheduler = null;
     }
 
-    void bind(WebSocketSession session) {
-        sessions.put(session.getId(), session);
+    synchronized void bind(WebSocketSession session) {
+        String sessionId = session.getId();
+        cancelExpiry(expiries.remove(sessionId));
+        sessions.put(sessionId, new SessionRegistration(session, nextGeneration()));
     }
 
     /**
      * Schedules the close for this session's token expiry. A second CONNECT on one session
      * replaces the pending close instead of stacking another one.
      */
-    void scheduleExpiry(String sessionId, Instant expiresAt) {
+    synchronized void scheduleExpiry(String sessionId, Instant expiresAt) {
         if (sessionId == null || expiresAt == null) {
             return;
         }
-        ScheduledFuture<?> previous = expiries.put(
-                sessionId,
-                scheduler.schedule(() -> closeExpired(sessionId), expiresAt)
-        );
-        cancel(previous);
+        long generation = nextGeneration();
+        ScheduledFuture<?> future = scheduler.schedule(
+                () -> closeExpired(sessionId, generation), expiresAt);
+        SessionRegistration session = sessions.get(sessionId);
+        if (session != null) {
+            sessions.put(sessionId, new SessionRegistration(session.session(), generation));
+        }
+        ExpiryRegistration previous = expiries.put(
+                sessionId, new ExpiryRegistration(future, generation));
+        cancelExpiry(previous);
     }
 
     /**
      * Drops a session and its pending close. Idempotent — DISCONNECT and the transport close
      * callback both land here, and a session may report DISCONNECT more than once.
      */
-    void forget(String sessionId) {
+    synchronized void forget(String sessionId) {
         if (sessionId == null) {
             return;
         }
-        cancel(expiries.remove(sessionId));
+        cancelExpiry(expiries.remove(sessionId));
         sessions.remove(sessionId);
     }
 
-    private void closeExpired(String sessionId) {
-        expiries.remove(sessionId);
-        WebSocketSession session = sessions.remove(sessionId);
-        if (session == null || !session.isOpen()) {
+    private synchronized void closeExpired(String sessionId, long generation) {
+        SessionRegistration registration = sessions.get(sessionId);
+        ExpiryRegistration expiry = expiries.get(sessionId);
+        if (registration == null || expiry == null
+                || registration.generation() != generation
+                || expiry.generation() != generation) {
+            return;
+        }
+        WebSocketSession session = registration.session();
+        if (!session.isOpen()) {
+            removeCurrent(sessionId, generation);
             return;
         }
         try {
             session.close(CloseStatus.POLICY_VIOLATION);
+            removeCurrent(sessionId, generation);
         } catch (Exception exception) {
             log.warn("Expired WebSocket session close failed sessionId={} exceptionType={}",
                     sessionId, exception.getClass().getSimpleName());
+            ScheduledFuture<?> retry = scheduler.schedule(
+                    () -> closeExpired(sessionId, generation),
+                    Instant.now().plusMillis(CLOSE_RETRY_DELAY_MILLIS));
+            ExpiryRegistration current = expiries.get(sessionId);
+            if (current != null && current.generation() == generation) {
+                expiries.put(sessionId, new ExpiryRegistration(retry, generation));
+            } else {
+                retry.cancel(false);
+            }
+        }
+    }
+
+    private void removeCurrent(String sessionId, long generation) {
+        SessionRegistration currentSession = sessions.get(sessionId);
+        ExpiryRegistration currentExpiry = expiries.get(sessionId);
+        if (currentSession != null && currentSession.generation() == generation) {
+            sessions.remove(sessionId);
+        }
+        if (currentExpiry != null && currentExpiry.generation() == generation) {
+            expiries.remove(sessionId);
+        }
+    }
+
+    private long nextGeneration() {
+        return ++nextGeneration;
+    }
+
+    private void cancelExpiry(ExpiryRegistration expiry) {
+        if (expiry != null) {
+            cancel(expiry.future());
         }
     }
 
@@ -102,6 +150,12 @@ public class ChatWebSocketSessionRegistry {
         if (future != null) {
             future.cancel(false);
         }
+    }
+
+    private record SessionRegistration(WebSocketSession session, long generation) {
+    }
+
+    private record ExpiryRegistration(ScheduledFuture<?> future, long generation) {
     }
 
     @PreDestroy

@@ -118,6 +118,42 @@ class ChatWebSocketSessionRegistryTest {
     }
 
     @Test
+    void staleExpiryCannotCloseSessionAfterAReplacementGeneration() throws IOException {
+        registry.bind(session);
+        registry.scheduleExpiry("session-1", EXPIRES_AT);
+        registry.scheduleExpiry("session-1", EXPIRES_AT.plusSeconds(600));
+
+        // The old task races with cancel(false); generation checking must make it harmless.
+        tasks.get(0).run();
+        verify(session, never()).close(any());
+
+        tasks.get(1).run();
+        verify(session).close(CloseStatus.POLICY_VIOLATION);
+    }
+
+    @Test
+    void staleExpiryCannotCloseAReconnectedSessionWithTheSameSessionId() throws IOException {
+        WebSocketSession oldSession = session;
+        WebSocketSession newSession = mock(WebSocketSession.class);
+        when(newSession.getId()).thenReturn("session-1");
+        when(newSession.isOpen()).thenReturn(true);
+
+        registry.bind(oldSession);
+        registry.scheduleExpiry("session-1", EXPIRES_AT);
+        registry.bind(newSession);
+        registry.scheduleExpiry("session-1", EXPIRES_AT.plusSeconds(600));
+
+        // cancel(false) may race with execution; the old generation must be harmless.
+        tasks.get(0).run();
+        verify(oldSession, never()).close(any());
+        verify(newSession, never()).close(any());
+
+        tasks.get(1).run();
+        verify(oldSession, never()).close(any());
+        verify(newSession).close(CloseStatus.POLICY_VIOLATION);
+    }
+
+    @Test
     void alreadyClosedSessionIsNotClosedAgain() throws IOException {
         when(session.isOpen()).thenReturn(false);
         registry.bind(session);
@@ -129,12 +165,14 @@ class ChatWebSocketSessionRegistryTest {
     }
 
     @Test
-    void closeFailureIsSwallowedSoTheSchedulerThreadSurvives() throws IOException {
-        doThrow(new IOException("boom")).when(session).close(any());
+    void closeFailureKeepsTheSessionAndSchedulesARetry() throws IOException {
+        doThrow(new IOException("boom")).doNothing().when(session).close(any());
         registry.bind(session);
         registry.scheduleExpiry("session-1", EXPIRES_AT);
 
         assertThatCode(this::runPendingTasks).doesNotThrowAnyException();
+        assertThat(scheduledAt).hasSize(2);
+        verify(session, org.mockito.Mockito.times(2)).close(CloseStatus.POLICY_VIOLATION);
     }
 
     @Test
