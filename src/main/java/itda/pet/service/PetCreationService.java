@@ -8,6 +8,8 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import itda.petverification.PetVerificationFlowType;
+import itda.petverification.PetVerificationRedisStore;
 
 @Service
 @Slf4j
@@ -21,17 +23,20 @@ public class PetCreationService {
     private final PetCreationTransactionService petCreationTransactionService;
     private final ActivePetAssignmentTransactionService
             activePetAssignmentTransactionService;
+    private final PetVerificationRedisStore verificationRedisStore;
 
     public PetCreationService(
             PetPublicTagGenerator petPublicTagGenerator,
             PetCreationTransactionService petCreationTransactionService,
             ActivePetAssignmentTransactionService
-                    activePetAssignmentTransactionService
+                    activePetAssignmentTransactionService,
+            PetVerificationRedisStore verificationRedisStore
     ) {
         this.petPublicTagGenerator = petPublicTagGenerator;
         this.petCreationTransactionService = petCreationTransactionService;
         this.activePetAssignmentTransactionService =
                 activePetAssignmentTransactionService;
+        this.verificationRedisStore = verificationRedisStore;
     }
 
     @Transactional(propagation = Propagation.NEVER)
@@ -39,10 +44,37 @@ public class PetCreationService {
             Long userId,
             PetCreateCommand command
     ) {
-        PetCreationOutcome outcome = createPetWithPublicTagRetry(
-                userId,
-                command
-        );
+        return create(userId, command, null);
+    }
+
+    @Transactional(propagation = Propagation.NEVER)
+    public PetCreationResult create(Long userId, PetCreateCommand command, String rawVerificationToken) {
+        if (rawVerificationToken != null && rawVerificationToken.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+
+        PetVerificationRedisStore.Reservation reservation = rawVerificationToken == null
+                ? null : verificationRedisStore.reserve(rawVerificationToken, userId,
+                PetVerificationFlowType.PET_CREATE, null);
+        PetCreationOutcome outcome;
+        try {
+            outcome = createPetWithPublicTagRetry(userId, command,
+                    reservation == null ? null : reservation.evidence());
+        } catch (RuntimeException exception) {
+            if (reservation != null) {
+                try { verificationRedisStore.release(rawVerificationToken, reservation.reservationId()); }
+                catch (RuntimeException releaseFailure) { log.warn("Pet verification reservation release failed"); }
+            }
+            throw exception;
+        }
+        if (reservation != null) {
+            try {
+                if (!verificationRedisStore.finalize(rawVerificationToken, reservation.reservationId())) {
+                    log.warn("Pet verification reservation finalize did not delete its token");
+                }
+            }
+            catch (RuntimeException finalizeFailure) { log.warn("Pet verification reservation finalize failed"); }
+        }
         if (!outcome.firstPetCandidate()) {
             return new PetCreationResult(
                     outcome.petId(),
@@ -58,16 +90,16 @@ public class PetCreationService {
 
     private PetCreationOutcome createPetWithPublicTagRetry(
             Long userId,
-            PetCreateCommand command
+            PetCreateCommand command,
+            itda.petverification.PetVerificationEvidence evidence
     ) {
         for (int attempt = 0; attempt < PUBLIC_TAG_SAVE_ATTEMPTS; attempt++) {
             String publicTag = petPublicTagGenerator.generate(command.nickname());
             try {
-                return petCreationTransactionService.createAttempt(
-                        userId,
-                        command,
-                        publicTag
-                );
+                if (evidence == null) {
+                    return petCreationTransactionService.createAttempt(userId, command, publicTag);
+                }
+                return petCreationTransactionService.createAttempt(userId, command, publicTag, evidence);
             } catch (DataIntegrityViolationException exception) {
                 if (!isPublicTagUniqueConstraintViolation(exception)) {
                     throw exception;

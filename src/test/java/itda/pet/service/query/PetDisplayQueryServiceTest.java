@@ -17,6 +17,7 @@ import itda.media.domain.MediaType;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
+import itda.petverification.PetVerificationBadgeService;
 import itda.media.service.MediaService;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
@@ -51,11 +52,14 @@ class PetDisplayQueryServiceTest {
     @Mock
     private MediaService mediaService;
 
+    @Mock
+    private PetVerificationBadgeService badgeService;
+
     private PetDisplayQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new PetDisplayQueryService(petRepository, mediaService);
+        service = new PetDisplayQueryService(petRepository, mediaService, badgeService);
     }
 
     @Nested

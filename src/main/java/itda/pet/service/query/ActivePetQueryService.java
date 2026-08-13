@@ -4,6 +4,7 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
+import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.util.Optional;
@@ -16,15 +17,18 @@ public class ActivePetQueryService {
     private final UserRepository userRepository;
     private final PetRepository petRepository;
     private final ActivePetValidator activePetValidator;
+    private final PetVerificationBadgeService badgeService;
 
     public ActivePetQueryService(
             UserRepository userRepository,
             PetRepository petRepository,
-            ActivePetValidator activePetValidator
+            ActivePetValidator activePetValidator,
+            PetVerificationBadgeService badgeService
     ) {
         this.userRepository = userRepository;
         this.petRepository = petRepository;
         this.activePetValidator = activePetValidator;
+        this.badgeService = badgeService;
     }
 
     @Transactional(readOnly = true)
@@ -67,7 +71,7 @@ public class ActivePetQueryService {
                 pet.getPublicTag(),
                 pet.getNickname(),
                 null,
-                false
+                badgeService.verifiedAt(pet.getId()) != null
         ));
     }
 

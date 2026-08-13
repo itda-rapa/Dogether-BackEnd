@@ -7,6 +7,7 @@ import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
 import itda.media.service.MediaService;
+import itda.petverification.PetVerificationBadgeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,13 +16,16 @@ public class PetUpdateService {
 
     private final PetRepository petRepository;
     private final MediaService mediaService;
+    private final PetVerificationBadgeService badgeService;
 
     public PetUpdateService(
             PetRepository petRepository,
-            MediaService mediaService
+            MediaService mediaService,
+            PetVerificationBadgeService badgeService
     ) {
         this.petRepository = petRepository;
         this.mediaService = mediaService;
+        this.badgeService = badgeService;
     }
 
     @Transactional
@@ -47,7 +51,7 @@ public class PetUpdateService {
         applyUpdate(pet, command);
 
         return PetResponse.from(pet, pet.getOwner().isActivePet(petId),
-                profileUrlOf(pet));
+                profileUrlOf(pet), badgeService.verifiedAt(petId));
     }
 
     private void validateCommand(PetUpdateCommand command) {

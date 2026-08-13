@@ -20,10 +20,13 @@ class RedisConfigNonTestWiringTest {
             .withUserConfiguration(RedisConfig.class);
 
     @Test
-    void resolvesEmailAndDefaultRedisBeansSeparatelyOutsideTestProfile() {
+    void preservesRedissonDefaultAndKeepsPetVerificationOnItsQualifiedDbFiveTemplate() {
         contextRunner.run(context -> {
             RedisConnectionFactory emailFactory = context.getBean(
                     "emailRedisConnectionFactory", RedisConnectionFactory.class
+            );
+            RedisConnectionFactory petVerificationFactory = context.getBean(
+                    "petVerificationRedisConnectionFactory", RedisConnectionFactory.class
             );
             RedisConnectionFactory defaultFactory = context.getBean(
                     "redissonConnectionFactory", RedisConnectionFactory.class
@@ -31,17 +34,26 @@ class RedisConfigNonTestWiringTest {
             StringRedisTemplate emailTemplate = context.getBean(
                     "emailStringRedisTemplate", StringRedisTemplate.class
             );
+            StringRedisTemplate petVerificationTemplate = context.getBean(
+                    "petVerificationStringRedisTemplate", StringRedisTemplate.class
+            );
             StringRedisTemplate defaultTemplate = context.getBean(
                     "stringRedisTemplate", StringRedisTemplate.class
             );
 
             assertThat(emailFactory).isInstanceOf(LettuceConnectionFactory.class);
             assertThat(((LettuceConnectionFactory) emailFactory).getDatabase()).isEqualTo(1);
+            assertThat(petVerificationFactory).isInstanceOf(LettuceConnectionFactory.class);
+            assertThat(((LettuceConnectionFactory) petVerificationFactory).getDatabase()).isEqualTo(5);
             assertThat(defaultFactory).isInstanceOf(RedissonConnectionFactory.class);
             assertThat(context.getBean(RedisConnectionFactory.class)).isSameAs(defaultFactory);
             assertThat(emailTemplate.getConnectionFactory()).isSameAs(emailFactory);
+            assertThat(petVerificationTemplate.getConnectionFactory()).isSameAs(petVerificationFactory);
             assertThat(defaultTemplate.getConnectionFactory()).isSameAs(defaultFactory);
             assertThat(emailFactory).isNotSameAs(defaultFactory);
+            assertThat(petVerificationFactory).isNotSameAs(emailFactory).isNotSameAs(defaultFactory);
+            assertThat(context.containsBean("redisTemplateConnectionFactory")).isFalse();
+            assertThat(context.containsBean("redisTemplate")).isFalse();
         });
     }
 }

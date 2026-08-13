@@ -67,10 +67,10 @@ public class PetController implements PetSwaggerSupporter {
             @AuthenticationPrincipal CurrentUser currentUser,
             @Valid @RequestBody PetCreateRequest request
     ) {
-        PetCreationResult result = petCreationService.create(
-                currentUser.id(),
-                request.toCommand()
-        );
+        PetCreationResult result = request.petVerificationToken() == null
+                ? petCreationService.create(currentUser.id(), request.toCommand())
+                : petCreationService.create(currentUser.id(), request.toCommand(),
+                request.petVerificationToken());
         PetResponse pet = myPetQueryService.getMyPet(
                 currentUser.id(),
                 result.petId()

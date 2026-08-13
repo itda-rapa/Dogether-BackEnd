@@ -182,7 +182,8 @@ class PetCreateRequestTest {
                 PetSizeCode.SMALL,
                 bio,
                 personalityTags,
-                careNote
+                careNote,
+                null
         );
     }
 
@@ -194,6 +195,7 @@ class PetCreateRequestTest {
                 null,
                 null,
                 weightKg,
+                null,
                 null,
                 null,
                 null,

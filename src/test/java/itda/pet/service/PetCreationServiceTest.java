@@ -10,6 +10,7 @@ import static org.mockito.Mockito.times;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.petverification.PetVerificationRedisStore;
 import java.sql.SQLException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,6 +41,9 @@ class PetCreationServiceTest {
     private ActivePetAssignmentTransactionService
             activePetAssignmentTransactionService;
 
+    @Mock
+    private PetVerificationRedisStore verificationRedisStore;
+
     private PetCreationService service;
 
     @BeforeEach
@@ -47,7 +51,8 @@ class PetCreationServiceTest {
         service = new PetCreationService(
                 petPublicTagGenerator,
                 petCreationTransactionService,
-                activePetAssignmentTransactionService
+                activePetAssignmentTransactionService,
+                verificationRedisStore
         );
     }
 

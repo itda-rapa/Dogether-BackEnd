@@ -17,6 +17,7 @@ import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.User;
 import java.time.Instant;
 import java.util.Optional;
@@ -42,6 +43,8 @@ class PetProfileImageServiceTest {
     private MediaRepository mediaRepository;
     @Mock
     private MediaService mediaService;
+    @Mock
+    private PetVerificationBadgeService badgeService;
 
     private PetProfileImageService service;
 
@@ -50,7 +53,8 @@ class PetProfileImageServiceTest {
         service = new PetProfileImageService(
                 petRepository,
                 mediaRepository,
-                mediaService
+                mediaService,
+                badgeService
         );
     }
 
@@ -79,6 +83,25 @@ class PetProfileImageServiceTest {
         assertThat(response.profileUrl())
                 .isEqualTo("https://presigned.example/media/3");
         then(mediaService).should().getPresignedDownloadUrl(MEDIA_ID);
+    }
+
+    @Test
+    @DisplayName("프로필 이미지를 변경해도 기존 인증 배지를 유지한다")
+    void preservesVerificationBadgeWhenSettingProfileImage() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        Media media = media(MEDIA_ID, USER_ID, MediaType.IMAGE, MediaStatus.UPLOADED, null);
+        Instant verifiedAt = Instant.parse("2026-08-12T12:00:00Z");
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+        given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID)).willReturn(Optional.of(media));
+        given(mediaService.getPresignedDownloadUrl(MEDIA_ID))
+                .willReturn(new MediaService.PresignedDownloadUrl("https://presigned.example/media/3", Instant.now()));
+        given(badgeService.verifiedAt(PET_ID)).willReturn(verifiedAt);
+
+        PetResponse response = service.setInitialProfileImage(USER_ID, PET_ID, MEDIA_ID);
+
+        assertThat(response.verified()).isTrue();
+        assertThat(response.verifiedAt()).isEqualTo(verifiedAt);
+        then(badgeService).should().verifiedAt(PET_ID);
     }
 
     @Test

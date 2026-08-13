@@ -7,6 +7,9 @@ import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
 import itda.media.service.MediaService;
+import itda.petverification.PetVerificationBadgeService;
+import java.time.Instant;
+import java.util.Map;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,13 +19,16 @@ public class MyPetQueryService {
 
     private final PetRepository petRepository;
     private final MediaService mediaService;
+    private final PetVerificationBadgeService badgeService;
 
     public MyPetQueryService(
             PetRepository petRepository,
-            MediaService mediaService
+            MediaService mediaService,
+            PetVerificationBadgeService badgeService
     ) {
         this.petRepository = petRepository;
         this.mediaService = mediaService;
+        this.badgeService = badgeService;
     }
 
     @Transactional(readOnly = true)
@@ -41,7 +47,8 @@ public class MyPetQueryService {
         return PetResponse.from(
                 pet,
                 pet.getOwner().isActivePet(petId),
-                profileUrlOf(pet)
+                profileUrlOf(pet),
+                verifiedAt(petId)
         );
     }
 
@@ -62,12 +69,15 @@ public class MyPetQueryService {
 
     @Transactional(readOnly = true)
     public List<PetResponse> getMyPets(Long userId) {
-        return petRepository.findMyPetsOrdered(userId)
-                .stream()
+        List<Pet> pets = petRepository.findMyPetsOrdered(userId);
+        Map<Long, Instant> badges = badgeService.verifiedAtByPetIds(
+                pets.stream().map(Pet::getId).toList());
+        return pets.stream()
                 .map(pet -> PetResponse.from(
                                 pet,
                                 pet.getOwner().isActivePet(pet.getId()),
-                                profileUrlOf(pet)
+                                profileUrlOf(pet),
+                                badges.get(pet.getId())
                         )
                 )
                 .toList();
@@ -81,4 +91,6 @@ public class MyPetQueryService {
                 pet.getProfileAsset().getId()
         ).url();
     }
+
+    private Instant verifiedAt(Long petId) { return badgeService.verifiedAt(petId); }
 }

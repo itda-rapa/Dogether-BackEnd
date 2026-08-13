@@ -63,6 +63,12 @@ public enum ErrorCode {
             "반려견 공개 태그를 생성하지 못했습니다."
     ),
     ACTIVE_PET_DELETE_FORBIDDEN(HttpStatus.CONFLICT, "활동 중인 반려견은 삭제할 수 없습니다."),
+    PET_VERIFICATION_CONFLICT(HttpStatus.CONFLICT, "이미 사용되었거나 인증된 반려견 등록정보입니다."),
+    PET_VERIFICATION_TOKEN_INVALID(HttpStatus.GONE, "유효하지 않은 Pet 인증 토큰입니다."),
+    PET_VERIFICATION_NOT_MATCHED(HttpStatus.UNPROCESSABLE_CONTENT,
+            "등록정보를 확인할 수 없습니다. 입력정보를 확인한 후 다시 시도해 주세요."),
+    PET_VERIFICATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
+            "Pet 인증 서비스를 일시적으로 사용할 수 없습니다."),
     SAME_OWNER_INTERACTION_FORBIDDEN(HttpStatus.BAD_REQUEST, "같은 사용자가 소유한 반려견끼리는 상호작용할 수 없습니다."),
 
     GREETING_ALREADY_USED(HttpStatus.CONFLICT, "이미 인사한 상대에게 다시 인사할 수 없습니다."),
