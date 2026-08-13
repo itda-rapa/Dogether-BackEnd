@@ -9,6 +9,8 @@ import itda.chat.repository.ChatMessageRepository;
 import itda.chat.repository.ChatMessageRepository.MessageUpsert;
 import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
+import itda.chat.event.ChatMessageCommittedEvent;
+import itda.chat.dto.response.ChatMessageResponse;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
@@ -18,6 +20,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +35,7 @@ public class ChatMessageService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomParticipantRepository participantRepository;
     private final GreetingRepository greetingRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Send a user-authored message.
@@ -174,6 +178,10 @@ public class ChatMessageService {
             // timestamp for it would contradict the sequential retry above, which returns early
             // and touches nothing.
             chatRoomRepository.activateAndTouchLastMessageAt(roomId);
+            eventPublisher.publishEvent(new ChatMessageCommittedEvent(
+                    message.getRoom().getType(),
+                    ChatMessageResponse.from(message)
+            ));
         }
         return new ChatMessageResult(message, created);
     }

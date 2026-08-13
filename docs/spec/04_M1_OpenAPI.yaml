@@ -944,7 +944,7 @@ paths:
       description: |
         clientMessageId로 재시도 멱등성을 보장한다.
         ARCHIVED 방은 정상 메시지 저장 시 ACTIVE로 복구한다.
-        대표 오류는 VALIDATION_FAILED(400), BLOCKED_USER(403),
+        대표 오류는 VALIDATION_FAILED(400), ACTIVE_PET_REQUIRED(403),
         CHAT_ROOM_NOT_FOUND(404), GREETING_REPLY_REQUIRED·CHAT_DUPLICATE_MESSAGE(409)다.
       parameters:
         - $ref: '#/components/parameters/RoomId'
@@ -1839,9 +1839,15 @@ components:
           $ref: '#/components/schemas/PetSearchItem'
         canSend:
           type: boolean
+          description: >
+            M1 구현은 방 상태만 본다. ACTIVE 또는 ARCHIVED면 true이며
+            인사 답변 대기는 반영하지 않는다.
         sendBlockedReason:
           type: [string, 'null']
           enum: [GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null]
+          description: >
+            M1 구현은 항상 null을 반환한다. enum 값은 예약이며 클라이언트는
+            이 필드로 전송 가능 여부를 판단하지 않는다.
         lastMessage:
           oneOf:
             - $ref: '#/components/schemas/ChatMessage'

@@ -111,6 +111,24 @@ public class TokenProvider {
     }
 
     public Optional<Long> parseActiveUserId(String accessToken) {
+        return parseAccessTokenClaims(accessToken)
+                .flatMap(this::parseUserId);
+    }
+
+    public Optional<AccessTokenSession> parseAccessTokenSession(String accessToken) {
+        return parseAccessTokenClaims(accessToken)
+                .flatMap(claims -> {
+                    Date expiration = claims.getExpiration();
+                    if (expiration == null || !expiration.toInstant().isAfter(clock.instant())) {
+                        return Optional.empty();
+                    }
+
+                    return parseUserId(claims)
+                            .map(userId -> new AccessTokenSession(userId, expiration.toInstant()));
+                });
+    }
+
+    private Optional<Claims> parseAccessTokenClaims(String accessToken) {
         try {
             Claims claims = Jwts.parser()
                     .verifyWith(signingKey)
@@ -123,8 +141,16 @@ public class TokenProvider {
                 return Optional.empty();
             }
 
-            return Optional.of(Long.parseLong(claims.getSubject()));
+            return Optional.of(claims);
         } catch (JwtException | IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<Long> parseUserId(Claims claims) {
+        try {
+            return Optional.of(Long.parseLong(claims.getSubject()));
+        } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
     }
