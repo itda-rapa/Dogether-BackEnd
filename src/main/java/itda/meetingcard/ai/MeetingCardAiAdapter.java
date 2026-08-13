@@ -55,9 +55,9 @@ public class MeetingCardAiAdapter implements MeetingDraftAiClient {
     @Override
     public AiDraftResult extract(AiDraftCommand command) {
         AiExtractRequest request = toRequest(command);
-        List<AiExtractResponse> raw;
         try {
-            raw = httpClient.call(request);
+            List<AiExtractResponse> raw = httpClient.call(request);
+            return mapResponse(raw);
         } catch (HttpMeetingDraftAiClient.HttpMeetingDraftAiClientException e) {
             log.warn("AI extract client error: {}", e.getMessage());
             return AiDraftResult.fallback(e.getFallbackReason());
@@ -65,7 +65,6 @@ public class MeetingCardAiAdapter implements MeetingDraftAiClient {
             log.warn("AI extract unexpected error", e);
             return AiDraftResult.fallback(CardDraftFallbackReason.MODEL_ERROR);
         }
-        return mapResponse(raw);
     }
 
     private AiExtractRequest toRequest(AiDraftCommand command) {

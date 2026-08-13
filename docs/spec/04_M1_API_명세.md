@@ -2024,9 +2024,9 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
   "data": [{
     "draftId": 1,
     "roomId": 1,
-    "cardType": "WALK",
-    "placeText": "판교 공원",
-    "meetAt": "2026-07-24T09:00:00Z",
+    "cardType": null,
+    "placeText": null,
+    "meetAt": null,
     "fallback": true,
     "fallbackReason": "INSUFFICIENT_CONTEXT",
     "createdAt": "2026-07-24T09:00:00Z"
@@ -3293,7 +3293,7 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 |---|---:|---|---|---|
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
-| `data` | ㅇ | array<[`CardDraft`](#schema-carddraft)> | - | AI 후보 순서를 유지한 카드 초안 배열. AI 빈 배열·fallback은 빈 초안 1건 |
+| `data` | ㅇ | array<[`CardDraft`](#schema-carddraft)> | minItems: 1 | AI 후보 순서를 유지한 카드 초안 배열. AI 빈 배열·fallback은 빈 초안 1건 |
 | `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-meetingcardenvelope"></a>

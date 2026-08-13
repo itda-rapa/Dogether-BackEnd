@@ -1,5 +1,6 @@
 package itda.meetingcard.ai;
 
+import itda.meetingcard.domain.CardDraftFallbackReason;
 import itda.meetingcard.domain.MeetingCardType;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -7,6 +8,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /** AI 원시 후보를 도메인 결과로 동일하게 매핑한다. */
 final class AiDraftResultMapper {
@@ -17,6 +19,9 @@ final class AiDraftResultMapper {
     static AiDraftResult map(List<AiExtractResponse> raw, ZoneId zoneId) {
         if (raw == null || raw.isEmpty()) {
             return AiDraftResult.empty();
+        }
+        if (raw.stream().anyMatch(Objects::isNull)) {
+            return AiDraftResult.fallback(CardDraftFallbackReason.MODEL_ERROR);
         }
         return AiDraftResult.success(raw.stream()
                 .map(response -> new AiDraftResult.Candidate(

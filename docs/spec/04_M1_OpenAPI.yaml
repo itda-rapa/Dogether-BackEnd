@@ -2376,6 +2376,7 @@ components:
         message: { type: string }
         data:
           type: array
+          minItems: 1
           items: { $ref: '#/components/schemas/CardDraft' }
         error: { type: 'null' }
     MeetingCardEnvelope:
