@@ -74,19 +74,56 @@ CORS_ALLOWED_ORIGINS=<demo frontend origin>
 사용자로 재사용하지 않는다.
 
 1. A와 B에서 각각 로그인한다.
-2. 각 브라우저가 access token으로 STOMP `CONNECT`를 수행하고 `/ws` 연결이
-   성공하는지 확인한다.
-3. 두 사용자 사이의 기존 DIRECT 방에 진입한다. WebSocket으로 방을 생성하지
+2. 각 브라우저가 아래 endpoint로 WebSocket 연결을 연다.
+   - HTTP 시연: `ws://<backend-host>/ws`
+   - HTTPS 시연: `wss://<backend-host>/ws`
+3. WebSocket 연결 위에서 STOMP `CONNECT`를 보내고 native header에 다음을 넣는다.
+
+   ```text
+   Authorization: Bearer <access-token>
+   ```
+
+   `Authorization`은 HTTP handshake header가 아니라 STOMP native header다. header가
+   없거나 token이 만료되면 `UNAUTHORIZED` STOMP `ERROR` 후 연결이 종료될 수 있다.
+4. `CONNECT` 성공 직후 두 user destination을 모두 구독한다.
+
+   ```text
+   /user/queue/chat/messages
+   /user/queue/errors
+   ```
+
+   둘 다 user destination이다. 임의의 `/queue` 또는 `/topic` destination을 직접
+   구독하지 않는다.
+5. 두 사용자 사이의 기존 DIRECT 방에 진입한다. WebSocket으로 방을 생성하지
    않는다.
-4. A가 TEXT 메시지를 전송한다.
-5. B 화면에서 새 메시지가 REST polling을 기다리지 않고 즉시 수신되는지 확인한다.
-6. B가 응답을 전송한다.
-7. A 화면에서 응답이 즉시 수신되는지 확인한다.
-8. 두 브라우저의 연결이 유지되고, 메시지가 중복 저장되지 않았는지 REST 조회로
+6. A가 아래 destination으로 TEXT 메시지를 전송한다.
+
+   ```text
+   /app/chat/direct/rooms/{roomId}/messages
+   ```
+
+   body는 다음 형태를 사용한다.
+
+   ```json
+   {
+     "clientMessageId": "<UUID>",
+     "body": "안녕하세요"
+   }
+   ```
+
+   `{roomId}`는 이미 존재하는 DIRECT 방 ID다. `clientMessageId`는 REST fallback
+   시에도 같은 값을 재사용한다. `senderPetId`, `type` 같은 필드는 보내지 않는다.
+7. B 화면에서 새 메시지가 REST polling을 기다리지 않고 즉시 수신되는지 확인한다.
+8. B가 같은 방식으로 응답을 전송한다.
+9. A 화면에서 응답이 즉시 수신되는지 확인한다.
+10. 두 브라우저의 연결이 유지되고, 메시지가 중복 저장되지 않았는지 REST 조회로
    필요한 범위만 확인한다.
 
-WebSocket 전송이 실패해 REST로 fallback할 때는 같은 `clientMessageId`를 재사용해
-중복 저장을 피한다.
+실제 프론트가 위 STOMP `CONNECT`·구독·`SEND`를 아직 구현하지 않았다면, 브라우저
+두 개 시연이 가능하다고 가정하지 않는다. 먼저 프로젝트 밖의 임시 STOMP 테스트
+클라이언트 또는 프론트 담당자의 실제 클라이언트로 위 endpoint, 인증 header, 두
+구독, SEND를 수동 검증한 뒤 시연한다. 테스트 클라이언트 구현·commit은 이 PR
+범위 밖이다.
 
 ## 실패 시 대응
 
