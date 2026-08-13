@@ -193,8 +193,7 @@ public class S3ObjectStorage implements ObjectStorage {
             if (!allIdentifiers.isEmpty()) {
                 deleteIdentifiers(allIdentifiers, "deleteAllVersions");
             } else {
-                // Unversioned S3-compatible providers may not expose a version listing.
-                delete(objectKey);
+                deleteAfterEmptyVersionListing(objectKey);
             }
         } catch (NoSuchKeyException exception) {
             // Idempotent deletion.
@@ -204,6 +203,23 @@ public class S3ObjectStorage implements ObjectStorage {
             }
         } catch (SdkException exception) {
             throw unavailable("deleteAllVersions", exception);
+        }
+    }
+
+    private void deleteAfterEmptyVersionListing(String objectKey) {
+        try {
+            ObjectMetadata metadata = head(objectKey);
+            String versionId = normalizeVersionId(metadata.versionId());
+            if (versionId == null) {
+                // An unversioned provider can legitimately return an empty listing.
+                delete(objectKey);
+            } else {
+                // Avoid creating a delete marker when the provider can identify the
+                // current version even though ListObjectVersions returned no rows.
+                delete(objectKey, versionId);
+            }
+        } catch (ObjectNotFoundException exception) {
+            // Idempotent deletion: the key disappeared between LIST and HEAD.
         }
     }
 

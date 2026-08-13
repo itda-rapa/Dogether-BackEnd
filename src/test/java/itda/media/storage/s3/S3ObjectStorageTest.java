@@ -126,6 +126,59 @@ class S3ObjectStorageTest {
     }
 
     @Test
+    void emptyVersionListingAndMissingHeadIsAlreadyDeleted() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .build());
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willThrow(s3Error(404));
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        then(s3Client).should().headObject(any(HeadObjectRequest.class));
+        then(s3Client).should(org.mockito.Mockito.never())
+                .deleteObject(any(DeleteObjectRequest.class));
+    }
+
+    @Test
+    void emptyVersionListingDeletesVersionReturnedByHead() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .build());
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willReturn(HeadObjectResponse.builder()
+                        .contentLength(1L)
+                        .versionId("current-v7")
+                        .build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        then(s3Client).should().deleteObject(deleteCaptor.capture());
+        assertThat(deleteCaptor.getValue().key()).isEqualTo(OBJECT_KEY);
+        assertThat(deleteCaptor.getValue().versionId()).isEqualTo("current-v7");
+    }
+
+    @Test
+    void emptyVersionListingDeletesUnversionedObjectReturnedByHead() {
+        given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
+                .willReturn(ListObjectVersionsResponse.builder()
+                        .isTruncated(false)
+                        .build());
+        given(s3Client.headObject(any(HeadObjectRequest.class)))
+                .willReturn(HeadObjectResponse.builder()
+                        .contentLength(1L)
+                        .build());
+
+        storage.deleteAllVersions(OBJECT_KEY);
+
+        then(s3Client).should().deleteObject(deleteCaptor.capture());
+        assertThat(deleteCaptor.getValue().key()).isEqualTo(OBJECT_KEY);
+        assertThat(deleteCaptor.getValue().versionId()).isNull();
+    }
+
+    @Test
     void deleteAllVersionsExceptRetainsVerifiedVersionAndRemovesMarkers() {
         given(s3Client.listObjectVersions(any(ListObjectVersionsRequest.class)))
                 .willReturn(ListObjectVersionsResponse.builder()
