@@ -57,6 +57,7 @@ public class SetlogUploadCompletionTransactionService {
             Long ownerUserId,
             UUID uploadId,
             UUID requestId,
+            String caption,
             ObjectMetadata metadata,
             Instant now
     ) {
@@ -95,7 +96,7 @@ public class SetlogUploadCompletionTransactionService {
                 now
         ));
         Setlog setlog = setlogRepository.saveAndFlush(
-                Setlog.createUser(upload.getPet(), media, null)
+                Setlog.createUser(upload.getPet(), media, caption)
         );
         upload.complete(requestId, media, setlog, now);
         uploadRepository.saveAndFlush(upload);
@@ -183,6 +184,7 @@ public class SetlogUploadCompletionTransactionService {
                 pet.getId(),
                 pet.getPublicTag(),
                 pet.getNickname(),
+                setlog.getCaption(),
                 media.getPath(),
                 media.getObjectVersionId(),
                 setlog.getCreatedAt(),
@@ -238,6 +240,7 @@ public class SetlogUploadCompletionTransactionService {
             Long petId,
             String petPublicTag,
             String petNickname,
+            String caption,
             String objectKey,
             String versionId,
             Instant createdAt,
@@ -249,6 +252,7 @@ public class SetlogUploadCompletionTransactionService {
                     petId,
                     petPublicTag,
                     petNickname,
+                    caption,
                     objectKey,
                     versionId,
                     createdAt,

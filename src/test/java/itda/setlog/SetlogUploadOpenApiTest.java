@@ -56,7 +56,9 @@ class SetlogUploadOpenApiTest {
                         + ".requestBody.content['application/json'].schema.$ref")
                         .value("#/components/schemas/SetlogUploadCompleteRequest"))
                 .andExpect(jsonPath("$.components.schemas.SetlogUploadCompleteRequest"
-                        + ".properties.clientRequestId.format").value("uuid"));
+                        + ".properties.clientRequestId.format").value("uuid"))
+                .andExpect(jsonPath("$.components.schemas.SetlogUploadCompleteRequest"
+                        + ".properties.caption.maxLength").value(500));
     }
 
     @Test

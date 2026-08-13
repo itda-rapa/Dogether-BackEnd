@@ -100,7 +100,8 @@ public interface SetlogSwaggerSupporter {
             schema = @Schema(implementation = SetlogUploadCompleteRequest.class),
             examples = @ExampleObject("""
                     {
-                        "clientRequestId":"550e8400-e29b-41d4-a716-446655440000"
+                                 "clientRequestId":"550e8400-e29b-41d4-a716-446655440000",
+                                 "caption":"오늘 산책 완료"
                     }
                     """)
     ))

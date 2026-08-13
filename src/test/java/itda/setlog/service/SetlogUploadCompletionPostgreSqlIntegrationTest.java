@@ -49,11 +49,16 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
 
         var attempt = transactions.finalizeUpload(
                 fixture.userId(), fixture.uploadId(), requestId,
+                "첫 캡션",
                 metadata("version-7"), verifiedAt
         );
 
         assertThat(attempt.failure()).isNull();
         assertThat(attempt.completed().replayed()).isFalse();
+        assertThat(attempt.completed().caption()).isEqualTo("첫 캡션");
+        assertThat(jdbcTemplate.queryForObject(
+                "select caption from setlogs where author_pet_id = ? and is_seed = false",
+                String.class, fixture.petId())).isEqualTo("첫 캡션");
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from media where user_id = ? and object_version_id = 'version-7'",
                 Long.class, fixture.userId())).isEqualTo(1L);
@@ -63,6 +68,16 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select status from setlog_uploads where id = ?",
                 String.class, fixture.uploadId())).isEqualTo("COMPLETED");
+
+        var replay = transactions.finalizeUpload(
+                fixture.userId(), fixture.uploadId(), requestId,
+                "다른 캡션", metadata("version-7"), verifiedAt.plusSeconds(1)
+        );
+        assertThat(replay.completed().replayed()).isTrue();
+        assertThat(replay.completed().caption()).isEqualTo("첫 캡션");
+        assertThat(jdbcTemplate.queryForObject(
+                "select caption from setlogs where author_pet_id = ? and is_seed = false",
+                String.class, fixture.petId())).isEqualTo("첫 캡션");
     }
 
     @Test
@@ -71,6 +86,7 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
 
         var attempt = transactions.finalizeUpload(
                 fixture.userId(), fixture.uploadId(), UUID.randomUUID(),
+                null,
                 new ObjectMetadata(1025L, "video/mp4", "etag", Instant.now(), "version-7"),
                 Instant.now()
         );
@@ -90,6 +106,7 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
 
         var attempt = transactions.finalizeUpload(
                 fixture.userId(), fixture.uploadId(), UUID.randomUUID(),
+                null,
                 metadata(" "), Instant.now());
 
         assertThat(attempt.failure()).isEqualTo(ErrorCode.SETLOG_UPLOAD_VERSIONING_UNAVAILABLE);
@@ -139,10 +156,12 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
             CompletableFuture<SetlogUploadCompletionTransactionService.CompletionAttempt> first =
                     CompletableFuture.supplyAsync(() -> transactions.finalizeUpload(
                             fixture.userId(), fixture.uploadId(), requestId,
+                            "동일 캡션",
                             metadata("version-7"), Instant.now()), executor);
             CompletableFuture<SetlogUploadCompletionTransactionService.CompletionAttempt> second =
                     CompletableFuture.supplyAsync(() -> transactions.finalizeUpload(
                             fixture.userId(), fixture.uploadId(), requestId,
+                            "동일 캡션",
                             metadata("version-7"), Instant.now()), executor);
 
             var attempts = java.util.List.of(first.get(10, TimeUnit.SECONDS),
@@ -174,6 +193,7 @@ class SetlogUploadCompletionPostgreSqlIntegrationTest {
                             start.await(5, TimeUnit.SECONDS);
                             return transactions.finalizeUpload(
                                     fixture.userId(), fixture.uploadId(), requestId,
+                                    "동시 캡션",
                                     metadata("version-7"), Instant.now());
                         } catch (InterruptedException interrupted) {
                             Thread.currentThread().interrupt();
