@@ -137,6 +137,10 @@ public class ChatQueryService {
         }
     }
 
+    public boolean isActiveParticipant(long roomId, long petId) {
+        return chatRoomRepository.existsAccessibleRoomForPet(roomId, petId);
+    }
+
     /**
      * Server-authored room interactions such as meeting cards are unavailable while the first
      * Greeting still waits for its recipient's TEXT reply. Unlike {@code sendText}, a card cannot

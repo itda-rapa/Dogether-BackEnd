@@ -16,6 +16,7 @@ import itda.meetingcard.dto.MeetingCardCreateRequest;
 import itda.meetingcard.dto.response.MeetingCardListResponse;
 import itda.meetingcard.dto.response.MeetingCardResponse;
 import itda.meetingcard.repository.CardDraftRepository;
+import itda.meetingcard.repository.CardDraftParticipantRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
 import itda.meetingcard.support.MeetingCardCursorCodec;
@@ -55,6 +56,7 @@ public class MeetingCardService {
     private final MeetingCardRepository meetingCardRepository;
     private final MeetingParticipantRepository meetingParticipantRepository;
     private final CardDraftRepository cardDraftRepository;
+    private final CardDraftParticipantRepository cardDraftParticipantRepository;
     private final InteractionPairLockService interactionPairLockService;
     private final Clock clock;
 
@@ -68,9 +70,11 @@ public class MeetingCardService {
                               MeetingCardRepository meetingCardRepository,
                               MeetingParticipantRepository meetingParticipantRepository,
                               CardDraftRepository cardDraftRepository,
+                              CardDraftParticipantRepository cardDraftParticipantRepository,
                               InteractionPairLockService interactionPairLockService) {
         this(activePetQueryService, chatQueryService, chatRoomRepository, chatMessageService,
                 meetingCardRepository, meetingParticipantRepository, cardDraftRepository,
+                cardDraftParticipantRepository,
                 interactionPairLockService, Clock.systemUTC());
     }
 
@@ -81,6 +85,7 @@ public class MeetingCardService {
                        MeetingCardRepository meetingCardRepository,
                        MeetingParticipantRepository meetingParticipantRepository,
                        CardDraftRepository cardDraftRepository,
+                       CardDraftParticipantRepository cardDraftParticipantRepository,
                        InteractionPairLockService interactionPairLockService,
                        Clock clock) {
         this.activePetQueryService = activePetQueryService;
@@ -90,6 +95,7 @@ public class MeetingCardService {
         this.meetingCardRepository = meetingCardRepository;
         this.meetingParticipantRepository = meetingParticipantRepository;
         this.cardDraftRepository = cardDraftRepository;
+        this.cardDraftParticipantRepository = cardDraftParticipantRepository;
         this.interactionPairLockService = interactionPairLockService;
         this.clock = clock;
     }
@@ -104,21 +110,34 @@ public class MeetingCardService {
         ChatRoom room = chatRoomRepository.findById(request.roomId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND));
 
-        List<Long> participantPetIds = directPair(room, actor.petId());
-        Long counterpartPetId = participantPetIds.get(0).equals(actor.petId())
-                ? participantPetIds.get(1)
-                : participantPetIds.get(0);
-
-        // Block creation uses the same ordered User/Pet locks. If confirm wins, a following block
-        // sees and cancels this card; if block wins, the access recheck below observes it and this
-        // transaction creates nothing.
-        InteractionPairContext lockedPair = interactionPairLockService.lockInteractionPair(
-                actor.petId(), counterpartPetId);
-        requireLockedActor(userId, actor, lockedPair);
-        chatQueryService.requireParticipant(request.roomId(), actor.petId());
-        chatQueryService.requireGreetingReplyCompleted(request.roomId());
-
-        Long sourceDraftId = resolveDraftId(request, actor.petId());
+        List<Long> participantPetIds;
+        Long sourceDraftId;
+        if (room.isOpenChat()) {
+            sourceDraftId = resolveDraftId(request, actor.petId());
+            if (sourceDraftId == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+            }
+            List<Long> snapshotPetIds = cardDraftParticipantRepository
+                    .findByCardDraftIdOrderByIdAsc(sourceDraftId).stream()
+                    .map(participant -> participant.getPetId())
+                    .distinct()
+                    .toList();
+            participantPetIds = selectOpenChatParticipants(
+                    request, snapshotPetIds, actor.petId());
+            if (participantPetIds.size() < 2 || !participantPetIds.contains(actor.petId())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+            }
+        } else {
+            participantPetIds = directPair(room, actor.petId());
+            Long counterpartPetId = participantPetIds.get(0).equals(actor.petId())
+                    ? participantPetIds.get(1) : participantPetIds.get(0);
+            InteractionPairContext lockedPair = interactionPairLockService.lockInteractionPair(
+                    actor.petId(), counterpartPetId);
+            requireLockedActor(userId, actor, lockedPair);
+            chatQueryService.requireParticipant(request.roomId(), actor.petId());
+            chatQueryService.requireGreetingReplyCompleted(request.roomId());
+            sourceDraftId = resolveDraftId(request, actor.petId());
+        }
 
         MeetingCard card = meetingCardRepository.save(new MeetingCard(
                 request.roomId(),
@@ -289,6 +308,29 @@ public class MeetingCardService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }
         return request.draftId();
+    }
+
+    private boolean chatRoomParticipantIsActive(long roomId, long petId) {
+        return chatQueryService.isActiveParticipant(roomId, petId);
+    }
+
+    private List<Long> selectOpenChatParticipants(
+            MeetingCardCreateRequest request,
+            List<Long> snapshotPetIds,
+            long actorPetId
+    ) {
+        List<Long> submitted = request.participantPetIds();
+        List<Long> selected = submitted == null ? snapshotPetIds : submitted;
+        if (selected.stream().anyMatch(Objects::isNull)
+                || selected.size() != selected.stream().distinct().count()
+                || !snapshotPetIds.containsAll(selected)
+                || !selected.contains(actorPetId)
+                || selected.size() < 2
+                || selected.stream().anyMatch(
+                        petId -> !chatRoomParticipantIsActive(request.roomId(), petId))) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+        return List.copyOf(selected);
     }
 
     private void requireLockedActor(

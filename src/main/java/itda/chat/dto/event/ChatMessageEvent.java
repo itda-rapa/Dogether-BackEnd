@@ -13,6 +13,7 @@ public record ChatMessageEvent(
         String senderType,
         String type,
         String body,
+        Long meetingCardId,
         String clientMessageId,
         Instant sentAt
 ) {
@@ -27,6 +28,7 @@ public record ChatMessageEvent(
                 message.senderType(),
                 message.type(),
                 message.body(),
+                message.meetingCardId(),
                 message.clientMessageId(),
                 message.createdAt()
         );

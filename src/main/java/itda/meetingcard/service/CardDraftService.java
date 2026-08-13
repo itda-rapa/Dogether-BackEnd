@@ -120,6 +120,8 @@ public class CardDraftService {
                 result.cardType(),
                 truncatePlace(result.place()),
                 result.combinedInstant(),
+                normalizeDate(result.date()),
+                normalizeTime(result.time()),
                 result.fallbackReason()
         ));
 
@@ -134,6 +136,23 @@ public class CardDraftService {
             return place;
         }
         return place.substring(0, MAX_PLACE_TEXT);
+    }
+
+    private String normalizeDate(String date) {
+        try {
+            return date == null ? null : LocalDate.parse(date).toString();
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private String normalizeTime(String time) {
+        try {
+            return time == null ? null : java.time.LocalTime.parse(time)
+                    .format(DateTimeFormatter.ofPattern("HH:mm"));
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     private List<ChatMessage> loadSourceMessages(long roomId) {

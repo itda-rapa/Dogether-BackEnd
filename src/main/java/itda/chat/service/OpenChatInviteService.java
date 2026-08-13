@@ -9,6 +9,8 @@ import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.friend.repository.FriendshipRepository;
+import itda.notification.domain.Notification;
+import itda.notification.repository.NotificationRepository;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
 import java.util.Optional;
@@ -27,6 +29,7 @@ public class OpenChatInviteService {
     private final FriendshipRepository friendshipRepository;
     private final ActivePetQueryService activePetQueryService;
     private final ChatAuthorizationCacheService chatAuthorizationCacheService;
+    private final NotificationRepository notificationRepository;
 
     @Transactional
     public OpenChatInviteResponse invite(long userId, long roomId, long targetPetId) {
@@ -63,6 +66,7 @@ public class OpenChatInviteService {
         } else {
             participantRepository.save(ChatRoomParticipant.join(room, targetPetId));
         }
+        notificationRepository.save(Notification.openChatInvite(targetPetId, actor.petId(), roomId));
         cacheParticipantAfterCommit(roomId, targetPetId);
         return new OpenChatInviteResponse(roomId, targetPetId, true, activeParticipants + 1);
     }

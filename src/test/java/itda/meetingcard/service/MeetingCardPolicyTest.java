@@ -20,8 +20,11 @@ import itda.interaction.dto.LockedUserContext;
 import itda.interaction.service.InteractionPairLockService;
 import itda.meetingcard.ai.MeetingDraftAiClient;
 import itda.meetingcard.domain.MeetingCardType;
+import itda.meetingcard.domain.CardDraft;
+import itda.meetingcard.domain.CardDraftParticipant;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
 import itda.meetingcard.repository.CardDraftRepository;
+import itda.meetingcard.repository.CardDraftParticipantRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
 import itda.pet.domain.PetStatus;
@@ -32,6 +35,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -69,6 +73,8 @@ class MeetingCardPolicyTest {
     private MeetingParticipantRepository meetingParticipantRepository;
     @Mock
     private CardDraftRepository cardDraftRepository;
+    @Mock
+    private CardDraftParticipantRepository cardDraftParticipantRepository;
     @Mock
     private InteractionPairLockService interactionPairLockService;
 
@@ -124,6 +130,7 @@ class MeetingCardPolicyTest {
                 meetingCardRepository,
                 meetingParticipantRepository,
                 cardDraftRepository,
+                cardDraftParticipantRepository,
                 interactionPairLockService,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
@@ -158,6 +165,64 @@ class MeetingCardPolicyTest {
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString()
         );
+    }
+
+    @Test
+    void openChatRejectsParticipantOutsideAiDraftSnapshot() {
+        MeetingCardService service = meetingCardService();
+        stubOpenChatDraft(List.of(PET_1, PET_2));
+
+        MeetingCardCreateRequest request = new MeetingCardCreateRequest(
+                ROOM_ID, 7L, MeetingCardType.WALK, "모란시장역",
+                NOW.plusSeconds(3600), List.of(PET_1, 999L));
+
+        assertThatThrownBy(() -> service.confirm(USER_1, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+        verify(meetingCardRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void openChatRejectsDraftParticipantWhoHasLeftRoom() {
+        MeetingCardService service = meetingCardService();
+        stubOpenChatDraft(List.of(PET_1, PET_2));
+        when(chatQueryService.isActiveParticipant(ROOM_ID, PET_1)).thenReturn(true);
+        when(chatQueryService.isActiveParticipant(ROOM_ID, PET_2)).thenReturn(false);
+
+        MeetingCardCreateRequest request = new MeetingCardCreateRequest(
+                ROOM_ID, 7L, MeetingCardType.WALK, "모란시장역",
+                NOW.plusSeconds(3600), List.of(PET_1, PET_2));
+
+        assertThatThrownBy(() -> service.confirm(USER_1, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.VALIDATION_FAILED);
+        verify(meetingCardRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    private MeetingCardService meetingCardService() {
+        return new MeetingCardService(
+                activePetQueryService, chatQueryService, chatRoomRepository,
+                chatMessageService, meetingCardRepository, meetingParticipantRepository,
+                cardDraftRepository, cardDraftParticipantRepository,
+                interactionPairLockService, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private void stubOpenChatDraft(List<Long> snapshotPetIds) {
+        ChatRoom room = org.mockito.Mockito.mock(ChatRoom.class);
+        when(room.isOpenChat()).thenReturn(true);
+        when(chatRoomRepository.findById(ROOM_ID)).thenReturn(Optional.of(room));
+        CardDraft draft = new CardDraft(
+                ROOM_ID, PET_1, MeetingCardType.WALK, "모란시장역",
+                NOW.plusSeconds(3600), null, null, null);
+        org.springframework.test.util.ReflectionTestUtils.setField(draft, "id", 7L);
+        when(cardDraftRepository.findById(7L)).thenReturn(Optional.of(draft));
+        when(meetingCardRepository.existsBySourceDraftId(7L)).thenReturn(false);
+        when(cardDraftParticipantRepository.findByCardDraftIdOrderByIdAsc(7L))
+                .thenReturn(snapshotPetIds.stream()
+                        .map(petId -> new CardDraftParticipant(7L, petId))
+                        .toList());
     }
 
     private InteractionPairContext lockedPair() {

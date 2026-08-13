@@ -16,6 +16,8 @@ import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.friend.repository.FriendshipRepository;
+import itda.notification.domain.Notification;
+import itda.notification.repository.NotificationRepository;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
 import java.time.Instant;
@@ -39,6 +41,7 @@ class OpenChatInviteServiceTest {
     @Mock private FriendshipRepository friendshipRepository;
     @Mock private ActivePetQueryService activePetQueryService;
     @Mock private ChatAuthorizationCacheService chatAuthorizationCacheService;
+    @Mock private NotificationRepository notificationRepository;
 
     private OpenChatInviteService service;
     private ChatRoom room;
@@ -46,7 +49,8 @@ class OpenChatInviteServiceTest {
     @BeforeEach
     void setUp() {
         service = new OpenChatInviteService(chatRoomRepository, participantRepository,
-                friendshipRepository, activePetQueryService, chatAuthorizationCacheService);
+                friendshipRepository, activePetQueryService, chatAuthorizationCacheService,
+                notificationRepository);
         room = org.mockito.Mockito.mock(ChatRoom.class);
         when(activePetQueryService.requireActivePet(USER_ID)).thenReturn(
                 new ActivePetContext(ACTOR_PET_ID, USER_ID, "actor#1", "actor", null, false));
@@ -68,6 +72,7 @@ class OpenChatInviteServiceTest {
         assertThat(response).isEqualTo(new OpenChatInviteResponse(
                 ROOM_ID, TARGET_PET_ID, true, 3));
         verify(participantRepository).save(any(ChatRoomParticipant.class));
+        verify(notificationRepository).save(any(Notification.class));
         verify(chatAuthorizationCacheService).addParticipant(ROOM_ID, TARGET_PET_ID);
     }
 
@@ -86,6 +91,7 @@ class OpenChatInviteServiceTest {
         assertThat(response.activeParticipants()).isEqualTo(4);
         verify(participantRepository, never()).save(any());
         verify(existing, never()).rejoin();
+        verify(notificationRepository, never()).save(any());
     }
 
     @Test
@@ -137,6 +143,7 @@ class OpenChatInviteServiceTest {
 
         assertThat(response.joined()).isTrue();
         assertThat(existing.getLeftAt()).isNull();
+        verify(notificationRepository).save(any(Notification.class));
         verify(participantRepository, never()).save(any());
     }
 

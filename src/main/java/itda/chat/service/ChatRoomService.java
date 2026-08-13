@@ -110,7 +110,8 @@ public class ChatRoomService {
             throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
         }
 
-        return OpenChatRoomResponse.from(room);
+        long activeParticipants = participantRepository.countByRoomIdAndLeftAtIsNull(roomId);
+        return OpenChatRoomResponse.from(room, activeParticipants);
     }
 
     public OpenChatRoomResponse updateOpenChatRoom(
