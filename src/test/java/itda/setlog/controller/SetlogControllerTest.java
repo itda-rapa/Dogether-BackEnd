@@ -27,6 +27,7 @@ import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
 import itda.setlog.service.SetlogUploadSessionService;
 import itda.setlog.service.SetlogUploadCompletionService;
+import itda.setlog.service.SetlogDeleteService;
 import itda.setlog.dto.SetlogUploadCompleteRequest;
 import itda.setlog.dto.SetlogUploadCreateRequest;
 import itda.setlog.dto.SetlogUploadCreateResponse;
@@ -70,6 +71,9 @@ class SetlogControllerTest {
 
     @MockitoBean
     private SetlogUploadCompletionService setlogUploadCompletionService;
+
+    @MockitoBean
+    private SetlogDeleteService setlogDeleteService;
 
     @MockitoBean
     private GreetingService greetingService;
@@ -201,6 +205,15 @@ class SetlogControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"mediaId\":30}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("DELETE /setlogs/{setlogId}는 작성자의 셋로그를 204로 삭제한다")
+    void deleteSetlogReturnsNoContent() throws Exception {
+        mockMvc.perform(delete("/setlogs/{setlogId}", SETLOG_ID))
+                .andExpect(status().isNoContent());
+
+        then(setlogDeleteService).should().delete(USER_ID, SETLOG_ID);
     }
 
     @Test

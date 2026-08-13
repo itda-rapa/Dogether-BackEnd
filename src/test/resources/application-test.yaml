@@ -64,3 +64,13 @@ app:
       maintenance-delay-ms: 60000
       batch-size: 100
       archive-after-days: 30
+  storage-cleanup:
+    enabled: false
+    batch-size: 50
+    lease: 5m
+    max-attempts: 10
+    delay-ms: 60000
+    max-upload-duration: 20m
+    upload-settle-grace: 30m
+    base-backoff: 30s
+    max-backoff: 6h

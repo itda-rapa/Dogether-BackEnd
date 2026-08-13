@@ -17,6 +17,7 @@ import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
 import itda.setlog.service.SetlogUploadSessionService;
 import itda.setlog.service.SetlogUploadCompletionService;
+import itda.setlog.service.SetlogDeleteService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -41,6 +42,7 @@ public class SetlogController implements SetlogSwaggerSupporter {
     private final SetlogReactionService setlogReactionService;
     private final SetlogUploadSessionService setlogUploadSessionService;
     private final SetlogUploadCompletionService setlogUploadCompletionService;
+    private final SetlogDeleteService setlogDeleteService;
     private final GreetingService greetingService;
 
     @PostMapping("/uploads")
@@ -95,6 +97,15 @@ public class SetlogController implements SetlogSwaggerSupporter {
         return ResponseEntity.ok(
                 ApiResponse.ok(setlogs, "셋로그 조회 성공")
         );
+    }
+
+    @DeleteMapping("/{setlogId}")
+    public ResponseEntity<Void> deleteSetlog(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long setlogId
+    ) {
+        setlogDeleteService.delete(currentUser.id(), setlogId);
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{setlogId}/reactions/{type}")

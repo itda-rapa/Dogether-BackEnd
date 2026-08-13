@@ -17,6 +17,16 @@ import org.springframework.data.repository.query.Param;
 
 public interface SetlogRepository extends JpaRepository<Setlog, Long> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select setlog from Setlog setlog
+              join fetch setlog.authorPet pet
+              join fetch pet.owner owner
+              join fetch setlog.media media
+             where setlog.id = :setlogId
+            """)
+    Optional<Setlog> findByIdForDelete(@Param("setlogId") Long setlogId);
+
     boolean existsByMedia_Id(Long mediaId);
 
     @Query("""

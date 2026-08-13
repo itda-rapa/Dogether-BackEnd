@@ -34,4 +34,20 @@ public interface ObjectStorage {
 
     /** Deletes a specific version when versionId is supplied. */
     void delete(String objectKey, String versionId);
+
+    /**
+     * Removes every version and delete marker for a key. Implementations for an
+     * unversioned provider may delegate to {@link #delete(String)}.
+     */
+    default void deleteAllVersions(String objectKey) {
+        delete(objectKey);
+    }
+
+    /** Deletes every version and marker except the retained, verified version. */
+    default void deleteAllVersionsExcept(String objectKey, String retainedVersionId) {
+        if (retainedVersionId == null || retainedVersionId.isBlank()) {
+            throw new IllegalArgumentException("retainedVersionId must not be blank");
+        }
+        throw new UnsupportedOperationException("Version pruning is not supported");
+    }
 }
