@@ -88,6 +88,9 @@ SimpleBroker는 인스턴스 간 구독을 공유하지 않으므로 **단일 re
 활성화한다. 다중 replica 환경에서는 broker relay 또는 Kafka/Redis 기반 확장
 방식이 확정되기 전까지 `false`로 유지한다.
 
+시연 환경의 설정·실시간 송수신 확인 절차는
+[`docs/demo-websocket-smoke.md`](docs/demo-websocket-smoke.md)를 따른다.
+
 `.env.example`에는 `SPRING_PROFILES_ACTIVE=local`과 `FLYWAY_ENABLED=false`가
 포함되어 있다. 현재 로컬 기본값에서는 Flyway를 자동 실행하지 않는다. 빈 DB를
 처음 구성하거나 migration 적용이 필요할 때만 `.env`의 값을 일시적으로 `true`로
