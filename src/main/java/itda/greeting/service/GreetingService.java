@@ -11,20 +11,25 @@ import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.dto.GreetingResponse;
 import itda.greeting.repository.GreetingRepository;
+import itda.interaction.dto.InteractionPairContext;
+import itda.interaction.service.InteractionPairLockService;
 import itda.media.domain.MediaStatus;
 import itda.pet.domain.Pet;
+import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
 import itda.setlog.domain.Setlog;
 import itda.setlog.domain.SetlogStatus;
 import itda.setlog.repository.SetlogRepository;
+import itda.user.domain.AccountStatus;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +50,7 @@ public class GreetingService {
     private final SetlogRepository setlogRepository;
     private final PetRepository petRepository;
     private final ActivePetQueryService activePetQueryService;
+    private final InteractionPairLockService interactionPairLockService;
     private final BlockRelationshipQueryService blockRelationshipQueryService;
     private final ChatRoomService chatRoomService;
     private final ChatMessageService chatMessageService;
@@ -56,6 +62,7 @@ public class GreetingService {
             SetlogRepository setlogRepository,
             PetRepository petRepository,
             ActivePetQueryService activePetQueryService,
+            InteractionPairLockService interactionPairLockService,
             BlockRelationshipQueryService blockRelationshipQueryService,
             ChatRoomService chatRoomService,
             ChatMessageService chatMessageService
@@ -65,6 +72,7 @@ public class GreetingService {
                 setlogRepository,
                 petRepository,
                 activePetQueryService,
+                interactionPairLockService,
                 blockRelationshipQueryService,
                 chatRoomService,
                 chatMessageService,
@@ -77,6 +85,7 @@ public class GreetingService {
             SetlogRepository setlogRepository,
             PetRepository petRepository,
             ActivePetQueryService activePetQueryService,
+            InteractionPairLockService interactionPairLockService,
             BlockRelationshipQueryService blockRelationshipQueryService,
             ChatRoomService chatRoomService,
             ChatMessageService chatMessageService,
@@ -86,6 +95,7 @@ public class GreetingService {
         this.setlogRepository = setlogRepository;
         this.petRepository = petRepository;
         this.activePetQueryService = activePetQueryService;
+        this.interactionPairLockService = interactionPairLockService;
         this.blockRelationshipQueryService = blockRelationshipQueryService;
         this.chatRoomService = chatRoomService;
         this.chatMessageService = chatMessageService;
@@ -100,11 +110,28 @@ public class GreetingService {
     public GreetingResponse send(Long userId, Long setlogId) {
         ActivePetContext activePet =
                 activePetQueryService.requireActivePet(userId);
-        Pet fromPet = petRepository.findByIdForUpdate(activePet.petId())
+        Long targetPetId = setlogRepository.findAuthorPetIdById(setlogId)
                 .orElseThrow(() ->
-                        new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED)
+                        new BusinessException(ErrorCode.SETLOG_NOT_FOUND)
                 );
-        Setlog setlog = setlogRepository.findVisibleSeedById(
+        InteractionPairContext pair =
+                interactionPairLockService.lockInteractionPair(
+                        activePet.petId(),
+                        targetPetId
+                );
+        validateLockedPair(userId, activePet, pair);
+
+        if (activePet.ownerUserId().equals(pair.targetUser().userId())) {
+            throw new BusinessException(ErrorCode.GREETING_SELF_FORBIDDEN);
+        }
+        if (blockRelationshipQueryService.existsBlockBetween(
+                pair.sourceUser().userId(),
+                pair.targetUser().userId()
+        )) {
+            throw new BusinessException(ErrorCode.BLOCKED_USER);
+        }
+
+        Setlog setlog = setlogRepository.findInteractableByIdForUpdate(
                         setlogId,
                         SetlogStatus.VISIBLE,
                         PLAYABLE_MEDIA_STATUSES
@@ -112,8 +139,14 @@ public class GreetingService {
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.SETLOG_NOT_FOUND)
                 );
+        if (!Objects.equals(setlog.getAuthorPet().getId(), targetPetId)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+        Pet fromPet = petRepository.findById(activePet.petId())
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED)
+                );
         Pet toPet = setlog.getAuthorPet();
-        requireGreetingAllowed(activePet, toPet);
 
         if (greetingRepository.existsByFromPet_IdAndToPet_Id(
                 fromPet.getId(),
@@ -174,22 +207,31 @@ public class GreetingService {
         );
     }
 
-    private void requireGreetingAllowed(
+    private void validateLockedPair(
+            Long userId,
             ActivePetContext activePet,
-            Pet toPet
+            InteractionPairContext pair
     ) {
-        if (!toPet.isActive() || toPet.getDeletedAt() != null) {
+        if (!Objects.equals(userId, pair.sourceUser().userId())
+                || !Objects.equals(
+                        activePet.ownerUserId(),
+                        pair.sourceUser().userId()
+                )) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+        if (pair.sourceUser().accountStatus() != AccountStatus.ACTIVE
+                || !Objects.equals(
+                        pair.sourceUser().activePetId(),
+                        activePet.petId()
+                )
+                || pair.sourcePet().status() != PetStatus.ACTIVE
+                || pair.sourcePet().deletedAt() != null) {
+            throw new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
+        }
+        if (pair.targetUser().accountStatus() != AccountStatus.ACTIVE
+                || pair.targetPet().status() != PetStatus.ACTIVE
+                || pair.targetPet().deletedAt() != null) {
             throw new BusinessException(ErrorCode.SETLOG_NOT_FOUND);
-        }
-        Long targetOwnerId = toPet.getOwner().getId();
-        if (activePet.ownerUserId().equals(targetOwnerId)) {
-            throw new BusinessException(ErrorCode.GREETING_SELF_FORBIDDEN);
-        }
-        if (blockRelationshipQueryService.existsBlockBetween(
-                activePet.ownerUserId(),
-                targetOwnerId
-        )) {
-            throw new BusinessException(ErrorCode.BLOCKED_USER);
         }
     }
 

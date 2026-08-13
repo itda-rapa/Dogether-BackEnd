@@ -172,6 +172,74 @@ class SetlogRepositoryPostgreSqlIntegrationTest {
                 );
     }
 
+    @Test
+    void interactableLookupAcceptsSeedAndUserSetlogs() {
+        Long author = createUser();
+        Long pet = createPet(author);
+        Instant createdAt = Instant.parse("2099-08-11T03:00:00Z");
+        Long seed = createSetlog(pet, author, true, createdAt);
+        Long user = createSetlog(pet, author, false, createdAt);
+
+        assertThat(setlogRepository.findInteractableById(
+                seed,
+                SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
+        )).isPresent().get().extracting(Setlog::isSeed).isEqualTo(true);
+        assertThat(setlogRepository.findInteractableByIdForUpdate(
+                user,
+                SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
+        )).isPresent().get().extracting(Setlog::isSeed).isEqualTo(false);
+    }
+
+    @Test
+    void interactableLookupExcludesDeletedOrInactiveGraph() {
+        Long author = createUser();
+        Long pet = createPet(author);
+        Instant now = Instant.parse("2099-08-11T04:00:00Z");
+        Long deletedSetlog = createSetlog(pet, author, false, now);
+        Long deletedMedia = createSetlog(pet, author, false, now);
+        Long inactiveMedia = createSetlog(pet, author, false, now);
+        Long deletedPet = createPet(author);
+        Long deletedPetSetlog = createSetlog(deletedPet, author, false, now);
+        Long suspendedAuthor = createUser();
+        Long suspendedPet = createPet(suspendedAuthor);
+        Long suspendedAuthorSetlog = createSetlog(
+                suspendedPet, suspendedAuthor, false, now
+        );
+        jdbcTemplate.update(
+                "update setlogs set status = 'DELETED_BY_AUTHOR' where id = ?",
+                deletedSetlog
+        );
+        jdbcTemplate.update("""
+                update media set deleted_at = ?
+                 where id = (select media_id from setlogs where id = ?)
+                """, now.atOffset(ZoneOffset.UTC), deletedMedia);
+        updateMediaStatus(inactiveMedia, MediaStatus.FAILED);
+        jdbcTemplate.update(
+                "update pets set status = 'DELETED', deleted_at = ? where id = ?",
+                now.atOffset(ZoneOffset.UTC), deletedPet
+        );
+        jdbcTemplate.update(
+                "update users set account_status = 'SUSPENDED' where id = ?",
+                suspendedAuthor
+        );
+
+        assertThat(List.of(
+                deletedSetlog,
+                deletedMedia,
+                inactiveMedia,
+                deletedPetSetlog,
+                suspendedAuthorSetlog
+        )).allSatisfy(setlogId -> assertThat(
+                setlogRepository.findInteractableById(
+                        setlogId,
+                        SetlogStatus.VISIBLE,
+                        List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
+                )
+        ).isEmpty());
+    }
+
     private List<Setlog> find(
             Long viewer,
             Instant cursorCreatedAt,
