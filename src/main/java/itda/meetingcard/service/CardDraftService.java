@@ -100,7 +100,7 @@ public class CardDraftService {
      * <p>{@code NEVER} 를 다른 값으로 바꾸거나 지우면 이 보호가 사라진다.
      */
     @Transactional(propagation = Propagation.NEVER)
-    public CardDraftResponse createDraft(Long userId, long roomId) {
+    public List<CardDraftResponse> createDraft(Long userId, long roomId) {
         ActivePetContext actor = activePetQueryService.requireActivePet(userId);
 
         // 방 없음·참가자 아님·차단은 모두 404 로 수렴한다. 채팅과 같은 검사를 재사용해
@@ -114,16 +114,22 @@ public class CardDraftService {
                 ? AiDraftResult.fallback(CardDraftFallbackReason.INSUFFICIENT_CONTEXT)
                 : aiClient.extract(toCommand(roomId, newestFirst));
 
-        CardDraft saved = cardDraftTransactionService.save(new CardDraft(
-                roomId,
-                actor.petId(),
-                result.cardType(),
-                truncatePlace(result.place()),
-                result.combinedInstant(),
-                result.fallbackReason()
-        ));
+        List<AiDraftResult.Candidate> candidates = result.candidates().isEmpty()
+                ? List.of(AiDraftResult.Candidate.blank())
+                : result.candidates();
+        List<CardDraft> drafts = candidates.stream()
+                .map(candidate -> new CardDraft(
+                        roomId,
+                        actor.petId(),
+                        candidate.cardType(),
+                        truncatePlace(candidate.place()),
+                        candidate.combinedInstant(),
+                        result.fallbackReason()))
+                .toList();
 
-        return CardDraftResponse.from(saved);
+        return cardDraftTransactionService.saveAll(drafts).stream()
+                .map(CardDraftResponse::from)
+                .toList();
     }
 
     /**

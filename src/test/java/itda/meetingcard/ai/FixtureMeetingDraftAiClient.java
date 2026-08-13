@@ -1,13 +1,7 @@
 package itda.meetingcard.ai;
 
 import itda.meetingcard.domain.CardDraftFallbackReason;
-import itda.meetingcard.domain.MeetingCardType;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -56,7 +50,7 @@ public class FixtureMeetingDraftAiClient implements MeetingDraftAiClient {
         return this;
     }
 
-    /** 두 개 배열 요소 → MODEL_ERROR */
+    /** 두 개 배열 요소 → 두 후보를 원래 순서대로 반환 */
     public FixtureMeetingDraftAiClient prepareTwoElements() {
         this.responses = new ArrayList<>();
         this.responses.add(new AiExtractResponse("WALK", "2026-07-31", "19:00", "중앙공원"));
@@ -143,45 +137,6 @@ public class FixtureMeetingDraftAiClient implements MeetingDraftAiClient {
     // ── 응답 매핑 (MeetingCardAiAdapter 와 동일 로직) ───────────
 
     private AiDraftResult mapResponse(List<AiExtractResponse> raw) {
-        if (raw == null || raw.isEmpty()) {
-            return AiDraftResult.empty();
-        }
-        if (raw.size() > 1) {
-            return AiDraftResult.fallback(CardDraftFallbackReason.MODEL_ERROR);
-        }
-
-        AiExtractResponse elem = raw.get(0);
-        MeetingCardType cardType = mapCardType(elem.meetingType());
-        String date = elem.date();
-        String time = elem.time();
-        String place = elem.place();
-        Instant combined = combineDateTime(date, time);
-
-        return new AiDraftResult(cardType, date, time, place, combined, null);
-    }
-
-    MeetingCardType mapCardType(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return MeetingCardType.valueOf(raw.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    Instant combineDateTime(String date, String time) {
-        if (date == null || date.isBlank() || time == null || time.isBlank()) {
-            return null;
-        }
-        try {
-            LocalDate ld = LocalDate.parse(date);
-            LocalTime lt = LocalTime.parse(time);
-            ZonedDateTime zdt = ZonedDateTime.of(ld, lt, zoneId);
-            return zdt.toInstant();
-        } catch (Exception e) {
-            return null;
-        }
+        return AiDraftResultMapper.map(raw, zoneId);
     }
 }

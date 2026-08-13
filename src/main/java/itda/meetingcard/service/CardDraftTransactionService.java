@@ -2,6 +2,7 @@ package itda.meetingcard.service;
 
 import itda.meetingcard.domain.CardDraft;
 import itda.meetingcard.repository.CardDraftRepository;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,5 +27,10 @@ public class CardDraftTransactionService {
     @Transactional
     public CardDraft save(CardDraft draft) {
         return cardDraftRepository.save(draft);
+    }
+
+    @Transactional
+    public List<CardDraft> saveAll(List<CardDraft> drafts) {
+        return cardDraftRepository.saveAll(drafts);
     }
 }
