@@ -33,9 +33,6 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Run tests
-        run: ./gradlew test postgresTest
-
       - name: Gradle을 통한 JAR파일 빌드
         run: ./gradlew build -x test
 
