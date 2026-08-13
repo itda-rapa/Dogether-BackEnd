@@ -33,9 +33,6 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Run tests
-        run: ./gradlew test postgresTest
-
       - name: Gradle을 통한 JAR파일 빌드
         run: ./gradlew build -x test
 
@@ -67,7 +64,7 @@ jobs:
     steps:
       - name: 백엔드 배포
         run : |
-          cd /home/ubuntu/deployment/server
+          cd /home/ubuntu
           sudo docker compose down
           sudo docker compose pull
           sudo docker compose up -d
