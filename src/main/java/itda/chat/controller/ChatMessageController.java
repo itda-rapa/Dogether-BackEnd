@@ -33,12 +33,12 @@ public class ChatMessageController implements ChatMessageSwaggerSupporter {
     public ResponseEntity<ApiResponse<ChatMessageListResponse>> getMessages(
             @AuthenticationPrincipal CurrentUser currentUser,
             @PathVariable long roomId,
-            @RequestParam(name = "afterMessageId", required = false, defaultValue = "0") long afterMessageId,
+            @RequestParam(name = "afterMessageId", required = false) Long afterMessageId,
             @RequestParam(name = "limit", required = false) Integer limit) {
-        if (afterMessageId < 0) {
+        if (afterMessageId != null && afterMessageId < 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }
-        ChatMessageListResult result = chatQueryService.getMessages(
+        ChatMessageListResult result = chatQueryService.getMessagePage(
                 currentUser.id(), roomId, afterMessageId, limit);
         return ResponseEntity.ok(ApiResponse.ok(result.data(), "메시지 목록 조회 성공"));
     }

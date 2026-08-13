@@ -108,6 +108,7 @@ public enum ErrorCode {
     CHAT_SENDER_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "채팅방 참여자만 메시지를 보낼 수 있습니다."),
     CHAT_CLIENT_MESSAGE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "TEXT 메시지는 clientMessageId가 필요합니다."),
     CHAT_DUPLICATE_MESSAGE(HttpStatus.CONFLICT, "동일한 clientMessageId의 메시지가 이미 존재합니다."),
+    CHAT_ROOM_FULL(HttpStatus.CONFLICT, "채팅방 정원이 가득 찼습니다."),
 
     BOARD_NOT_FOUND(HttpStatus.NOT_FOUND, "게시판을 찾을 수 없습니다."),
     BOARD_POST_NOT_FOUND(HttpStatus.NOT_FOUND, "게시글을 찾을 수 없습니다."),

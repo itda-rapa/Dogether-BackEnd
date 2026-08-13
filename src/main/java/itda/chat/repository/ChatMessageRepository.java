@@ -82,6 +82,18 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
                                         org.springframework.data.domain.Pageable pageable);
 
     /**
+     * Load the most recent messages for the initial room entry. The service reverses this
+     * descending slice before returning it so clients still render messages chronologically.
+     */
+    @Query("""
+            SELECT m FROM ChatMessage m
+            WHERE m.room.id = :roomId
+            ORDER BY m.id DESC
+            """)
+    List<ChatMessage> findLatestMessages(@Param("roomId") long roomId,
+                                         org.springframework.data.domain.Pageable pageable);
+
+    /**
      * AI 약속 초안에 넘길 원본 메시지. 사용자가 직접 쓴 TEXT 만 대상이며 CARD·SYSTEM 은
      * 제외한다(04_M1_OpenAPI.yaml card-drafts 설명).
      *

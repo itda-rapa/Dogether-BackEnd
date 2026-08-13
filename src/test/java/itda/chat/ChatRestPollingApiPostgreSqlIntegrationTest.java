@@ -522,6 +522,48 @@ class ChatRestPollingApiPostgreSqlIntegrationTest {
     }
 
     @Test
+    void initialLoadReturnsMostRecentMessagesInAscendingOrder() {
+        long roomId = newRoom(PET_1, PET_2);
+        for (int i = 1; i <= 5; i++) {
+            sendText(roomId, PET_1, "initial-" + i, "message " + i);
+        }
+
+        ChatQueryService.ChatMessageListResult result =
+                chatQueryService.getMessagePage(USER_1, roomId, null, 3);
+
+        assertThat(result.data().items())
+                .extracting(ChatMessageResponse::body)
+                .containsExactly("message 3", "message 4", "message 5");
+        assertThat(result.data().items())
+                .extracting(ChatMessageResponse::messageId)
+                .isSorted();
+        assertThat(result.data().hasMore()).isTrue();
+        assertThat(result.data().nextAfterMessageId())
+                .isEqualTo(result.data().items().get(2).messageId());
+    }
+
+    @Test
+    void openChatParticipantCanLoadExistingMessages() {
+        Long roomId = jdbcTemplate.queryForObject("""
+                insert into chat_rooms (
+                    type, status, origin, title, owner_pet_id, max_participants, is_public
+                ) values ('GROUP', 'ACTIVE', 'OPEN_CHAT', 'walk together', ?, 10, true)
+                returning id
+                """, Long.class, PET_1);
+        jdbcTemplate.update(
+                "insert into chat_room_participants (room_id, pet_id) values (?, ?), (?, ?)",
+                roomId, PET_1, roomId, PET_2);
+        sendText(roomId, PET_2, "open-history-1", "before entry");
+
+        ChatQueryService.ChatMessageListResult result =
+                chatQueryService.getMessagePage(USER_1, roomId, null, 50);
+
+        assertThat(result.data().items())
+                .extracting(ChatMessageResponse::body)
+                .containsExactly("before entry");
+    }
+
+    @Test
     void onlyMessagesWithIdGreaterThanCursorReturned() {
         long roomId = newRoom(11L, 22L);
         sendText(roomId, 11L, "m1", "msg1");
@@ -698,12 +740,18 @@ class ChatRestPollingApiPostgreSqlIntegrationTest {
     @Test
     void storedSenderPetIdEqualsActorsPetId() {
         long roomId = newRoom(11L, 22L);
+        jdbcTemplate.update("update pets set nickname = 'Mong' where id = ?", PET_1);
 
         ChatQueryService.SendMessageResult result = chatQueryService.sendMessage(
                 USER_1, roomId, new ChatMessageCreateRequest("m-sender", "hello"));
 
         assertThat(result.data().senderPetId()).isEqualTo(11L);
+        assertThat(result.data().senderPetNickname()).isEqualTo("Mong");
         assertThat(result.data().senderType()).isEqualTo("PET");
+
+        ChatQueryService.ChatMessageListResult history =
+                chatQueryService.getMessages(USER_2, roomId, 0, 50);
+        assertThat(history.data().items().get(0).senderPetNickname()).isEqualTo("Mong");
     }
 
     @Test

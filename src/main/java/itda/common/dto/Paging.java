@@ -7,6 +7,6 @@ public record Paging(
         int size
 ) {
     public PageRequest toPageable() {
-        return PageRequest.of(page - 1, size);
+        return PageRequest.of(page, size);
     }
 }

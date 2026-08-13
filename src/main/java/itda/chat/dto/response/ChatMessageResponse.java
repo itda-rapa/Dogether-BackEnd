@@ -11,6 +11,7 @@ public record ChatMessageResponse(
         Long roomId,
         String senderType,
         Long senderPetId,
+        String senderPetNickname,
         String type,
         String body,
         Long meetingCardId,
@@ -21,12 +22,13 @@ public record ChatMessageResponse(
     @QueryProjection
     public ChatMessageResponse{}
 
-    public static ChatMessageResponse from(ChatMessage message) {
+    public static ChatMessageResponse from(ChatMessage message, String senderPetNickname) {
         return new ChatMessageResponse(
                 message.getId(),
                 message.getRoom().getId(),
                 message.getSenderType().name(),
                 message.getSenderPetId(),
+                senderPetNickname,
                 message.getType().name(),
                 message.getBody(),
                 message.getMeetingCardId(),
