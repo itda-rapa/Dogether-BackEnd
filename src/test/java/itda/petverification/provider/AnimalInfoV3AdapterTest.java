@@ -51,13 +51,37 @@ class AnimalInfoV3AdapterTest {
     }
 
     @Test
-    void classifiesOnlyExplicitResultMessageIdentifierFormatErrorsAsValidation() {
+    void classifiesOnlyExplicitIdentifierFormatErrorsAsValidation() {
         assertErrorCode(() -> normalize(response("10", "INVALID dog_reg_no format", null, null)),
+                ErrorCode.VALIDATION_FAILED);
+        assertErrorCode(() -> normalize(response("10", "rfid_cd format invalid", null, null)),
+                ErrorCode.VALIDATION_FAILED);
+        assertErrorCode(() -> normalize(response("10", "format is invalid for dog_reg_no", null, null)),
+                ErrorCode.VALIDATION_FAILED);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
+                        "invalid rfid_cd format", null)),
+                ErrorCode.VALIDATION_FAILED);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
+                        "rfid_cd format is invalid", null)),
+                ErrorCode.VALIDATION_FAILED);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
+                        "format invalid for dog_reg_no", null)),
                 ErrorCode.VALIDATION_FAILED);
         assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.", null, null)),
                 ErrorCode.PET_VERIFICATION_UNAVAILABLE);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.", " \t ", null)),
+                ErrorCode.PET_VERIFICATION_UNAVAILABLE);
         assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
-                        "rfid_cd format is invalid", null)),
+                        "dog_reg_no accepted; owner_birth format invalid", null)),
+                ErrorCode.PET_VERIFICATION_UNAVAILABLE);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
+                        "owner_birth format is invalid", null)),
+                ErrorCode.PET_VERIFICATION_UNAVAILABLE);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
+                        "owner_nm format is invalid", null)),
+                ErrorCode.PET_VERIFICATION_UNAVAILABLE);
+        assertErrorCode(() -> normalize(response("10", "INVALID REQUEST PARAMETER ERROR.",
+                        "unknown_parameter format is invalid", null)),
                 ErrorCode.PET_VERIFICATION_UNAVAILABLE);
         assertErrorCode(() -> normalize(response("03", "NO DATA", null, null)),
                 ErrorCode.PET_VERIFICATION_UNAVAILABLE);

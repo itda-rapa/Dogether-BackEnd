@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Locale;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -136,9 +137,15 @@ public class AnimalInfoV3Adapter {
         if (!"10".equals(header.resultCode())) {
             return false;
         }
-        String resultMessage = header.resultMsg() == null
-                ? "" : header.resultMsg().toLowerCase();
-        return resultMessage.matches(".*\\b(dog_reg_no|rfid_cd)\\b.*\\bformat\\b.*");
+        return hasIdentifierFormatSignal(header.resultMsg())
+                || hasIdentifierFormatSignal(header.errorMsg());
+    }
+
+    private boolean hasIdentifierFormatSignal(String message) {
+        String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        return normalized.matches(".*\\binvalid\\s+(dog_reg_no|rfid_cd)\\s+format\\b.*")
+                || normalized.matches(".*\\b(dog_reg_no|rfid_cd)\\s+format\\s+(?:is\\s+)?invalid\\b.*")
+                || normalized.matches(".*\\bformat\\s+(?:is\\s+)?invalid\\s+for\\s+(dog_reg_no|rfid_cd)\\b.*");
     }
 
     private PetVerificationDeviceType deviceType(String value) {

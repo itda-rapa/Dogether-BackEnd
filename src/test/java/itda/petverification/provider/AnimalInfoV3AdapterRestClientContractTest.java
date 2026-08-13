@@ -114,6 +114,24 @@ class AnimalInfoV3AdapterRestClientContractTest {
     }
 
     @Test
+    void mapsExplicitIdentifierFormatErrorsFromProviderResultAndErrorMessagesToValidation() {
+        responseBody = """
+                {"response":{"header":{"resultCode":"10",
+                "resultMsg":"rfid_cd format invalid"},"body":{}}}
+                """;
+
+        assertErrorCode(ErrorCode.VALIDATION_FAILED);
+
+        responseBody = """
+                {"response":{"header":{"resultCode":"10",
+                "resultMsg":"INVALID REQUEST PARAMETER ERROR.",
+                "errorMsg":"format is invalid for dog_reg_no"},"body":{}}}
+                """;
+
+        assertErrorCode(ErrorCode.VALIDATION_FAILED);
+    }
+
+    @Test
     void mapsMalformedProviderJsonToUnavailableWithoutExposingWireDetails() {
         responseBody = "{not-json";
 
@@ -155,12 +173,16 @@ class AnimalInfoV3AdapterRestClientContractTest {
     }
 
     private void assertUnavailable() {
+        assertErrorCode(ErrorCode.PET_VERIFICATION_UNAVAILABLE);
+    }
+
+    private void assertErrorCode(ErrorCode errorCode) {
         assertThatThrownBy(() -> adapter.verify(request(
                 AnimalInfoV3Request.IdentifierType.REGISTRATION_NUMBER,
                 "REG-SYN-UNAVAILABLE", "Synthetic Owner", null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(error -> ((BusinessException) error).getErrorCode())
-                .isEqualTo(ErrorCode.PET_VERIFICATION_UNAVAILABLE);
+                .isEqualTo(errorCode);
     }
 
     private void assertEvidence(itda.petverification.domain.PetVerification.Evidence evidence) {
