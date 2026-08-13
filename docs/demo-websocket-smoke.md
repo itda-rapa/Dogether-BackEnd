@@ -7,6 +7,9 @@
 
 - WebSocket을 활성화한 애플리케이션 인스턴스는 **정확히 1개**여야 한다.
 - 애플리케이션이 PostgreSQL과 Redis에 연결할 수 있어야 한다.
+- 이 문서는 애플리케이션이 이미 기동 가능한 `.env` 또는 서버 환경변수가 준비된
+  상태에서 WebSocket만 검증하는 절차다. 전체 필수 환경변수와 로컬 인프라 준비는
+  [README의 Local setup](../README.md#local-setup) 및 `.env.example`을 따른다.
 - 브라우저에서 접근할 실제 프론트엔드 Origin을 미리 확정한다.
 - 프론트엔드와 백엔드가 HTTPS를 사용하는 시연이면 WebSocket도 그에 맞는 `wss`
   endpoint를 사용한다.
@@ -33,10 +36,12 @@ migration 범위일 뿐이다. `local` 프로필은 migration과 seed를 적용�
 사용한다. 기존 시연 DB나 이미 사용 중인 DB에서는 임의로 켜지 않는다. 기존 DB의
 schema history와 현재 적용 migration을 확인하고, 팀에서 승인한 DB 업그레이드
 절차에 따라 진행한다. 적용 확인 뒤에는 `FLYWAY_ENABLED=false`로 되돌릴 수 있다.
-이 문서에는 실제 DB 접속 정보나 migration 실행 명령을 기록하지 않는다.
+환경변수 변경은 애플리케이션 또는 컨테이너를 **재기동한 뒤에만** 적용된다. 이
+문서에는 실제 DB 접속 정보나 migration 실행 명령을 기록하지 않는다.
 
 시연이 끝나면 `WEBSOCKET_ENABLED=false`로 되돌린다. `.env`는 Git에 포함하지
-않으며 실제 secret은 출력·화면 공유·commit하지 않는다.
+않으며 실제 secret은 출력·화면 공유·commit하지 않는다. 이 변경도 재기동 후
+적용된다.
 
 ## A. IntelliJ에서 백엔드 직접 실행
 
@@ -70,8 +75,10 @@ schema history와 현재 적용 migration을 확인하고, 팀에서 승인한 D
    `FLYWAY_ENABLED=true`로 기동하고, V1부터 현재 최신 migration까지 적용됐는지
    확인한 뒤 `FLYWAY_ENABLED=false`로 되돌린다. 기존 시연 DB에는 임의로 켜지
    않는다.
-5. 컨테이너 health endpoint와 애플리케이션 로그에서 기동·WebSocket 활성화를
-   확인한 뒤 브라우저 smoke를 진행한다.
+5. 컨테이너 안 애플리케이션의 `GET /actuator/health` HTTP 응답과 애플리케이션
+   로그에서 기동·WebSocket 활성화를 확인한 뒤 브라우저 smoke를 진행한다. 이
+   compose에는 Docker `healthcheck`가 없으므로 `docker compose ps`의 `healthy`
+   상태를 완료 기준으로 사용하지 않는다.
 
 실제 시연 방식이 A인지 B인지 확정되지 않았다면 컨테이너를 새로 올리거나 배포를
 변경하지 말고, 해당 방식에 맞는 외부 PostgreSQL·Redis와 프론트엔드 Origin을
@@ -97,7 +104,9 @@ HTTPS 프론트 시연에서 `wss://<backend-host>/ws`를 사용하는 것만으
 ## 두 사용자 브라우저 Smoke 시나리오
 
 서로 다른 계정으로 브라우저 A와 B를 준비한다. 한 브라우저의 여러 탭을 같은
-사용자로 재사용하지 않는다.
+사용자로 재사용하지 않는다. 시작 전 A/B의 로그인 가능한 계정, 각 계정의 access
+token, 각 계정의 활성 Pet, 그리고 두 계정이 모두 참여한 기존 DIRECT 방 ID를
+준비한다. token 값은 문서·Issue 댓글·화면 공유에 기록하지 않는다.
 
 1. A와 B에서 각각 로그인한다.
 2. 각 브라우저가 아래 endpoint로 WebSocket 연결을 연다.
@@ -139,11 +148,21 @@ HTTPS 프론트 시연에서 `wss://<backend-host>/ws`를 사용하는 것만으
 
    `{roomId}`는 이미 존재하는 DIRECT 방 ID다. `clientMessageId`는 REST fallback
    시에도 같은 값을 재사용한다. `senderPetId`, `type` 같은 필드는 보내지 않는다.
-7. B 화면에서 새 메시지가 REST polling을 기다리지 않고 즉시 수신되는지 확인한다.
+7. B 화면에서 새 메시지가 REST polling을 기다리지 않고 **SEND 후 3초 이내**에
+   수신되는지 확인한다.
 8. B가 같은 방식으로 응답을 전송한다.
-9. A 화면에서 응답이 즉시 수신되는지 확인한다.
-10. 두 브라우저의 연결이 유지되고, 메시지가 중복 저장되지 않았는지 REST 조회로
-   필요한 범위만 확인한다.
+9. A 화면에서 응답이 SEND 후 **3초 이내**에 수신되는지 확인한다.
+10. 두 브라우저의 연결이 유지되는지 확인하고, 아래 REST 조회에서 각
+    `clientMessageId` 메시지가 한 건씩만 보이는지 확인한다.
+
+    ```text
+    GET /chat/rooms/{roomId}/messages?afterMessageId={lastMessageId}&limit={n}
+    Authorization: Bearer <access-token>
+    ```
+
+    `afterMessageId`는 마지막으로 확인한 메시지 ID **이후**를 조회하며, 생략하면
+    `0`이다. `limit`은 선택값이다. 조회 후 가장 마지막 메시지 ID를 다음 polling의
+    `afterMessageId`로 사용한다.
 
 실제 프론트가 위 STOMP `CONNECT`·구독·`SEND`를 아직 구현하지 않았다면, 브라우저
 두 개 시연이 가능하다고 가정하지 않는다. 먼저 프로젝트 밖의 임시 STOMP 테스트
@@ -156,9 +175,10 @@ HTTPS 프론트 시연에서 `wss://<backend-host>/ws`를 사용하는 것만으
 다음 조건을 모두 실제로 확인했을 때만 시연 준비 완료로 판정한다.
 
 - 정확히 한 application instance, 즉 **단일 인스턴스**에서 실행한다.
-- 서로 다른 실제 계정 A/B로 `A→B`와 `B→A` 메시지가 즉시 수신된다.
-- `WEBSOCKET_ENABLED=false`로 되돌린 뒤 같은 DIRECT 채팅이 **REST polling**
-  fallback으로 동작한다.
+- 서로 다른 실제 계정 A/B로 `A→B`와 `B→A` 메시지가 각각 SEND 후 3초 이내
+  수신되고, REST 조회상 각 `clientMessageId`가 정확히 한 건이다.
+- `WEBSOCKET_ENABLED=false`로 되돌리고 재기동한 뒤, 위 REST 조회를 사용해 같은
+  DIRECT 채팅이 **REST polling** fallback으로 동작한다.
 - 실제 프론트가 STOMP를 구현하지 않았다면, 프론트 담당자의 실제 클라이언트
   또는 프로젝트 밖의 임시 STOMP 클라이언트로 같은 절차를 검증한다.
 - 토큰·secret·실제 Origin·DB 정보 없이, 검증 환경의 형태·실행 시각·성공/실패·
