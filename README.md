@@ -59,8 +59,8 @@ docker compose up -d postgres rustfs
 .\gradlew.bat bootRun
 ```
 
-이메일 인증 기능을 IDE 또는 Gradle로 검증할 때는 Redis를 별도의 local Infra
-Compose에서 실행한다. root `docker-compose.yml`에는 Redis 서비스가 없다.
+이메일 인증과 Pet 등록정보 인증을 IDE 또는 Gradle로 검증할 때는 Redis를 별도의
+local Infra Compose에서 실행한다. root `docker-compose.yml`에는 Redis 서비스가 없다.
 
 ```powershell
 docker compose `
@@ -71,6 +71,16 @@ docker compose `
 이 경우 `.env`의 `REDIS_HOST=localhost`, `REDIS_PORT=6379`를 사용한다.
 이메일 Stream worker는 기본적으로 비활성화되어 있으므로 실제 이메일 흐름을
 검증할 때만 `EMAIL_VERIFICATION_WORKER_ENABLED=true`로 설정한다.
+
+Pet 등록정보 인증은 다음 값을 별도로 설정한다.
+
+- `PET_VERIFICATION_HMAC_SECRET`: UTF-8 기준 32바이트 이상인 운영 전용 HMAC secret이다. `.env.example`의 `replace-with-a-random-pet-verification-hmac-secret-at-least-32-bytes` 값은 실행 시 거절되며, Email Verification secret과 공유하지 않는다.
+- `PET_VERIFICATION_SERVICE_KEY`: 공공데이터포털의 **decoded decoding key**를 넣는다. 애플리케이션이 Provider query에 한 번만 인코딩한다.
+- `PET_VERIFICATION_TOKEN_TTL`, `PET_VERIFICATION_CONNECT_TIMEOUT`, `PET_VERIFICATION_READ_TIMEOUT`: 일회성 token 만료와 Provider 연결/응답 timeout을 조정한다.
+
+Pet verification token과 email verification은 로컬 Redis가 필요하다.
+Provider 계약 테스트는 synthetic local HTTP fixture를 사용하며, 실제 animalInfo v3
+Provider wire 호출은 자동 검증 범위에 포함하지 않는다.
 
 `.env.example`에는 `SPRING_PROFILES_ACTIVE=local`과 `FLYWAY_ENABLED=false`가
 포함되어 있다. 현재 로컬 기본값에서는 Flyway를 자동 실행하지 않는다. 빈 DB를
@@ -91,8 +101,14 @@ docker compose `
 .\gradlew.bat postgresTest
 ```
 
-`postgresTest`는 Docker가 없으면 실패한다. PR CI는 `test`와
-`postgresTest`를 모두 실행하므로 PostgreSQL/Flyway 검증이 SKIP될 수 없다.
+`postgresTest`는 Docker가 없으면 실패한다. 현재 PR CI의 `ci-test`는 빠른
+`test`만 실행하며 PostgreSQL 및 Redis 통합 테스트는 포함하지 않는다.
+
+Redis Lua 통합 테스트는 로컬 Docker에서 별도로 실행한다.
+
+```powershell
+.\gradlew.bat redisTest
+```
 
 7. RustFS 호환성은 로컬 Compose 환경에서 수동으로 확인한다.
 

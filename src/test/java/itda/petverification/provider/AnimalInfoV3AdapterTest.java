@@ -43,11 +43,25 @@ class AnimalInfoV3AdapterTest {
     }
 
     @Test
+    void mapsMaleAndNotNeuteredValuesAndKeepsBlankOptionalValuesNull() {
+        var male = normalize(successItem("REG-SYN-MALE", "Y", "2022-01-01", "수컷", "미중성"));
+        var blank = normalize(successItem("REG-SYN-BLANK", " ", " ", "\t", "  "));
+
+        assertThat(male.sex()).isEqualTo(PetSex.MALE);
+        assertThat(male.neutered()).isFalse();
+        assertThat(blank.deviceType()).isNull();
+        assertThat(blank.birthDate()).isNull();
+        assertThat(blank.sex()).isNull();
+        assertThat(blank.neutered()).isNull();
+    }
+
+    @Test
     void rejectsBlankCanonicalIdentityAndUnsupportedNonblankProviderValuesAsUnavailable() {
         assertUnavailable(() -> normalize(successItem(" \u3000 ", "Y", "2022-01-01", "암컷", "중성")));
         assertUnavailable(() -> normalize(successItem("REG-SYN-003", "UNSUPPORTED", "2022-01-01", "암컷", "중성")));
         assertUnavailable(() -> normalize(successItem("REG-SYN-004", "Y", "2022/01/01", "암컷", "중성")));
-        assertUnavailable(() -> normalize(successItem("REG-SYN-005", "Y", "2022-01-01", "수컷", "중성")));
+        assertUnavailable(() -> normalize(successItem("REG-SYN-005", "Y", "2022-01-01", "미확인", "중성")));
+        assertUnavailable(() -> normalize(successItem("REG-SYN-006", "Y", "2022-01-01", "암컷", "미확인")));
     }
 
     @Test

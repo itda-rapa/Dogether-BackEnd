@@ -1,5 +1,6 @@
 package itda.petverification.config;
 
+import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
@@ -11,7 +12,7 @@ public class PetVerificationRedisConfig {
     DefaultRedisScript<Long> issueScript() { return script("redis/pet-verification-issue.lua"); }
 
     @Bean(name = "petVerificationReserveScript")
-    DefaultRedisScript<Long> reserveScript() { return script("redis/pet-verification-reserve.lua"); }
+    DefaultRedisScript<List> reserveScript() { return listScript("redis/pet-verification-reserve.lua"); }
 
     @Bean(name = "petVerificationReleaseScript")
     DefaultRedisScript<Long> releaseScript() { return script("redis/pet-verification-release.lua"); }
@@ -23,6 +24,13 @@ public class PetVerificationRedisConfig {
         DefaultRedisScript<Long> script = new DefaultRedisScript<>();
         script.setLocation(new ClassPathResource(path));
         script.setResultType(Long.class);
+        return script;
+    }
+
+    private DefaultRedisScript<List> listScript(String path) {
+        DefaultRedisScript<List> script = new DefaultRedisScript<>();
+        script.setLocation(new ClassPathResource(path));
+        script.setResultType(List.class);
         return script;
     }
 }

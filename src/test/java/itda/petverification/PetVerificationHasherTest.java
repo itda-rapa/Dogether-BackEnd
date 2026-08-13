@@ -13,6 +13,19 @@ class PetVerificationHasherTest {
         assertMissingSecret(null);
         assertMissingSecret("   ");
         assertMissingSecret("${PET_VERIFICATION_HMAC_SECRET}");
+        assertMissingSecret("replace-with-a-random-pet-verification-hmac-secret-at-least-32-bytes");
+    }
+
+    @Test
+    void rejectsA31ByteAsciiSecretOutsideTheTestProfile() {
+        assertMissingSecret("a".repeat(31));
+    }
+
+    @Test
+    void acceptsSecretsAtOrAboveThe32Utf8ByteBoundaryOutsideTheTestProfile() {
+        assertValidSecret("a".repeat(32));
+        assertValidSecret("a".repeat(33));
+        assertValidSecret("가".repeat(11));
     }
 
     @Test
@@ -31,6 +44,12 @@ class PetVerificationHasherTest {
         assertThatThrownBy(() -> new PetVerificationHasher(properties(secret), new MockEnvironment()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("PET_VERIFICATION_HMAC_SECRET");
+    }
+
+    private void assertValidSecret(String secret) {
+        PetVerificationHasher hasher = new PetVerificationHasher(properties(secret), new MockEnvironment());
+
+        assertThat(hasher.registrationNumber("REG-SYN-BOUNDARY")).matches("[0-9a-f]{64}");
     }
 
     private PetVerificationProperties properties(String secret) {

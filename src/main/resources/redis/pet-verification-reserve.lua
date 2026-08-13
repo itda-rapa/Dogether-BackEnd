@@ -25,4 +25,17 @@ else
     if not requestHasTargetPetId or storedTargetPetId ~= ARGV[3] then return 0 end
 end
 redis.call('HSET', key, 'status', 'RESERVED', 'reservationId', ARGV[4])
-return 1
+
+local result = {1, 'reservationId', ARGV[4]}
+local fields = {
+    'provider', 'registrationNumberHmac', 'deviceType', 'registeredName',
+    'birthDate', 'sex', 'breedName', 'neutered'
+}
+for _, field in ipairs(fields) do
+    local value = redis.call('HGET', key, field)
+    if value ~= false then
+        table.insert(result, field)
+        table.insert(result, value)
+    end
+end
+return result

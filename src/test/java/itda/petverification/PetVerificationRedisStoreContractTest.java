@@ -7,11 +7,13 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import java.time.Duration;
-import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +21,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,10 +28,9 @@ class PetVerificationRedisStoreContractTest {
 
     @Mock private StringRedisTemplate redis;
     @Mock private DefaultRedisScript<Long> issueScript;
-    @Mock private DefaultRedisScript<Long> reserveScript;
+    @Mock private DefaultRedisScript<List> reserveScript;
     @Mock private DefaultRedisScript<Long> releaseScript;
     @Mock private DefaultRedisScript<Long> finalizeScript;
-    @Mock private HashOperations<String, Object, Object> hashes;
 
     private PetVerificationRedisStore store;
 
@@ -89,7 +89,7 @@ class PetVerificationRedisStoreContractTest {
     @Test
     void treatsUnexpectedReserveScriptResultAsUnavailable() {
         given(redis.execute(eq(reserveScript), anyList(), eq("7"), eq("PET_CREATE"), eq(""), anyString()))
-                .willReturn(2L);
+                .willReturn(List.of(2L));
 
         assertUnavailable(() -> store.reserve("synthetic-token", 7L, PetVerificationFlowType.PET_CREATE, null));
     }
@@ -97,13 +97,28 @@ class PetVerificationRedisStoreContractTest {
     @Test
     void corruptEvidenceRemainsUnavailableWhenBestEffortReleaseAlsoFails() {
         given(redis.execute(eq(reserveScript), anyList(), eq("7"), eq("PET_CREATE"), eq(""), anyString()))
-                .willReturn(1L);
-        given(redis.opsForHash()).willReturn(hashes);
-        given(hashes.entries(anyString())).willReturn(Map.of("provider", "ANIMAL_INFO_V3"));
+                .willAnswer(invocation -> List.of(1L, "reservationId", invocation.getArgument(5),
+                        "provider", "ANIMAL_INFO_V3"));
         given(redis.execute(eq(releaseScript), anyList(), anyString()))
                 .willThrow(new DataAccessResourceFailureException("synthetic Redis unavailable"));
 
         assertUnavailable(() -> store.reserve("synthetic-token", 7L, PetVerificationFlowType.PET_CREATE, null));
+    }
+
+    @Test
+    void parsesTheAtomicLuaSnapshotWithoutReadingTheHashAfterReserve() {
+        given(redis.execute(eq(reserveScript), anyList(), eq("7"), eq("PET_CREATE"), eq(""), anyString()))
+                .willAnswer(invocation -> List.of(1L, "reservationId", invocation.getArgument(5),
+                        "provider", "ANIMAL_INFO_V3",
+                        "registrationNumberHmac", "a".repeat(64),
+                        "sex", "FEMALE", "neutered", "true"));
+
+        var reservation = store.reserve("synthetic-token", 7L, PetVerificationFlowType.PET_CREATE, null);
+
+        assertThat(reservation.evidence().registrationNumberHmac()).isEqualTo("a".repeat(64));
+        assertThat(reservation.evidence().sex().name()).isEqualTo("FEMALE");
+        assertThat(reservation.evidence().neutered()).isTrue();
+        verify(redis, never()).opsForHash();
     }
 
     @Test

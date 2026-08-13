@@ -103,6 +103,18 @@ class PetVerificationRedisStoreIntegrationTest {
     }
 
     @Test
+    void reservesAndDeserializesTheLuaEvidenceSnapshotInTheSameRedisEvaluation() {
+        StringRedisTemplate template = template();
+        PetVerificationRedisStore store = store(template);
+        var issued = store.issue(7L, PetVerificationFlowType.PET_CREATE, null, evidence());
+
+        var reservation = store.reserve(issued.rawToken(), 7L, PetVerificationFlowType.PET_CREATE, null);
+
+        assertThat(reservation.reservationId()).isNotBlank();
+        assertThat(reservation.evidence()).isEqualTo(evidence());
+    }
+
+    @Test
     void mapsCorruptReserveBindingMetadataToUnavailable() {
         StringRedisTemplate template = template();
         PetVerificationRedisStore store = store(template);
@@ -215,7 +227,7 @@ class PetVerificationRedisStoreIntegrationTest {
 
     private PetVerificationRedisStore store(StringRedisTemplate template) {
         return new PetVerificationRedisStore(template, script("redis/pet-verification-issue.lua"),
-                script("redis/pet-verification-reserve.lua"), script("redis/pet-verification-release.lua"),
+                listScript("redis/pet-verification-reserve.lua"), script("redis/pet-verification-release.lua"),
                 script("redis/pet-verification-finalize.lua"), properties(), hasher());
     }
 
@@ -223,6 +235,13 @@ class PetVerificationRedisStoreIntegrationTest {
         DefaultRedisScript<Long> script = new DefaultRedisScript<>();
         script.setLocation(new ClassPathResource(path));
         script.setResultType(Long.class);
+        return script;
+    }
+
+    private DefaultRedisScript<List> listScript(String path) {
+        DefaultRedisScript<List> script = new DefaultRedisScript<>();
+        script.setLocation(new ClassPathResource(path));
+        script.setResultType(List.class);
         return script;
     }
 

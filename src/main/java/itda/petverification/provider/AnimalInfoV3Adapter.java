@@ -161,6 +161,7 @@ public class AnimalInfoV3Adapter {
     private PetSex sex(String value) {
         if (blank(value)) return null;
         return switch (value) {
+            case "수컷" -> PetSex.MALE;
             case "암컷" -> PetSex.FEMALE;
             default -> throw unavailable();
         };
@@ -170,6 +171,7 @@ public class AnimalInfoV3Adapter {
         if (blank(value)) return null;
         return switch (value) {
             case "중성" -> true;
+            case "미중성" -> false;
             default -> throw unavailable();
         };
     }

@@ -15,17 +15,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 public class PetVerificationHasher {
 
     private static final String ALGORITHM = "HmacSHA256";
+    private static final String EXAMPLE_SECRET =
+            "replace-with-a-random-pet-verification-hmac-secret-at-least-32-bytes";
+    private static final String TEST_FALLBACK_SECRET = "test-only-pet-verification-hmac-secret";
+    private static final int MINIMUM_SECRET_BYTES = 32;
     private final SecretKeySpec key;
 
     @Autowired
     public PetVerificationHasher(PetVerificationProperties properties, Environment environment) {
         String secret = properties.hmacSecret();
-        if (secret == null || secret.isBlank() || secret.contains("${")) {
+        if (secret == null || secret.isBlank() || secret.contains("${") || EXAMPLE_SECRET.equals(secret)) {
             if (isTestProfile(environment)) {
-                secret = "test-only-pet-verification-hmac-secret";
+                secret = TEST_FALLBACK_SECRET;
             } else {
                 throw new IllegalArgumentException("PET_VERIFICATION_HMAC_SECRET는 필수입니다.");
             }
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < MINIMUM_SECRET_BYTES) {
+            throw new IllegalArgumentException("PET_VERIFICATION_HMAC_SECRET는 UTF-8 기준 32바이트 이상이어야 합니다.");
         }
         key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
     }

@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 public class PetVerificationRedisStore {
     private final StringRedisTemplate redis;
     private final DefaultRedisScript<Long> issueScript;
-    private final DefaultRedisScript<Long> reserveScript;
+    private final DefaultRedisScript<List> reserveScript;
     private final DefaultRedisScript<Long> releaseScript;
     private final DefaultRedisScript<Long> finalizeScript;
     private final PetVerificationProperties properties;
@@ -29,7 +29,7 @@ public class PetVerificationRedisStore {
     public PetVerificationRedisStore(
             @Qualifier("petVerificationStringRedisTemplate") StringRedisTemplate redis,
             @Qualifier("petVerificationIssueScript") DefaultRedisScript<Long> issueScript,
-            @Qualifier("petVerificationReserveScript") DefaultRedisScript<Long> reserveScript,
+            @Qualifier("petVerificationReserveScript") DefaultRedisScript<List> reserveScript,
             @Qualifier("petVerificationReleaseScript") DefaultRedisScript<Long> releaseScript,
             @Qualifier("petVerificationFinalizeScript") DefaultRedisScript<Long> finalizeScript,
             PetVerificationProperties properties,
@@ -79,16 +79,17 @@ public class PetVerificationRedisStore {
                                Long targetPetId) {
         String key = key(rawToken);
         String reservationId = UUID.randomUUID().toString();
-        Long result = execute(reserveScript, List.of(key), userId.toString(), flowType.name(),
+        List<?> result = executeList(reserveScript, List.of(key), userId.toString(), flowType.name(),
                 targetPetId == null ? "" : targetPetId.toString(), reservationId);
-        if (Long.valueOf(1L).equals(result)) {
-            Map<Object, Object> map = entries(key);
+        long status = number(result, 0);
+        if (status == 1L) {
             try {
-                return new Reservation(reservationId, evidence(map));
-            } catch (RuntimeException exception) {
-                if (exception instanceof BusinessException businessException) {
-                    throw businessException;
+                Map<String, String> snapshot = snapshot(result);
+                if (!reservationId.equals(required(snapshot, "reservationId"))) {
+                    throw new IllegalArgumentException();
                 }
+                return new Reservation(reservationId, evidence(snapshot));
+            } catch (RuntimeException exception) {
                 try {
                     release(rawToken, reservationId);
                 } catch (RuntimeException releaseFailure) {
@@ -97,8 +98,8 @@ public class PetVerificationRedisStore {
                 throw unavailable();
             }
         }
-        if (Long.valueOf(0L).equals(result)) throw invalid();
-        if (Long.valueOf(-1L).equals(result)) throw unavailable();
+        if (status == 0L) throw invalid();
+        if (status == -1L) throw unavailable();
         throw unavailable();
     }
 
@@ -126,9 +127,9 @@ public class PetVerificationRedisStore {
         }
     }
 
-    private Map<Object, Object> entries(String key) {
+    private List<?> executeList(DefaultRedisScript<List> script, List<String> keys, Object... arguments) {
         try {
-            return redis.opsForHash().entries(key);
+            return redis.execute(script, keys, arguments);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -149,7 +150,29 @@ public class PetVerificationRedisStore {
         return arguments;
     }
 
-    private PetVerificationEvidence evidence(Map<Object, Object> values) {
+    private long number(List<?> result, int index) {
+        if (result == null || result.size() <= index || !(result.get(index) instanceof Number number)) {
+            throw unavailable();
+        }
+        return number.longValue();
+    }
+
+    private Map<String, String> snapshot(List<?> result) {
+        if (result == null || result.size() < 3 || (result.size() - 1) % 2 != 0) {
+            throw new IllegalArgumentException();
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        for (int index = 1; index < result.size(); index += 2) {
+            Object key = result.get(index);
+            Object value = result.get(index + 1);
+            if (!(key instanceof String field) || !(value instanceof String text) || values.put(field, text) != null) {
+                throw new IllegalArgumentException();
+            }
+        }
+        return values;
+    }
+
+    private PetVerificationEvidence evidence(Map<String, String> values) {
         return new PetVerificationEvidence(
                 PetVerificationProvider.valueOf(required(values, "provider")),
                 required(values, "registrationNumberHmac"),
@@ -162,19 +185,19 @@ public class PetVerificationRedisStore {
         );
     }
 
-    private String required(Map<Object, Object> values, String key) {
+    private String required(Map<String, String> values, String key) {
         String value = optional(values, key); if (value == null) throw new IllegalArgumentException(); return value;
     }
-    private String optional(Map<Object, Object> values, String key) {
-        Object value = values.get(key); return value == null ? null : value.toString();
+    private String optional(Map<String, String> values, String key) {
+        return values.get(key);
     }
-    private <T extends Enum<T>> T optionalEnum(Map<Object, Object> values, String key, Class<T> type) {
+    private <T extends Enum<T>> T optionalEnum(Map<String, String> values, String key, Class<T> type) {
         String value = optional(values, key); return value == null ? null : Enum.valueOf(type, value);
     }
-    private LocalDate optionalDate(Map<Object, Object> values, String key) {
+    private LocalDate optionalDate(Map<String, String> values, String key) {
         String value = optional(values, key); return value == null ? null : LocalDate.parse(value);
     }
-    private itda.pet.domain.PetSex optionalSex(Map<Object, Object> values) {
+    private itda.pet.domain.PetSex optionalSex(Map<String, String> values) {
         String value = optional(values, "sex");
         if (value == null) return null;
         return switch (value) {
@@ -183,7 +206,7 @@ public class PetVerificationRedisStore {
             default -> throw new IllegalArgumentException();
         };
     }
-    private Boolean optionalBoolean(Map<Object, Object> values, String key) {
+    private Boolean optionalBoolean(Map<String, String> values, String key) {
         String value = optional(values, key);
         if (value == null) return null;
         return switch (value) {
