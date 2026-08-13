@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -69,5 +70,17 @@ public class Report extends BaseEntity {
         this.reasonCode = reasonCode;
         this.detail = detail;
         this.status = ReportStatus.OPEN;
+    }
+
+    public void resolve(
+            ReportStatus resolvedStatus,
+            Long adminId,
+            Instant resolvedAt,
+            String resolutionNote
+    ) {
+        this.status = Objects.requireNonNull(resolvedStatus);
+        this.reviewedByAdminId = Objects.requireNonNull(adminId);
+        this.reviewedAt = Objects.requireNonNull(resolvedAt);
+        this.resolutionNote = Objects.requireNonNull(resolutionNote);
     }
 }

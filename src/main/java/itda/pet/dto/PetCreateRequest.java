@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -43,7 +44,9 @@ public record PetCreateRequest(
         List<@NotNull String> personalityTags,
 
         @Size(max = 500)
-        String careNote
+        String careNote,
+
+        @Pattern(regexp = ".*\\S.*") String petVerificationToken
 ) {
 
     public PetCreateRequest {

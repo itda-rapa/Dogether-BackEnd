@@ -8,6 +8,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import java.time.Instant;
 import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -25,6 +26,9 @@ public class Board extends BaseEntity {
 
     @Column(nullable = false, length = 30)
     private String name;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
 
     @Version
     @Column(nullable = false)
@@ -44,5 +48,9 @@ public class Board extends BaseEntity {
         }
         this.name = name;
         return true;
+    }
+
+    public void delete(Instant now) {
+        this.deletedAt = now;
     }
 }

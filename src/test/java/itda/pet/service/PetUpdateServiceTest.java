@@ -17,6 +17,7 @@ import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
 import itda.media.service.MediaService;
+import itda.petverification.PetVerificationBadgeService;
 import itda.pet.service.PetUpdateCommand.PatchValue;
 import itda.user.domain.User;
 import java.math.BigDecimal;
@@ -45,12 +46,30 @@ class PetUpdateServiceTest {
 
     @Mock
     private MediaService mediaService;
+    @Mock
+    private PetVerificationBadgeService badgeService;
 
     private PetUpdateService service;
 
     @BeforeEach
     void setUp() {
-        service = new PetUpdateService(petRepository, mediaService);
+        service = new PetUpdateService(petRepository, mediaService, badgeService);
+    }
+
+    @Test
+    @DisplayName("Pet 프로필 필드를 수정해도 기존 인증 배지를 유지한다")
+    void preservesVerificationBadgeAfterProfileUpdate() {
+        Pet pet = pet(user(USER_ID));
+        Instant verifiedAt = Instant.parse("2026-08-12T12:00:00Z");
+        given(petRepository.findByIdWithOwner(PET_ID)).willReturn(Optional.of(pet));
+        given(badgeService.verifiedAt(PET_ID)).willReturn(verifiedAt);
+
+        PetResponse response = service.update(USER_ID, PET_ID, nickname("변경된 이름"));
+
+        assertThat(response.nickname()).isEqualTo("변경된 이름");
+        assertThat(response.verified()).isTrue();
+        assertThat(response.verifiedAt()).isEqualTo(verifiedAt);
+        then(badgeService).should().verifiedAt(PET_ID);
     }
 
     @Nested

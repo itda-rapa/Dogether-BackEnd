@@ -132,7 +132,7 @@ public class BoardPostService {
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.ACCOUNT_NOT_ACTIVE)
                 );
-        if (!boards.existsById(boardId)) {
+        if (!boards.existsByIdAndDeletedAtIsNull(boardId)) {
             throw new BusinessException(ErrorCode.BOARD_NOT_FOUND);
         }
         int size = size(rawSize);

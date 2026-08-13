@@ -2,14 +2,14 @@ package itda.meetingcard.service;
 
 import itda.meetingcard.domain.CardDraft;
 import itda.meetingcard.domain.CardDraftParticipant;
-import itda.meetingcard.repository.CardDraftRepository;
-import itda.meetingcard.repository.CardDraftParticipantRepository;
 import itda.meetingcard.dto.response.OpenChatCardDraftResponse;
-import java.util.List;
-import java.util.Map;
 import itda.meetingcard.dto.response.OpenChatDraftParticipantResponse;
+import itda.meetingcard.repository.CardDraftParticipantRepository;
+import itda.meetingcard.repository.CardDraftRepository;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,8 +34,8 @@ public class CardDraftTransactionService {
     private final PetDisplayQueryService petDisplayQueryService;
 
     @Transactional
-    public CardDraft save(CardDraft draft) {
-        return cardDraftRepository.save(draft);
+    public List<CardDraft> saveAll(List<CardDraft> drafts) {
+        return cardDraftRepository.saveAll(drafts);
     }
 
     @Transactional

@@ -2,19 +2,27 @@ package itda.meetingcard.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sun.net.httpserver.HttpServer;
 import itda.meetingcard.domain.CardDraftFallbackReason;
 import itda.meetingcard.domain.MeetingCardType;
+import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.nio.charset.StandardCharsets;
+import java.util.AbstractList;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 @DisplayName("MeetingCardAiAdapter / FixtureMeetingDraftAiClient")
 class MeetingCardAiAdapterTest {
+
+    private HttpServer server;
 
     // ──────────── 여섯 가지 결과 테이블 ────────────
 
@@ -180,23 +188,23 @@ class MeetingCardAiAdapterTest {
     }
 
     @Nested
-    @DisplayName("Outcome 6: more than one array element → MODEL_ERROR")
+    @DisplayName("Outcome 6: more than one array element is preserved")
     class TwoElements {
 
         @Test
-        @DisplayName("two elements yield MODEL_ERROR")
+        @DisplayName("two elements keep count and order without fallback")
         void twoElements() {
             var fixture = new FixtureMeetingDraftAiClient()
                     .prepareTwoElements();
 
             AiDraftResult result = fixture.extract(dummyCommand());
 
-            assertThat(result.fallbackReason()).isEqualTo(CardDraftFallbackReason.MODEL_ERROR);
-            assertThat(result.cardType()).isNull();
-            assertThat(result.date()).isNull();
-            assertThat(result.time()).isNull();
-            assertThat(result.place()).isNull();
-            assertThat(result.combinedInstant()).isNull();
+            assertThat(result.fallbackReason()).isNull();
+            assertThat(result.candidates()).hasSize(2);
+            assertThat(result.candidates()).extracting(AiDraftResult.Candidate::cardType)
+                    .containsExactly(MeetingCardType.WALK, MeetingCardType.PLAY);
+            assertThat(result.candidates()).extracting(AiDraftResult.Candidate::place)
+                    .containsExactly("중앙공원", "댕댕카페");
         }
     }
 
@@ -274,5 +282,80 @@ class MeetingCardAiAdapterTest {
     private AiDraftCommand dummyCommand() {
         return new AiDraftCommand("42", LocalDate.of(2026, 7, 30),
                 List.of(new AiDraftCommand.AiMessage("1", "안녕", "2026-07-30T10:00:00+09:00")));
+    }
+
+    @AfterEach
+    void stopServer() {
+        if (server != null) {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("production HTTP boundary: [null] becomes one MODEL_ERROR blank candidate")
+    void productionAdapterNullCandidateBecomesModelErrorFallback() throws IOException {
+        MeetingCardAiAdapter adapter = productionAdapterReturning("[null]");
+
+        AiDraftResult result = adapter.extract(dummyCommand());
+
+        assertModelErrorBlankCandidate(result);
+    }
+
+    @Test
+    @DisplayName("production HTTP boundary: [valid, null] becomes one MODEL_ERROR blank candidate")
+    void productionAdapterMixedNullCandidateBecomesModelErrorFallback() throws IOException {
+        MeetingCardAiAdapter adapter = productionAdapterReturning("""
+                [{"meeting_type":"WALK","date":"2026-07-31","time":"19:00","place":"공원"},null]
+                """);
+
+        AiDraftResult result = adapter.extract(dummyCommand());
+
+        assertModelErrorBlankCandidate(result);
+    }
+
+    @Test
+    @DisplayName("mapping RuntimeException is folded into MODEL_ERROR fallback")
+    void mappingRuntimeExceptionDoesNotEscapeAdapter() {
+        HttpMeetingDraftAiClient httpClient = org.mockito.Mockito.mock(HttpMeetingDraftAiClient.class);
+        org.mockito.Mockito.when(httpClient.call(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new AbstractList<AiExtractResponse>() {
+                    @Override
+                    public AiExtractResponse get(int index) {
+                        throw new IllegalStateException("mapping failure");
+                    }
+
+                    @Override
+                    public int size() {
+                        return 1;
+                    }
+                });
+        MeetingCardAiAdapter adapter = new MeetingCardAiAdapter(
+                httpClient, ZoneId.of("Asia/Seoul"));
+
+        AiDraftResult result = adapter.extract(dummyCommand());
+
+        assertModelErrorBlankCandidate(result);
+    }
+
+    private MeetingCardAiAdapter productionAdapterReturning(String responseBody) throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/v1/meeting-drafts/extract", exchange -> {
+            byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+        return new MeetingCardAiAdapter(
+                new HttpMeetingDraftAiClient(baseUrl, Duration.ofSeconds(2)),
+                ZoneId.of("Asia/Seoul"));
+    }
+
+    private void assertModelErrorBlankCandidate(AiDraftResult result) {
+        assertThat(result.fallbackReason()).isEqualTo(CardDraftFallbackReason.MODEL_ERROR);
+        assertThat(result.candidates()).hasSize(1);
+        assertThat(result.candidates().get(0)).isEqualTo(AiDraftResult.Candidate.blank());
     }
 }

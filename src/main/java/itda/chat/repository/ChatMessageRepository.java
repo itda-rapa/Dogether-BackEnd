@@ -17,6 +17,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
 
     Optional<ChatMessage> findByRoomIdAndClientMessageId(Long roomId, String clientMessageId);
 
+    List<ChatMessage> findByRoomIdOrderByIdAsc(Long roomId);
+
     /**
      * Atomically insert a message and return its id — the newly written row when this caller won,
      * or the row already stored under the same idempotency key when it lost.

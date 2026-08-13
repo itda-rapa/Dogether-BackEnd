@@ -29,7 +29,8 @@ class PetCreateCommandTest {
                 PetSizeCode.SMALL,
                 "소개",
                 List.of("친화적"),
-                "산책"
+                "산책",
+                null
         );
 
         PetCreateCommand command = request.toCommand();

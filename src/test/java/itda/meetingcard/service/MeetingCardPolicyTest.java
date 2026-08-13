@@ -107,7 +107,7 @@ class MeetingCardPolicyTest {
 
         verify(aiClient, never()).extract(org.mockito.ArgumentMatchers.any());
         verify(cardDraftTransactionService, never())
-                .save(org.mockito.ArgumentMatchers.any());
+                .saveAll(org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test

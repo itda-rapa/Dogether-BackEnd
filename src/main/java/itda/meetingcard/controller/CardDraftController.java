@@ -4,6 +4,7 @@ import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.meetingcard.dto.response.CardDraftResponse;
 import itda.meetingcard.service.CardDraftService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -26,11 +27,11 @@ public class CardDraftController implements CardDraftSwaggerSupporter {
      * 원본 메시지는 서버가 방에서 직접 읽는다.
      */
     @PostMapping
-    public ResponseEntity<ApiResponse<CardDraftResponse>> createDraft(
+    public ResponseEntity<ApiResponse<List<CardDraftResponse>>> createDraft(
             @AuthenticationPrincipal CurrentUser currentUser,
             @PathVariable long roomId
     ) {
-        CardDraftResponse draft = cardDraftService.createDraft(currentUser.id(), roomId);
-        return ResponseEntity.ok(ApiResponse.ok(draft, "약속 카드 초안 생성 성공"));
+        List<CardDraftResponse> drafts = cardDraftService.createDraft(currentUser.id(), roomId);
+        return ResponseEntity.ok(ApiResponse.ok(drafts, "약속 카드 초안 생성 성공"));
     }
 }

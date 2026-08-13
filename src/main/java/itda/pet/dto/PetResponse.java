@@ -41,7 +41,8 @@ public record PetResponse(
     public static PetResponse from(
             Pet pet,
             boolean active,
-            String profileUrl
+            String profileUrl,
+            Instant verifiedAt
     ) {
         return new PetResponse(
                 pet.getId(),
@@ -61,8 +62,8 @@ public record PetResponse(
                 profileUrl,
                 pet.getStatus(),
                 pet.getDeletedAt(),
-                false,
-                null,
+                verifiedAt != null,
+                verifiedAt,
                 active
         );
     }

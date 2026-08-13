@@ -1986,7 +1986,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 |---:|---|
 | `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `BLOCKED_USER` |
+| `403` | `ACTIVE_PET_REQUIRED` |
 | `404` | `CHAT_ROOM_NOT_FOUND` |
 | `409` | `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE` |
 
@@ -2010,7 +2010,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 | HTTP | 설명 | 응답 스키마 |
 |---:|---|---|
-| `200` | 카드 초안 또는 빈 폼 | [`CardDraftEnvelope`](#schema-carddraftenvelope) |
+| `200` | 카드 초안 후보 배열 또는 빈 폼 후보 1건 | [`CardDraftEnvelope`](#schema-carddraftenvelope) |
 | `401` | 인증 실패 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `403` | 권한 또는 정책 위반 | [`ErrorEnvelope`](#schema-errorenvelope) |
 | `404` | 리소스 없음 | [`ErrorEnvelope`](#schema-errorenvelope) |
@@ -2021,16 +2021,16 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 {
   "success": true,
   "message": "처리 내용입니다.",
-  "data": {
+  "data": [{
     "draftId": 1,
     "roomId": 1,
-    "cardType": "WALK",
-    "placeText": "판교 공원",
-    "meetAt": "2026-07-24T09:00:00Z",
+    "cardType": null,
+    "placeText": null,
+    "meetAt": null,
     "fallback": true,
     "fallbackReason": "INSUFFICIENT_CONTEXT",
     "createdAt": "2026-07-24T09:00:00Z"
-  },
+  }],
   "error": null
 }
 ```
@@ -2909,8 +2909,8 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 | `status` | ㅇ | string | enum: ACTIVE, ARCHIVED | - |
 | `origin` | ㄴ | string | enum: GREETING, FRIEND | - |
 | `counterpartPet` | ㅇ | [`PetSearchItem`](#schema-petsearchitem) | - | [`PetSearchItem`](#schema-petsearchitem) |
-| `canSend` | ㅇ | boolean | - | - |
-| `sendBlockedReason` | ㄴ | string / null | enum: GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null | - |
+| `canSend` | ㅇ | boolean | - | M1 구현은 방 상태만 본다. `ACTIVE`·`ARCHIVED`면 `true`이며 인사 답변 대기는 반영하지 않는다 |
+| `sendBlockedReason` | ㄴ | string / null | enum: GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null | **M1 구현은 항상 `null`을 반환한다.** enum 값은 예약이며 클라이언트는 이 필드로 전송 가능 여부를 판단하지 않는다 |
 | `lastMessage` | ㄴ | [`ChatMessage`](#schema-chatmessage) / null | - | - |
 | `lastMessageAt` | ㅇ | string / null | format: date-time | - |
 | `updatedAt` | ㅇ | string | format: date-time | - |
@@ -3293,7 +3293,7 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 |---|---:|---|---|---|
 | `success` | ㅇ | boolean | const: True | - |
 | `message` | ㅇ | string | - | - |
-| `data` | ㅇ | [`CardDraft`](#schema-carddraft) | - | [`CardDraft`](#schema-carddraft) |
+| `data` | ㅇ | array<[`CardDraft`](#schema-carddraft)> | minItems: 1 | AI 후보 순서를 유지한 카드 초안 배열. AI 빈 배열·fallback은 빈 초안 1건 |
 | `error` | ㅇ | null | - | 성공 응답에서도 항상 포함 |
 
 <a id="schema-meetingcardenvelope"></a>
