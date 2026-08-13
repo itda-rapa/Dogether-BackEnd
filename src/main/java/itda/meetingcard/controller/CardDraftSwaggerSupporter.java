@@ -32,6 +32,8 @@ public interface CardDraftSwaggerSupporter {
                                     "roomId":1,
                                     "cardType":"WALK",
                                     "placeText":"한강공원",
+                                    "date":"2026-08-10",
+                                    "time":"18:00",
                                     "meetAt":"2026-08-10T09:00:00Z"
                                 }],
                                 "error":null

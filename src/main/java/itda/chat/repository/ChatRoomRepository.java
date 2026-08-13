@@ -2,10 +2,14 @@ package itda.chat.repository;
 
 import itda.chat.domain.ChatRoom;
 import itda.chat.domain.RoomType;
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -15,6 +19,17 @@ import org.springframework.data.repository.query.Param;
 public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
 
     Optional<ChatRoom> findByTypeAndPetLowIdAndPetHighId(RoomType type, long petLowId, long petHighId);
+
+    Page<ChatRoom> findByTypeAndOriginAndStatusAndIsPublicTrue(RoomType type,
+                                                               itda.chat.domain.RoomOrigin origin,
+                                                               itda.chat.domain.RoomStatus status,
+                                                               Pageable pageable);
+
+    default ChatRoom findByIdOrThrow(long id){
+        return findById(id).orElseThrow(
+                ()-> new BusinessException(ErrorCode.CHATROOM_NOT_FOUND)
+        );
+    }
 
     /**
      * Lock the room row with {@code SELECT ... FOR UPDATE} so concurrent report creation
@@ -202,28 +217,38 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
                    AND participant.left_at IS NULL
                   JOIN pets actor_pet
                     ON actor_pet.id = :activePetId
-                  JOIN pets counterpart_pet
+                  LEFT JOIN pets counterpart_pet
                     ON counterpart_pet.id = CASE
                         WHEN room.pet_low_id = :activePetId THEN room.pet_high_id
                         ELSE room.pet_low_id
                     END
                  WHERE room.id = :roomId
-                   AND room.type = 'DIRECT'
-                   AND (:activePetId = room.pet_low_id OR :activePetId = room.pet_high_id)
-                   AND NOT EXISTS (
-                       SELECT 1
-                         FROM user_blocks ub
-                        WHERE (
-                            ub.blocker_user_id = actor_pet.owner_user_id
-                            AND ub.blocked_user_id = counterpart_pet.owner_user_id
-                        ) OR (
-                            ub.blocker_user_id = counterpart_pet.owner_user_id
-                            AND ub.blocked_user_id = actor_pet.owner_user_id
-                        )
+                   AND (
+                       (
+                           room.type = 'GROUP'
+                           AND room.origin = 'OPEN_CHAT'
+                           AND room.status = 'ACTIVE'
+                       )
+                       OR
+                       (
+                           room.type = 'DIRECT'
+                           AND (:activePetId = room.pet_low_id OR :activePetId = room.pet_high_id)
+                           AND NOT EXISTS (
+                               SELECT 1
+                                 FROM user_blocks ub
+                                WHERE (
+                                    ub.blocker_user_id = actor_pet.owner_user_id
+                                    AND ub.blocked_user_id = counterpart_pet.owner_user_id
+                                ) OR (
+                                    ub.blocker_user_id = counterpart_pet.owner_user_id
+                                    AND ub.blocked_user_id = actor_pet.owner_user_id
+                                )
+                           )
+                       )
                    )
             )
             """, nativeQuery = true)
-    boolean existsAccessibleDirectRoomForPet(
+    boolean existsAccessibleRoomForPet(
             @Param("roomId") long roomId,
             @Param("activePetId") long activePetId
     );

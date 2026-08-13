@@ -2,6 +2,7 @@ package itda.chat.repository;
 
 import itda.chat.domain.ChatRoomParticipant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -15,7 +16,11 @@ public interface ChatRoomParticipantRepository extends JpaRepository<ChatRoomPar
 
     List<ChatRoomParticipant> findByRoomId(long roomId);
 
+    Optional<ChatRoomParticipant> findByRoomIdAndPetId(long roomId, long petId);
+
     boolean existsByRoomIdAndPetId(long roomId, long petId);
 
     boolean existsByRoomIdAndPetIdAndLeftAtIsNull(long roomId, long petId);
+
+    long countByRoomIdAndLeftAtIsNull(long roomId);
 }

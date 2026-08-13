@@ -132,6 +132,8 @@ class ChatApiContractPostgreSqlIntegrationTest {
     @Test
     @DisplayName("새 메시지는 201과 ChatMessage 형태로 반환된다")
     void newMessageReturns201WithMessageShape() throws Exception {
+        jdbcTemplate.update("update pets set nickname = 'Mong' where id = ?", PET_1);
+
         mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
                         .with(user(principal(USER_1)))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -141,6 +143,7 @@ class ChatApiContractPostgreSqlIntegrationTest {
                 .andExpect(jsonPath("$.data.messageId").isNumber())
                 .andExpect(jsonPath("$.data.roomId").value((int) roomId))
                 .andExpect(jsonPath("$.data.senderPetId").value((int) PET_1))
+                .andExpect(jsonPath("$.data.senderPetNickname").value("Mong"))
                 .andExpect(jsonPath("$.data.type").value("TEXT"))
                 .andExpect(jsonPath("$.data.body").value("hello"))
                 .andExpect(jsonPath("$.data.createdAt").exists())

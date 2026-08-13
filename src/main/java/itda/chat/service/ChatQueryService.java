@@ -52,6 +52,7 @@ public class ChatQueryService {
     private final GreetingRepository greetingRepository;
     private final ActivePetQueryService activePetQueryService;
     private final PetDisplayQueryService petDisplayQueryService;
+    private final ChatMessageEventPublisher chatMessageEventPublisher;
 
     // ── GET /chat/rooms ──────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ public class ChatQueryService {
 
         List<ChatRoomResponse> items = new ArrayList<>(page.size());
         for (RoomListRow row : page) {
-            items.add(toChatRoomResponse(row, actor.petId(), summaries));
+            items.add(toChatRoomResponse(row, actor, summaries));
         }
 
         String nextCursor = null;
@@ -121,7 +122,7 @@ public class ChatQueryService {
         Map<Long, PetDisplaySummary> summaries = petDisplayQueryService
                 .getPetDisplaySummaries(Set.of(counterpartId));
 
-        return toChatRoomResponse(row, actor.petId(), summaries);
+        return toChatRoomResponse(row, actor, summaries);
     }
 
     /**
@@ -131,9 +132,13 @@ public class ChatQueryService {
      * a future block relationship excludes it.
      */
     public void requireParticipant(long roomId, long petId) {
-        if (!chatRoomRepository.existsAccessibleDirectRoomForPet(roomId, petId)) {
+        if (!chatRoomRepository.existsAccessibleRoomForPet(roomId, petId)) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
         }
+    }
+
+    public boolean isActiveParticipant(long roomId, long petId) {
+        return chatRoomRepository.existsAccessibleRoomForPet(roomId, petId);
     }
 
     /**
@@ -150,8 +155,9 @@ public class ChatQueryService {
     // ── Helper: room response assembly ─────────────────────────────────────
 
     private ChatRoomResponse toChatRoomResponse(RoomListRow row,
-                                                long actorPetId,
+                                                ActivePetContext actor,
                                                 Map<Long, PetDisplaySummary> summaries) {
+        long actorPetId = actor.petId();
         long counterpartId = counterpartPetId(actorPetId, row.getPetLowId(), row.getPetHighId());
         PetDisplaySummary summary = summaries.get(counterpartId);
 
@@ -166,7 +172,9 @@ public class ChatQueryService {
         ChatMessageResponse lastMessage = row.getMsgId() != null
                 ? new ChatMessageResponse(
                 row.getMsgId(), row.getRoomId(), row.getMsgSenderType(),
-                row.getMsgSenderPetId(), row.getMsgType(), row.getMsgBody(),
+                row.getMsgSenderPetId(), senderPetNickname(
+                        row.getMsgSenderPetId(), actorPetId, summaries, actor.nickname()),
+                row.getMsgType(), row.getMsgBody(),
                 row.getMsgMeetingCardId(), row.getMsgClientMessageId(),
                 row.getMsgCreatedAt())
                 : null;
@@ -217,6 +225,11 @@ public class ChatQueryService {
 
     @Transactional(readOnly = true)
     public ChatMessageListResult getMessages(long userId, long roomId, long afterMessageId, Integer limit) {
+        return getMessagePage(userId, roomId, Long.valueOf(afterMessageId), limit);
+    }
+
+    @Transactional(readOnly = true)
+    public ChatMessageListResult getMessagePage(long userId, long roomId, Long afterMessageId, Integer limit) {
         ActivePetContext actor = activePetQueryService.requireActivePet(userId);
         requireParticipant(roomId, actor.petId());
 
@@ -231,15 +244,31 @@ public class ChatQueryService {
 
         int limitPlusOne = effectiveLimit + 1;
         var pageable = PageRequest.of(0, limitPlusOne);
-        var messages = chatMessageRepository.findMessagesAfter(roomId, afterMessageId, pageable);
+        boolean initialLoad = afterMessageId == null;
+        var messages = initialLoad
+                ? chatMessageRepository.findLatestMessages(roomId, pageable)
+                : chatMessageRepository.findMessagesAfter(roomId, afterMessageId, pageable);
 
         boolean hasMore = messages.size() > effectiveLimit;
         if (hasMore) {
             messages = messages.subList(0, effectiveLimit);
         }
+        if (initialLoad) {
+            messages = new ArrayList<>(messages);
+            java.util.Collections.reverse(messages);
+        }
+
+        Set<Long> senderPetIds = messages.stream()
+                .map(message -> message.getSenderPetId())
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, PetDisplaySummary> senderPets = petDisplayQueryService
+                .getPetDisplaySummaries(senderPetIds);
 
         List<ChatMessageResponse> items = messages.stream()
-                .map(ChatMessageResponse::from)
+                .map(message -> ChatMessageResponse.from(
+                        message,
+                        senderPetNickname(message.getSenderPetId(), actor.petId(), senderPets, actor.nickname())))
                 .collect(Collectors.toList());
 
         Long nextAfterMessageId;
@@ -269,7 +298,10 @@ public class ChatQueryService {
         ActivePetContext actor = activePetQueryService.requireActivePet(userId);
         requireParticipant(roomId, actor.petId());
         ChatMessageResult result = chatMessageService.sendText(roomId, actor.petId(), request);
-        ChatMessageResponse dto = ChatMessageResponse.from(result.message());
+        ChatMessageResponse dto = ChatMessageResponse.from(result.message(), actor.nickname());
+        if (result.created()) {
+            chatMessageEventPublisher.publishAfterCommit(dto);
+        }
         return new SendMessageResult(dto, result.created());
     }
 
@@ -282,5 +314,19 @@ public class ChatQueryService {
     }
 
     public record SendMessageResult(ChatMessageResponse data, boolean created) {
+    }
+
+    private String senderPetNickname(Long senderPetId,
+                                     long actorPetId,
+                                     Map<Long, PetDisplaySummary> senderPets,
+                                     String actorNickname) {
+        if (senderPetId == null) {
+            return null;
+        }
+        if (senderPetId == actorPetId && actorNickname != null) {
+            return actorNickname;
+        }
+        PetDisplaySummary sender = senderPets.get(senderPetId);
+        return sender != null ? sender.nickname() : null;
     }
 }

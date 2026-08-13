@@ -17,7 +17,7 @@ public enum ErrorCode {
             HttpStatus.CONFLICT,
             "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
     ),
-
+    CHAT_MESSAGE_SEND_FAILED(HttpStatus.BAD_REQUEST, "채팅메시지 전송에 실패했습니다."),
 
     USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
     PUBLIC_TAG_GENERATION_FAILED(HttpStatus.CONFLICT, "공개 사용자 태그를 생성하지 못했습니다."),
@@ -91,6 +91,10 @@ public enum ErrorCode {
     FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
 
+    // 채팅방
+    CHATROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 채팅방을 찾을 수 없습니다."),
+    NOT_PARTICIPANT_OF_CHAT_ROOM(HttpStatus.NOT_FOUND, "해당 채팅방의 참여자가 아닙니다."),
+
     SETLOG_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그를 찾을 수 없습니다."),
     SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "작성자만 셋로그를 삭제할 수 있습니다."),
     SEED_SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "시드 셋로그는 삭제할 수 없습니다."),
@@ -110,6 +114,9 @@ public enum ErrorCode {
     CHAT_SENDER_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "채팅방 참여자만 메시지를 보낼 수 있습니다."),
     CHAT_CLIENT_MESSAGE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "TEXT 메시지는 clientMessageId가 필요합니다."),
     CHAT_DUPLICATE_MESSAGE(HttpStatus.CONFLICT, "동일한 clientMessageId의 메시지가 이미 존재합니다."),
+    CHAT_ROOM_FULL(HttpStatus.CONFLICT, "채팅방 정원이 가득 찼습니다."),
+    OPEN_CHAT_AI_REQUIRES_THREE_PARTICIPANTS(HttpStatus.BAD_REQUEST, "AI 약속 카드는 참여자 3명 이상인 오픈채팅방에서 사용할 수 있습니다."),
+    OPEN_CHAT_AI_REQUEST_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI 약속 카드 요청을 전달하지 못했습니다."),
 
     BOARD_NOT_FOUND(HttpStatus.NOT_FOUND, "게시판을 찾을 수 없습니다."),
     BOARD_POST_NOT_FOUND(HttpStatus.NOT_FOUND, "게시글을 찾을 수 없습니다."),

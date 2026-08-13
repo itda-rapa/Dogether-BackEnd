@@ -26,7 +26,8 @@ public class ChatRoomController implements ChatRoomSwaggerSupporter {
     public ResponseEntity<ApiResponse<ChatRoomListResponse>> getRooms(
             @AuthenticationPrincipal CurrentUser currentUser,
             @RequestParam(name = "cursor", required = false) String cursor,
-            @RequestParam(name = "limit", required = false) Integer limit) {
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
         ChatRoomListResult result = chatQueryService.getRooms(currentUser.id(), cursor, limit);
         ChatRoomListResponse body = new ChatRoomListResponse(result.items(), result.page());
         return ResponseEntity.ok(ApiResponse.ok(body, "채팅방 목록 조회 성공"));
@@ -35,7 +36,8 @@ public class ChatRoomController implements ChatRoomSwaggerSupporter {
     @GetMapping("/{roomId}")
     public ResponseEntity<ApiResponse<ChatRoomResponse>> getRoom(
             @AuthenticationPrincipal CurrentUser currentUser,
-            @PathVariable long roomId) {
+            @PathVariable long roomId
+    ) {
         ChatRoomResponse room = chatQueryService.getRoom(currentUser.id(), roomId);
         return ResponseEntity.ok(ApiResponse.ok(room, "채팅방 상세 조회 성공"));
     }

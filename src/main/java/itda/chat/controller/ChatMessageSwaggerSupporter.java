@@ -35,6 +35,7 @@ public interface ChatMessageSwaggerSupporter {
                                         {
                                             "messageId":1,
                                             "senderPetId":10,
+                                            "senderPetNickname":"도기",
                                             "type":"TEXT",
                                             "body":"안녕하세요",
                                             "sentAt":"2026-08-05T00:00:00Z"
@@ -50,7 +51,7 @@ public interface ChatMessageSwaggerSupporter {
     ResponseEntity<ApiResponse<ChatMessageListResponse>> getMessages(
             @Parameter(hidden = true) CurrentUser currentUser,
             @Parameter(description = "채팅방 ID") long roomId,
-            @Parameter(description = "이 ID 이후 메시지 조회") long afterMessageId,
+            @Parameter(description = "이 ID 이후 메시지 조회 (생략 시 최근 메시지)") Long afterMessageId,
             @Parameter(description = "조회 개수") Integer limit
     );
 
@@ -77,6 +78,7 @@ public interface ChatMessageSwaggerSupporter {
                                 "data":{
                                     "messageId":1,
                                     "senderPetId":10,
+                                    "senderPetNickname":"도기",
                                     "type":"TEXT",
                                     "body":"안녕하세요",
                                     "sentAt":"2026-08-05T00:00:00Z"

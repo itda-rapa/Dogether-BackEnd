@@ -12,7 +12,9 @@ spring:
       - classpath:db/migration
       - classpath:db/seed
       - classpath:db/demo
-
+  kafka:
+    #    kafka서버의 url
+    bootstrap-servers: localhost:9092
 app:
   setlog-upload:
     # Local RustFS may run without Bucket Versioning.
@@ -25,3 +27,4 @@ app:
     secret-key: ${AWS_S3_SECRET_KEY:${AWS_SECRET_ACCESS_KEY:}}
   email-verification:
     worker-enabled: ${EMAIL_VERIFICATION_WORKER_ENABLED:false}
+

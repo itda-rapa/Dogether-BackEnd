@@ -1871,7 +1871,7 @@ components:
           maxLength: 2000
     ChatMessage:
       type: object
-      required: [messageId, roomId, senderType, type, createdAt]
+      required: [messageId, roomId, senderType, senderPetNickname, type, createdAt]
       properties:
         messageId:
           type: integer
@@ -1885,6 +1885,9 @@ components:
         senderPetId:
           type: [integer, 'null']
           format: int64
+        senderPetNickname:
+          type: [string, 'null']
+          description: 발신 펫의 현재 이름. SYSTEM 메시지는 null
         type:
           type: string
           enum: [TEXT, CARD, SYSTEM]

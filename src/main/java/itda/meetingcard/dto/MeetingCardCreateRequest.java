@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * OpenAPI {@code MeetingCardCreateRequest}.
@@ -17,5 +18,12 @@ public record MeetingCardCreateRequest(
         Long draftId,
         @NotNull MeetingCardType cardType,
         @NotBlank @Size(max = 500) String placeText,
-        @NotNull Instant meetAt
-) {}
+        @NotNull Instant meetAt,
+        List<Long> participantPetIds
+) {
+    /** Backwards-compatible constructor for the DIRECT-chat contract. */
+    public MeetingCardCreateRequest(Long roomId, Long draftId, MeetingCardType cardType,
+                                    String placeText, Instant meetAt) {
+        this(roomId, draftId, cardType, placeText, meetAt, null);
+    }
+}

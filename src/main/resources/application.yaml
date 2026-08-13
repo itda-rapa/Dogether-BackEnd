@@ -36,6 +36,10 @@ springdoc:
 
 
 app:
+  meeting-card:
+    ai:
+      base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
+      timeout: ${AI_TIMEOUT:5s}
   setlog-upload:
     require-version-id: ${SETLOG_UPLOAD_REQUIRE_VERSION_ID:true}
   jwt:

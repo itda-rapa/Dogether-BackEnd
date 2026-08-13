@@ -1,0 +1,11 @@
+package itda.notification.repository;
+
+import itda.notification.domain.Notification;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface NotificationRepository extends JpaRepository<Notification, Long> {
+    List<Notification> findTop100ByTargetPetIdOrderByCreatedAtDescIdDesc(Long targetPetId);
+    Optional<Notification> findByIdAndTargetPetId(Long id, Long targetPetId);
+}

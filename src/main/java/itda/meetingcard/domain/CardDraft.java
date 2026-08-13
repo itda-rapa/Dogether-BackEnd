@@ -50,6 +50,14 @@ public class CardDraft {
     @Column(name = "meet_at")
     private Instant meetAt;
 
+    /** AI가 추출한 날짜 부분. 시각만 추출된 경우에도 다른 부분값과 독립적으로 보존한다. */
+    @Column(name = "extracted_date", length = 10)
+    private String date;
+
+    /** AI가 추출한 시각 부분(HH:mm). 날짜가 없어 meetAt을 만들 수 없어도 보존한다. */
+    @Column(name = "extracted_time", length = 5)
+    private String time;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "fallback_reason", length = 30)
     private CardDraftFallbackReason fallbackReason;
@@ -63,12 +71,16 @@ public class CardDraft {
                      MeetingCardType cardType,
                      String placeText,
                      Instant meetAt,
+                     String date,
+                     String time,
                      CardDraftFallbackReason fallbackReason) {
         this.roomId = roomId;
         this.requestedByPetId = requestedByPetId;
         this.cardType = cardType;
         this.placeText = placeText;
         this.meetAt = meetAt;
+        this.date = date;
+        this.time = time;
         this.fallbackReason = fallbackReason;
     }
 

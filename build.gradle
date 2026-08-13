@@ -60,6 +60,12 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter:2.0.5'
 
+    // QueryDSL
+    implementation 'io.github.openfeign.querydsl:querydsl-core:7.1'
+    implementation 'io.github.openfeign.querydsl:querydsl-jpa:7.1'
+    annotationProcessor 'io.github.openfeign.querydsl:querydsl-apt:7.1:jakarta'
+
+
     // AWS
     implementation 'software.amazon.awssdk:s3:2.45.1'
 
@@ -72,6 +78,10 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     testAnnotationProcessor 'org.projectlombok:lombok'
+
+    // Web Socket
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    testImplementation 'org.springframework.boot:spring-boot-starter-websocket-test'
 }
 
 tasks.withType(Test).configureEach {
