@@ -59,8 +59,8 @@ docker compose up -d postgres rustfs
 .\gradlew.bat bootRun
 ```
 
-이메일 인증 기능을 IDE 또는 Gradle로 검증할 때는 Redis를 별도의 local Infra
-Compose에서 실행한다. root `docker-compose.yml`에는 Redis 서비스가 없다.
+이메일 인증과 Pet 등록정보 인증을 IDE 또는 Gradle로 검증할 때는 Redis를 별도의
+local Infra Compose에서 실행한다. root `docker-compose.yml`에는 Redis 서비스가 없다.
 
 ```powershell
 docker compose `
@@ -71,6 +71,22 @@ docker compose `
 이 경우 `.env`의 `REDIS_HOST=localhost`, `REDIS_PORT=6379`를 사용한다.
 이메일 Stream worker는 기본적으로 비활성화되어 있으므로 실제 이메일 흐름을
 검증할 때만 `EMAIL_VERIFICATION_WORKER_ENABLED=true`로 설정한다.
+
+Pet 등록정보 인증은 다음 값을 별도로 설정한다.
+
+- `PET_VERIFICATION_HMAC_SECRET`: UTF-8 기준 32바이트 이상인 운영 전용 HMAC secret이다. `.env.example`의 `replace-with-a-random-pet-verification-hmac-secret-at-least-32-bytes` 값은 실행 시 거절되며, Email Verification secret과 공유하지 않는다.
+- `PET_VERIFICATION_SERVICE_KEY`: 공공데이터포털의 **decoded decoding key**를 넣는다. 애플리케이션이 Provider query에 한 번만 인코딩한다.
+- `PET_VERIFICATION_TOKEN_TTL`, `PET_VERIFICATION_CONNECT_TIMEOUT`, `PET_VERIFICATION_READ_TIMEOUT`: 일회성 token 만료와 Provider 연결/응답 timeout을 조정한다.
+
+Pet verification token과 email verification은 로컬 Redis가 필요하다.
+Provider 계약 테스트는 synthetic local HTTP fixture를 사용하며, 실제 animalInfo v3
+Provider wire 호출은 자동 검증 범위에 포함하지 않는다.
+
+DIRECT 채팅 WebSocket도 기본적으로 비활성화되어 있으므로 실시간 흐름을 확인할
+때만 `WEBSOCKET_ENABLED=true`로 설정한다. `prod` 프로필도 이 값을 읽지만,
+SimpleBroker는 인스턴스 간 구독을 공유하지 않으므로 **단일 replica 배포에서만**
+활성화한다. 다중 replica 환경에서는 broker relay 또는 Kafka/Redis 기반 확장
+방식이 확정되기 전까지 `false`로 유지한다.
 
 `.env.example`에는 `SPRING_PROFILES_ACTIVE=local`과 `FLYWAY_ENABLED=false`가
 포함되어 있다. 현재 로컬 기본값에서는 Flyway를 자동 실행하지 않는다. 빈 DB를
@@ -91,18 +107,20 @@ docker compose `
 .\gradlew.bat postgresTest
 ```
 
-`postgresTest`는 Docker가 없으면 실패한다. PR CI는 `test`와
-`postgresTest`를 모두 실행하므로 PostgreSQL/Flyway 검증이 SKIP될 수 없다.
+`postgresTest`는 Docker가 없으면 실패한다. 현재 PR CI의 `ci-test`는 빠른
+`test`만 실행하며 PostgreSQL 및 Redis 통합 테스트는 포함하지 않는다.
 
-7. RustFS 호환성을 다시 확인해야 할 때 전용 통합 테스트를 수동 실행한다.
+Redis Lua 통합 테스트는 로컬 Docker에서 별도로 실행한다.
 
 ```powershell
-.\gradlew.bat rustfsTest
+.\gradlew.bat redisTest
 ```
 
-`rustfsTest`는 별도의 임시 RustFS 컨테이너와 테스트 버킷을 생성해 Presigned
-PUT, HEAD, GET, DELETE를 검증한다. 로컬 Compose의 `dogether-local` 버킷을
-사용하지 않으며 일반 `test`와 CI에서는 자동 실행하지 않는다.
+7. RustFS 호환성은 로컬 Compose 환경에서 수동으로 확인한다.
+
+현재 `rustfsTest` 태스크에는 활성화된 Testcontainers 통합 테스트가 없다.
+일반 `test`는 S3 요청 매핑과 RustFS endpoint·path-style 설정을 단위 테스트로
+검증하며, 실제 PUT·HEAD·GET·DELETE는 로컬 RustFS 버킷을 대상으로 별도 확인한다.
 
 작업을 마치면 데이터 볼륨을 유지한 채 컨테이너를 종료한다.
 
@@ -145,17 +163,33 @@ AWS S3로 전환할 때는 RustFS 컨테이너와 로컬 버킷 생성 절차를
   SETLOG는 해당 이미지 형식과 MP4를 허용한다.
 - 업로드 완료 요청 시 S3 HEAD 결과의 Content-Type과 Content-Length가 최초
   요청값과 일치해야 `UPLOADED` 상태가 된다.
-- 완료되지 않은 업로드는 15분 후 정리한다. S3 삭제에 성공해야 `EXPIRED`로
-  변경하며, 실패하면 `PENDING`을 유지해 다음 배치에서 재시도한다.
+- 완료되지 않은 업로드는 만료 시 `EXPIRED`로 전이하고, 업로드 안정화 유예시간
+  이후 별도 삭제 작업으로 S3 객체를 정리한다.
 - 삭제 요청 즉시 API 조회를 차단하고 다음 정리 배치에서 S3 객체를 삭제한다.
-  삭제가 실패하면 `DELETE_REQUESTED`를 유지해 재시도한다.
+- 정리 Worker는 `STORAGE_CLEANUP_*` 환경변수로 배치 크기, claim lease,
+  업로드 안정화 유예시간, 재시도 횟수와 backoff를 조정한다. 여러 인스턴스는
+  `SKIP LOCKED` claim으로 작업을 나누며, 일시 장애만 제한적으로 재시도한다.
+- Ingress·Load Balancer·S3 클라이언트는 업로드 요청을
+  `STORAGE_CLEANUP_MAX_UPLOAD_DURATION` 이내에 강제 종료해야 한다. 삭제 안정화
+  유예시간은 이 값 이상이어야 하며 기본값은 각각 20분과 30분이다.
+- Worker는 한 번에 하나의 작업만 선점하고 외부 삭제 중 claim lease를 갱신한다.
+  첫 삭제 성공 후 안정화 유예시간을 기다렸다가 한 번 더 멱등 삭제를 확인한 뒤
+  작업을 완료해 만료 직전 시작된 느린 PUT과의 경쟁을 줄인다.
+- 운영에서는 `storage.delete.jobs.backlog`와 `storage.delete.jobs.failed` Gauge를
+  모니터링한다. 일시 장애는 `RETRY`, 재시도 한도 초과나 영구 거절은 `FAILED`로
+  남으므로 수동 확인이 필요하다. Setlog와 Media는 외부 삭제 결과와 무관하게
+  API에서 즉시 조회되지 않는다.
 - 정상 `media/` 객체에는 자동 만료 Lifecycle을 설정하지 않는다. Multipart
   업로드를 도입할 때만 미완료 Multipart 정리 Lifecycle을 추가한다.
-- AWS 버킷은 Public Access Block과 Bucket owner enforced를 사용하고 기본
-  암호화는 SSE-S3, 버전 관리는 M1에서 비활성화한다.
-- 애플리케이션 IAM Role은 환경별 버킷의 `media/*`에 대해 `s3:PutObject`,
-  `s3:GetObject`, `s3:DeleteObject`만 허용한다. 버킷 생성·정책·CORS·Lifecycle
-  설정 권한은 배포용 역할로 분리한다.
+- AWS 버킷은 Public Access Block, Bucket owner enforced, SSE-S3와 Bucket
+  Versioning을 사용한다. 동일한 Application Role에 다음 최소 권한을 부여한다.
+
+  | 대상 | 권한 |
+  |---|---|
+  | 버킷 | `s3:ListBucketVersions` |
+  | Setlog 객체 prefix | `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:DeleteObject`, `s3:DeleteObjectVersion` |
+
+  버킷 생성·정책·CORS·Lifecycle 설정 권한은 배포용 역할로 분리한다.
 - 로컬 RustFS CORS는 개발 편의를 위해 모든 Origin을 허용할 수 있다. AWS
   dev/prod는 실제 프론트엔드 Origin만 허용하고 메서드는 GET, PUT, HEAD로 제한한다.
 
@@ -164,7 +198,7 @@ AWS S3로 전환할 때는 RustFS 컨테이너와 로컬 버킷 생성 절차를
 | Profile | 용도 | DB·Flyway |
 |---|---|---|
 | `local` | 개발 PC와 Docker Compose | PostgreSQL, Flyway 기본 비활성화, 활성화 시 migration과 seed 적용 |
-| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`와 `rustfsTest`는 Testcontainers 사용 |
+| `test` | Gradle 단위·통합 테스트 | 일반 테스트는 H2/Flyway 비활성화, `postgresTest`만 Testcontainers 사용 |
 | `prod` | 운영 배포 | 운영 PostgreSQL, Flyway 기본 비활성화, migration만 적용 가능 |
 
 Gradle의 모든 `Test` 작업은 `test` 프로필을 자동 활성화한다. `prod` 프로필은
@@ -212,3 +246,10 @@ Google OAuth2 의존성은 M2 소셜 로그인 작업에서 추가한다.
 
 운영 AWS에서는 정적 키를 코드에 넣지 않고 IAM Role 또는 표준 AWS 자격증명
 체인을 사용한다.
+- 운영 Setlog 업로드 완료는 S3 HEAD 응답의 Version ID가 필수다. 운영 Bucket은
+  Versioning을 활성화해야 하며 Version ID가 없으면 Media·Setlog를 만들지 않고
+  업로드를 거절한다. 로컬 RustFS와 테스트는 호환성을 위해 이를 선택적으로 끌 수 있다.
+- 만료·거절·취소 업로드처럼 Version ID를 저장하지 못한 객체는 Key의 모든 Version과
+  Delete Marker를 열거해 삭제한다. 따라서 Worker IAM에는
+  `s3:ListBucketVersions`, `s3:GetObjectVersion`, `s3:DeleteObject`,
+  `s3:DeleteObjectVersion`이 필요하다.

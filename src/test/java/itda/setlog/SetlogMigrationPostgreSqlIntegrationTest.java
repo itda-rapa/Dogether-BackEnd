@@ -3,6 +3,7 @@ package itda.setlog;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -48,15 +49,58 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                        'media',
                        'setlogs',
                        'setlog_reactions',
-                       'greetings'
+                       'greetings',
+                       'setlog_uploads',
+                       'storage_delete_jobs'
                    )
                 """, String.class);
         assertThat(tables).containsExactlyInAnyOrder(
                 "media",
                 "setlogs",
                 "setlog_reactions",
-                "greetings"
+                "greetings",
+                "setlog_uploads",
+                "storage_delete_jobs"
         );
+
+        Map<String, Object> uploadColumns = jdbcTemplate.queryForMap("""
+                select count(*) filter (where data_type = 'uuid') as uuid_columns,
+                       count(*) filter (where column_name = 'expires_at'
+                           and data_type = 'timestamp with time zone') as expiry_columns
+                  from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'setlog_uploads'
+                   and column_name in ('id', 'expires_at')
+                """);
+        assertThat(((Number) uploadColumns.get("uuid_columns")).intValue()).isEqualTo(1);
+        assertThat(((Number) uploadColumns.get("expiry_columns")).intValue()).isEqualTo(1);
+
+        List<String> uploadConstraints = jdbcTemplate.queryForList("""
+                select constraint_name
+                  from information_schema.table_constraints
+                 where table_schema = 'public'
+                   and table_name = 'setlog_uploads'
+                """, String.class);
+        assertThat(uploadConstraints).contains(
+                "fk_setlog_uploads_owner",
+                "fk_setlog_uploads_pet",
+                "uk_setlog_uploads_object_key",
+                "ck_setlog_uploads_content_type",
+                "ck_setlog_uploads_expected_size",
+                "ck_setlog_uploads_status"
+        );
+
+        String partialIndex = jdbcTemplate.queryForObject("""
+                select indexdef
+                  from pg_indexes
+                 where schemaname = 'public'
+                   and tablename = 'setlog_uploads'
+                   and indexname = 'ix_setlog_uploads_presigned_expires'
+                """, String.class);
+        assertThat(partialIndex)
+                .contains("expires_at", "id")
+                .containsIgnoringCase("WHERE")
+                .contains("PRESIGNED");
 
         String referencedTable = jdbcTemplate.queryForObject("""
                 select referenced_table.table_name
@@ -76,5 +120,42 @@ class SetlogMigrationPostgreSqlIntegrationTest {
                    and constraint_info.constraint_name = 'fk_setlogs_media'
                 """, String.class);
         assertThat(referencedTable).isEqualTo("media");
+
+        List<String> deleteJobConstraints = jdbcTemplate.queryForList("""
+                select constraint_name
+                  from information_schema.table_constraints
+                 where table_schema = 'public'
+                   and table_name = 'storage_delete_jobs'
+                """, String.class);
+        assertThat(deleteJobConstraints).contains(
+                "uk_storage_delete_jobs_object_key_reason",
+                "ck_storage_delete_jobs_reason",
+                "ck_storage_delete_jobs_status",
+                "ck_storage_delete_jobs_attempts"
+        );
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                 where table_schema = 'public'
+                   and table_name = 'storage_delete_jobs'
+                   and column_name = 'deleted_once_at'
+                   and data_type = 'timestamp with time zone'
+                """, Long.class)).isEqualTo(1L);
+
+        String claimIndex = jdbcTemplate.queryForObject("""
+                select indexdef from pg_indexes
+                 where schemaname = 'public'
+                   and tablename = 'storage_delete_jobs'
+                   and indexname = 'ix_storage_delete_jobs_claim'
+                """, String.class);
+        assertThat(claimIndex)
+                .contains("next_retry_at", "id")
+                .contains("PENDING", "RETRY", "PROCESSING");
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() -> jdbcTemplate.update("""
+                insert into storage_delete_jobs
+                    (object_key, reason, status, attempts, next_retry_at)
+                values ('invalid-attempt', 'UPLOAD_EXPIRED', 'PENDING', -1, now())
+                """))).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 }

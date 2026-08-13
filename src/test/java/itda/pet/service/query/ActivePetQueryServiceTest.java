@@ -12,6 +12,7 @@ import itda.common.exception.BusinessException;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
+import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
@@ -38,6 +39,9 @@ class ActivePetQueryServiceTest {
     @Mock
     private PetRepository petRepository;
 
+    @Mock
+    private PetVerificationBadgeService badgeService;
+
     private ActivePetQueryService service;
 
     @BeforeEach
@@ -45,7 +49,8 @@ class ActivePetQueryServiceTest {
         service = new ActivePetQueryService(
                 userRepository,
                 petRepository,
-                new ActivePetValidator()
+                new ActivePetValidator(),
+                badgeService
         );
     }
 
@@ -65,6 +70,7 @@ class ActivePetQueryServiceTest {
 
                 assertActivePetRequired();
                 then(petRepository).shouldHaveNoInteractions();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -81,6 +87,7 @@ class ActivePetQueryServiceTest {
 
                 assertActivePetRequired();
                 then(petRepository).shouldHaveNoInteractions();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -97,6 +104,7 @@ class ActivePetQueryServiceTest {
 
                 assertActivePetRequired();
                 then(petRepository).shouldHaveNoInteractions();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -114,6 +122,7 @@ class ActivePetQueryServiceTest {
                         .willReturn(Optional.empty());
 
                 assertActivePetRequired();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -132,6 +141,7 @@ class ActivePetQueryServiceTest {
                 givenUserAndPet(user, pet);
 
                 assertActivePetRequired();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -148,6 +158,7 @@ class ActivePetQueryServiceTest {
                 givenUserAndPet(user, pet);
 
                 assertActivePetRequired();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -168,6 +179,7 @@ class ActivePetQueryServiceTest {
                 givenUserAndPet(user, pet);
 
                 assertActivePetRequired();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -188,6 +200,7 @@ class ActivePetQueryServiceTest {
                 givenUserAndPet(user, pet);
 
                 assertActivePetRequired();
+                then(badgeService).shouldHaveNoInteractions();
             }
         }
 
@@ -210,6 +223,8 @@ class ActivePetQueryServiceTest {
                 assertThat(result.nickname()).isEqualTo("몽이");
                 assertThat(result.profileUrl()).isNull();
                 assertThat(result.verified()).isFalse();
+                then(badgeService).should().verifiedAt(PET_ID);
+                then(badgeService).shouldHaveNoMoreInteractions();
                 then(userRepository).should(never())
                         .findByIdForUpdate(anyLong());
                 then(petRepository).should(never())
@@ -230,6 +245,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).shouldHaveNoInteractions();
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -241,6 +257,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).shouldHaveNoInteractions();
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -252,6 +269,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).shouldHaveNoInteractions();
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -264,6 +282,7 @@ class ActivePetQueryServiceTest {
                     .willReturn(Optional.empty());
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -278,6 +297,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).should().findById(PET_ID);
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -290,6 +310,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).should().findById(PET_ID);
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -306,6 +327,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).should().findById(PET_ID);
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -322,6 +344,7 @@ class ActivePetQueryServiceTest {
 
             assertThat(service.findActivePet(USER_ID)).isEmpty();
             then(petRepository).should().findById(PET_ID);
+            then(badgeService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -336,6 +359,23 @@ class ActivePetQueryServiceTest {
 
             assertThat(result.petId()).isEqualTo(PET_ID);
             assertThat(result.ownerUserId()).isEqualTo(USER_ID);
+            then(badgeService).should().verifiedAt(PET_ID);
+            then(badgeService).shouldHaveNoMoreInteractions();
+        }
+
+        @Test
+        @DisplayName("It: Verification row가 있으면 verified=true를 반환한다")
+        void itReturnsVerifiedBadgeFromTheVerificationRow() {
+            User user = user(USER_ID, AccountStatus.ACTIVE, PET_ID);
+            Pet pet = pet(PET_ID, user);
+            givenUserAndPet(user, pet);
+            given(badgeService.verifiedAt(PET_ID)).willReturn(Instant.parse("2026-08-12T00:00:00Z"));
+
+            ActivePetContext result = service.findActivePet(USER_ID).orElseThrow();
+
+            assertThat(result.verified()).isTrue();
+            then(badgeService).should().verifiedAt(PET_ID);
+            then(badgeService).shouldHaveNoMoreInteractions();
         }
     }
 

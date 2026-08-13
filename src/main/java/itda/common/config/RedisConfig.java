@@ -39,6 +39,26 @@ public class RedisConfig {
         return new StringRedisTemplate(emailRedisConnectionFactory);
     }
 
+    /** Pet-verification tokens are isolated in logical database 5. */
+    @Bean(name = "petVerificationRedisConnectionFactory")
+    public RedisConnectionFactory petVerificationRedisConnectionFactory() {
+        RedisStandaloneConfiguration config =
+                new RedisStandaloneConfiguration(
+                        redisProperties.host(),
+                        Integer.parseInt(redisProperties.port())
+                );
+        config.setDatabase(5);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean(name = "petVerificationStringRedisTemplate")
+    public StringRedisTemplate petVerificationStringRedisTemplate(
+            @Qualifier("petVerificationRedisConnectionFactory")
+            RedisConnectionFactory petVerificationRedisConnectionFactory
+    ) {
+        return new StringRedisTemplate(petVerificationRedisConnectionFactory);
+    }
+
     /**
      * Adding the DB-1 factory makes Redisson's missing-factory condition back off. Preserve the
      * pre-existing default Redisson factory for non-email, unqualified Redis infrastructure.
@@ -58,6 +78,7 @@ public class RedisConfig {
     ) {
         return new StringRedisTemplate(redissonConnectionFactory);
     }
+
     // 캐싱 전용
     @Bean
     @Qualifier("cache")
@@ -102,5 +123,36 @@ public class RedisConfig {
         RedisTemplate<String, String> redisTemplate = new RedisTemplate<>();
         redisTemplate.setConnectionFactory(new LettuceConnectionFactory(config));
         return redisTemplate;
+    }
+
+    @Bean(name = "chatAuthorizationRedisConnectionFactory")
+    public RedisConnectionFactory chatAuthorizationRedisConnectionFactory() {
+        RedisStandaloneConfiguration config =
+                new RedisStandaloneConfiguration(
+                        redisProperties.host(),
+                        Integer.parseInt(redisProperties.port())
+                );
+        config.setDatabase(3);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean(name = "chatAuthorizationStringRedisTemplate")
+    public StringRedisTemplate chatAuthorizationStringRedisTemplate(
+            @Qualifier("chatAuthorizationRedisConnectionFactory")
+            RedisConnectionFactory chatAuthorizationRedisConnectionFactory
+    ) {
+        return new StringRedisTemplate(chatAuthorizationRedisConnectionFactory);
+    }
+
+    /** Spring Data Redis repositories resolve this conventional bean name in the test profile. */
+    @Bean(name = "redisTemplate")
+    @Profile("test")
+    public RedisTemplate<Object, Object> testRedisTemplate(
+            @Qualifier("emailRedisConnectionFactory")
+            RedisConnectionFactory emailRedisConnectionFactory
+    ) {
+        RedisTemplate<Object, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(emailRedisConnectionFactory);
+        return template;
     }
 }

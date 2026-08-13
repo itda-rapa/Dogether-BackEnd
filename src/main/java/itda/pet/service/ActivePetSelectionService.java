@@ -2,25 +2,31 @@ package itda.pet.service;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.chat.service.ChatAuthorizationCacheService;
 import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class ActivePetSelectionService {
 
     private final UserRepository userRepository;
     private final PetRepository petRepository;
+    private final ChatAuthorizationCacheService chatAuthorizationCacheService;
 
     public ActivePetSelectionService(
             UserRepository userRepository,
-            PetRepository petRepository
+            PetRepository petRepository,
+            ChatAuthorizationCacheService chatAuthorizationCacheService
     ) {
         this.userRepository = userRepository;
         this.petRepository = petRepository;
+        this.chatAuthorizationCacheService = chatAuthorizationCacheService;
     }
 
     @Transactional
@@ -49,5 +55,15 @@ public class ActivePetSelectionService {
         }
 
         user.selectActivePet(petId);
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            chatAuthorizationCacheService.cacheActivePet(userId, petId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                chatAuthorizationCacheService.cacheActivePet(userId, petId);
+            }
+        });
     }
 }

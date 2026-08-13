@@ -36,6 +36,12 @@ springdoc:
 
 
 app:
+  meeting-card:
+    ai:
+      base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
+      timeout: ${AI_TIMEOUT:5s}
+  setlog-upload:
+    require-version-id: ${SETLOG_UPLOAD_REQUIRE_VERSION_ID:true}
   jwt:
     issuer: ${JWT_ISSUER:dogether}
     secret: ${JWT_SECRET}
@@ -43,17 +49,39 @@ app:
     refresh-ttl: ${JWT_REFRESH_TTL:7d}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  websocket:
+    enabled: ${WEBSOCKET_ENABLED:false}
+    heartbeat-send: 10s
+    heartbeat-receive: 10s
+    message-size-limit: 32KB
   s3:
-    access-key: ${AWS_S3_ACCESS_KEY}
-    secret-key: ${AWS_S3_SECRET_KEY}
-    bucket: ${AWS_S3_BUCKET_NAME}
+    # Credentials use the AWS SDK default chain, including AWS_ACCESS_KEY_ID /
+    # AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) and IAM workload roles.
+    # Legacy AWS_S3_* names remain a one-release compatibility fallback.
+    access-key: ${AWS_S3_ACCESS_KEY:}
+    secret-key: ${AWS_S3_SECRET_KEY:}
+    bucket: ${S3_BUCKET:${AWS_S3_BUCKET_NAME}}
     region: ${AWS_REGION}
     presigned-url-expiration-seconds: ${PRESIGNEDURL_EXPIRATION_TIME_SEC}
+    endpoint: ${S3_ENDPOINT:}
+    presign-endpoint: ${S3_PRESIGN_ENDPOINT:}
+    path-style-access-enabled: ${S3_PATH_STYLE:false}
+    allow-insecure-endpoint: ${S3_ALLOW_INSECURE_ENDPOINT:false}
   media:
     upload-url-ttl: ${MEDIA_UPLOAD_URL_TTL:15m}
     view-url-ttl: ${MEDIA_VIEW_URL_TTL:10m}
     max-upload-bytes: ${MEDIA_MAX_UPLOAD_BYTES:10485760}
     maintenance-delay: ${MEDIA_MAINTENANCE_DELAY:1m}
+  storage-cleanup:
+    enabled: ${STORAGE_CLEANUP_ENABLED:true}
+    delay-ms: ${STORAGE_CLEANUP_DELAY_MS:60000}
+    batch-size: ${STORAGE_CLEANUP_BATCH_SIZE:50}
+    lease: ${STORAGE_CLEANUP_LEASE:5m}
+    max-attempts: ${STORAGE_CLEANUP_MAX_ATTEMPTS:10}
+    max-upload-duration: ${STORAGE_CLEANUP_MAX_UPLOAD_DURATION:20m}
+    upload-settle-grace: ${STORAGE_CLEANUP_UPLOAD_SETTLE_GRACE:30m}
+    base-backoff: ${STORAGE_CLEANUP_BASE_BACKOFF:30s}
+    max-backoff: ${STORAGE_CLEANUP_MAX_BACKOFF:6h}
   bootstrap-admin:
     enabled: ${INITIAL_ADMIN_ENABLED:false}
     email: ${INITIAL_ADMIN_EMAIL:}
@@ -75,6 +103,12 @@ app:
     stream-group: ${EMAIL_STREAM_GROUP:email-delivery}
     stream-consumer: ${EMAIL_STREAM_CONSUMER:email-worker-1}
     max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+  pet-verification:
+    hmac-secret: ${PET_VERIFICATION_HMAC_SECRET:}
+    service-key: ${PET_VERIFICATION_SERVICE_KEY:}
+    token-ttl: ${PET_VERIFICATION_TOKEN_TTL:15m}
+    connect-timeout: ${PET_VERIFICATION_CONNECT_TIMEOUT:3s}
+    read-timeout: ${PET_VERIFICATION_READ_TIMEOUT:5s}
   chat-room:
     lifecycle:
       enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}

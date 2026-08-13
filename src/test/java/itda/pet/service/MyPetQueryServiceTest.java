@@ -4,21 +4,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.media.domain.Media;
+import itda.media.domain.MediaStatus;
+import itda.media.domain.MediaType;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.media.service.MediaService;
+import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.User;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -38,11 +47,36 @@ class MyPetQueryServiceTest {
     @Mock
     private PetRepository petRepository;
 
+    @Mock
+    private MediaService mediaService;
+    @Mock
+    private PetVerificationBadgeService badgeService;
+
     private MyPetQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new MyPetQueryService(petRepository);
+        service = new MyPetQueryService(petRepository, mediaService, badgeService);
+    }
+
+    @Test
+    @DisplayName("내 Pet 목록은 인증 배지를 단일 batch 조회로 조립한다")
+    void assemblesMyPetListBadgesWithOneBatchLookup() {
+        Pet verified = pet(user(USER_ID), null);
+        Pet unverified = pet(user(USER_ID), null);
+        ReflectionTestUtils.setField(unverified, "id", 3L);
+        Instant verifiedAt = Instant.parse("2026-08-12T12:00:00Z");
+        given(petRepository.findMyPetsOrdered(USER_ID)).willReturn(List.of(verified, unverified));
+        given(badgeService.verifiedAtByPetIds(argThat(ids -> Set.copyOf(ids).equals(Set.of(PET_ID, 3L)))) )
+                .willReturn(Map.of(PET_ID, verifiedAt));
+
+        List<PetResponse> responses = service.getMyPets(USER_ID);
+
+        assertThat(responses).extracting(PetResponse::verified).containsExactly(true, false);
+        assertThat(responses.getFirst().verifiedAt()).isEqualTo(verifiedAt);
+        then(badgeService).should().verifiedAtByPetIds(argThat(ids -> Set.copyOf(ids).equals(Set.of(PET_ID, 3L))));
+        then(badgeService).should(never()).verifiedAt(PET_ID);
+        then(badgeService).should(never()).verifiedAt(3L);
     }
 
     @Nested
@@ -82,6 +116,27 @@ class MyPetQueryServiceTest {
             assertThat(response.active()).isTrue();
             assertThatThrownBy(() -> response.personalityTags().add("차분함"))
                     .isInstanceOf(UnsupportedOperationException.class);
+        }
+
+        @Test
+        @DisplayName("It: 프로필 Media가 있으면 Presigned URL을 상세 응답에 전달한다")
+        void itPropagatesProfileUrlToDetailResponse() {
+            Pet pet = pet(user(USER_ID), null);
+            ReflectionTestUtils.setField(
+                    pet, "profileAsset", profileMedia(31L)
+            );
+            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(mediaService.getPresignedDownloadUrl(31L)).willReturn(
+                    new MediaService.PresignedDownloadUrl(
+                            "https://presigned.example/pet/31", Instant.now()
+                    )
+            );
+
+            PetResponse response = service.getMyPet(USER_ID, PET_ID);
+
+            assertThat(response.profileUrl())
+                    .isEqualTo("https://presigned.example/pet/31");
+            then(mediaService).should().getPresignedDownloadUrl(31L);
         }
 
         @Test
@@ -318,6 +373,28 @@ class MyPetQueryServiceTest {
             assertThat(responses.get(1).petId()).isEqualTo(inactivePetId);
             assertThat(responses.get(1).active()).isFalse();
         }
+
+        @Test
+        @DisplayName("It: 목록에서 프로필 Media URL을 각 Pet 응답에 전달한다")
+        void itPropagatesProfileUrlToMyPetList() {
+            Pet profiled = pet(user(USER_ID), null);
+            ReflectionTestUtils.setField(
+                    profiled, "profileAsset", profileMedia(32L)
+            );
+            given(petRepository.findMyPetsOrdered(USER_ID))
+                    .willReturn(List.of(profiled));
+            given(mediaService.getPresignedDownloadUrl(32L)).willReturn(
+                    new MediaService.PresignedDownloadUrl(
+                            "https://presigned.example/pet/32", Instant.now()
+                    )
+            );
+
+            List<PetResponse> responses = service.getMyPets(USER_ID);
+
+            assertThat(responses).singleElement()
+                    .extracting(PetResponse::profileUrl)
+                    .isEqualTo("https://presigned.example/pet/32");
+        }
     }
 
     private User user(Long id) {
@@ -365,6 +442,15 @@ class MyPetQueryServiceTest {
         );
         ReflectionTestUtils.setField(pet, "id", petId);
         return pet;
+    }
+
+    private Media profileMedia(Long mediaId) {
+        Media media = new Media(
+                MediaType.IMAGE, "users/1/pets/profile.jpg", USER_ID, 1L
+        );
+        ReflectionTestUtils.setField(media, "id", mediaId);
+        ReflectionTestUtils.setField(media, "status", MediaStatus.UPLOADED);
+        return media;
     }
 
     private void assertErrorCode(

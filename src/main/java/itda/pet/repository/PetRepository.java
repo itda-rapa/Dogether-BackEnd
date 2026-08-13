@@ -28,7 +28,19 @@ public interface PetRepository extends JpaRepository<Pet, Long> {
     @Query("""
             select pet
             from Pet pet
+            join fetch pet.owner
+            left join fetch pet.profileAsset
+            where pet.id = :petId
+            """)
+    Optional<Pet> findByIdWithOwnerAndProfileAsset(
+            @Param("petId") Long petId
+    );
+
+    @Query("""
+            select pet
+            from Pet pet
             join fetch pet.owner owner
+            left join fetch pet.profileAsset
             where pet.publicTag = :publicTag
               and pet.status = :petStatus
               and pet.deletedAt is null
@@ -50,6 +62,7 @@ public interface PetRepository extends JpaRepository<Pet, Long> {
             select pet
             from Pet pet
             join fetch pet.owner owner
+            left join fetch pet.profileAsset
             where owner.id = :userId
               and pet.deletedAt is null
             order by
@@ -58,6 +71,17 @@ public interface PetRepository extends JpaRepository<Pet, Long> {
               pet.id asc
             """)
     List<Pet> findMyPetsOrdered(@Param("userId") Long userId);
+
+    @Query("""
+            select pet
+            from Pet pet
+            join fetch pet.owner
+            left join fetch pet.profileAsset
+            where pet.id in :petIds
+            """)
+    List<Pet> findAllByIdWithOwnerAndProfileAsset(
+            @Param("petIds") Collection<Long> petIds
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select pet from Pet pet where pet.id = :petId")

@@ -50,18 +50,28 @@ class PetMigrationPostgreSqlIntegrationTest {
     void cleanDatabase() {
         jdbcTemplate.update("update users set active_pet_id = null");
         jdbcTemplate.update("delete from pets");
+        jdbcTemplate.update("delete from media");
         jdbcTemplate.update("delete from media_assets");
         jdbcTemplate.update("delete from refresh_tokens");
         jdbcTemplate.update("delete from users");
     }
 
     @Test
-    void appliesPetMigrationAndValidatesHibernateSchema() {
+    void appliesPetMigrationsAndValidatesHibernateSchema() {
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(Arrays.stream(flyway.info().all()))
                 .anyMatch(migration ->
                         migration.getVersion() != null
                                 && "8".equals(
+                                migration.getVersion().getVersion()
+                        )
+                                && migration.getState()
+                                == MigrationState.SUCCESS
+                );
+        assertThat(Arrays.stream(flyway.info().all()))
+                .anyMatch(migration ->
+                        migration.getVersion() != null
+                                && "20".equals(
                                 migration.getVersion().getVersion()
                         )
                                 && migration.getState()
@@ -108,6 +118,14 @@ class PetMigrationPostgreSqlIntegrationTest {
                 "ck_pets_status_deleted_at"
         );
         assertThat(jdbcTemplate.queryForObject("""
+                select ccu.table_name
+                  from information_schema.constraint_column_usage ccu
+                 where ccu.table_schema = 'public'
+                   and ccu.constraint_name = 'fk_pets_profile_asset'
+                """,
+                String.class
+        )).isEqualTo("media");
+        assertThat(jdbcTemplate.queryForObject("""
                 select constraint_name
                   from information_schema.table_constraints
                  where table_schema = 'public'
@@ -134,7 +152,7 @@ class PetMigrationPostgreSqlIntegrationTest {
     @Test
     void acceptsValidStatusesNullableEnumsJsonAndForeignKeys() {
         Long ownerId = createUser();
-        Long profileAssetId = createMediaAsset(ownerId, "PROFILE");
+        Long profileAssetId = createMedia(ownerId);
         Long activePetId = insertPet(
                 ownerId,
                 "몽이#A7K2",
@@ -468,25 +486,21 @@ class PetMigrationPostgreSqlIntegrationTest {
         return count != null && count == 1;
     }
 
-    private Long createMediaAsset(Long ownerId, String purpose) {
+    private Long createMedia(Long ownerId) {
         String unique = UUID.randomUUID().toString().replace("-", "");
         return jdbcTemplate.queryForObject("""
-                insert into media_assets (
-                    owner_user_id,
-                    purpose,
+                insert into media (
+                    media_type,
+                    path,
                     status,
-                    object_key,
-                    content_type,
-                    size_bytes,
-                    expires_at
-                ) values (?, ?, 'UPLOADED', ?, 'image/jpeg', 1024,
-                          CURRENT_TIMESTAMP + INTERVAL '1 hour')
+                    user_id,
+                    file_size
+                ) values ('IMAGE', ?, 'UPLOADED', ?, 1024)
                 returning id
                 """,
                 Long.class,
-                ownerId,
-                purpose,
-                "pet-profile/" + unique
+                "pet-profile/" + unique,
+                ownerId
         );
     }
 

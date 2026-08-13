@@ -17,7 +17,7 @@ public enum ErrorCode {
             HttpStatus.CONFLICT,
             "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
     ),
-
+    CHAT_MESSAGE_SEND_FAILED(HttpStatus.BAD_REQUEST, "채팅메시지 전송에 실패했습니다."),
 
     USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
     PUBLIC_TAG_GENERATION_FAILED(HttpStatus.CONFLICT, "공개 사용자 태그를 생성하지 못했습니다."),
@@ -43,18 +43,40 @@ public enum ErrorCode {
     MEDIA_STATE_CONFLICT(HttpStatus.CONFLICT, "현재 미디어 상태에서는 요청을 처리할 수 없습니다."),
     MEDIA_PURPOSE_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 마일스톤에서 해당 미디어를 업로드할 수 없습니다."),
     SETLOG_MEDIA_ALREADY_USED(HttpStatus.CONFLICT, "이미 셋로그에 사용된 미디어입니다."),
+    SETLOG_UPLOAD_PET_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 활동 반려견으로만 셋로그를 업로드할 수 있습니다."),
+    SETLOG_UPLOAD_FILE_NAME_INVALID(HttpStatus.BAD_REQUEST, "올바르지 않은 파일명입니다."),
+    SETLOG_UPLOAD_SIZE_INVALID(HttpStatus.BAD_REQUEST, "업로드 파일 크기는 1바이트 이상이어야 합니다."),
+    UPLOAD_SIZE_EXCEEDED(HttpStatus.PAYLOAD_TOO_LARGE, "업로드 파일은 200 MiB를 초과할 수 없습니다."),
+    UPLOAD_CONTENT_TYPE_UNSUPPORTED(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "MP4 또는 WebM 영상만 업로드할 수 있습니다."),
+    SETLOG_UPLOAD_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "업로드 URL을 발급할 수 없습니다. 잠시 후 다시 시도해주세요."),
+    SETLOG_UPLOAD_STORAGE_REJECTED(HttpStatus.BAD_GATEWAY, "스토리지에서 업로드 URL 발급 요청을 거절했습니다."),
+    SETLOG_UPLOAD_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그 업로드를 찾을 수 없습니다."),
+    SETLOG_UPLOAD_OBJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드된 객체를 찾을 수 없습니다."),
+    SETLOG_UPLOAD_EXPIRED(HttpStatus.CONFLICT, "셋로그 업로드 세션이 만료되었습니다."),
+    SETLOG_UPLOAD_STATE_CONFLICT(HttpStatus.CONFLICT, "완료할 수 없는 셋로그 업로드 상태입니다."),
+    SETLOG_UPLOAD_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "다른 요청 ID로 이미 완료된 업로드입니다."),
+    SETLOG_UPLOAD_METADATA_MISMATCH(HttpStatus.BAD_REQUEST, "업로드된 객체의 크기 또는 형식이 요청과 일치하지 않습니다."),
+    SETLOG_UPLOAD_VERSIONING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "스토리지 버전 정보를 확인할 수 없습니다. 잠시 후 다시 시도해주세요."),
+    SETLOG_UPLOAD_COMPLETE_STORAGE_REJECTED(HttpStatus.BAD_GATEWAY, "스토리지에서 업로드 확인 요청을 거절했습니다."),
 
     PET_REQUIRED(HttpStatus.FORBIDDEN, "반려견 등록이 필요한 기능입니다."),
     ACTIVE_PET_REQUIRED(HttpStatus.FORBIDDEN, "활동할 반려견을 먼저 선택해주세요."),
     PET_NOT_FOUND(HttpStatus.NOT_FOUND, "반려견을 찾을 수 없습니다."),
     PET_NOT_OWNED(HttpStatus.FORBIDDEN, "해당 반려견의 소유자가 아닙니다."),
     PET_NOT_ACTIVE(HttpStatus.FORBIDDEN, "활동 가능한 반려견이 아닙니다."),
+    PET_PROFILE_IMAGE_ALREADY_SET(HttpStatus.CONFLICT, "반려견 프로필 이미지는 이미 설정되었습니다."),
     PET_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "반려견은 최대 5마리까지 등록할 수 있습니다."),
     PET_PUBLIC_TAG_GENERATION_FAILED(
             HttpStatus.CONFLICT,
             "반려견 공개 태그를 생성하지 못했습니다."
     ),
     ACTIVE_PET_DELETE_FORBIDDEN(HttpStatus.CONFLICT, "활동 중인 반려견은 삭제할 수 없습니다."),
+    PET_VERIFICATION_CONFLICT(HttpStatus.CONFLICT, "이미 사용되었거나 인증된 반려견 등록정보입니다."),
+    PET_VERIFICATION_TOKEN_INVALID(HttpStatus.GONE, "유효하지 않은 Pet 인증 토큰입니다."),
+    PET_VERIFICATION_NOT_MATCHED(HttpStatus.UNPROCESSABLE_CONTENT,
+            "등록정보를 확인할 수 없습니다. 입력정보를 확인한 후 다시 시도해 주세요."),
+    PET_VERIFICATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE,
+            "Pet 인증 서비스를 일시적으로 사용할 수 없습니다."),
     SAME_OWNER_INTERACTION_FORBIDDEN(HttpStatus.BAD_REQUEST, "같은 사용자가 소유한 반려견끼리는 상호작용할 수 없습니다."),
 
     GREETING_ALREADY_USED(HttpStatus.CONFLICT, "이미 인사한 상대에게 다시 인사할 수 없습니다."),
@@ -69,7 +91,14 @@ public enum ErrorCode {
     FRIEND_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "처리 가능한 친구요청 상태가 아닙니다."),
     BLOCKED_USER(HttpStatus.FORBIDDEN, "차단 관계에서는 요청을 처리할 수 없습니다."),
 
+    // 채팅방
+    CHATROOM_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 채팅방을 찾을 수 없습니다."),
+    NOT_PARTICIPANT_OF_CHAT_ROOM(HttpStatus.NOT_FOUND, "해당 채팅방의 참여자가 아닙니다."),
+
     SETLOG_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그를 찾을 수 없습니다."),
+    SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "작성자만 셋로그를 삭제할 수 있습니다."),
+    SEED_SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "시드 셋로그는 삭제할 수 없습니다."),
+    SETLOG_ALREADY_DELETED(HttpStatus.CONFLICT, "이미 삭제된 셋로그입니다."),
     SETLOG_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "본인 소유 반려견의 셋로그에는 반응할 수 없습니다."),
     MEETING_CARD_NOT_EDITABLE(HttpStatus.CONFLICT, "M1에서는 약속 카드를 수정할 수 없습니다."),
     MEETING_CARD_CANCEL_FORBIDDEN(HttpStatus.FORBIDDEN, "약속 참여 반려견만 카드를 취소할 수 있습니다."),
@@ -85,10 +114,14 @@ public enum ErrorCode {
     CHAT_SENDER_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "채팅방 참여자만 메시지를 보낼 수 있습니다."),
     CHAT_CLIENT_MESSAGE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "TEXT 메시지는 clientMessageId가 필요합니다."),
     CHAT_DUPLICATE_MESSAGE(HttpStatus.CONFLICT, "동일한 clientMessageId의 메시지가 이미 존재합니다."),
+    CHAT_ROOM_FULL(HttpStatus.CONFLICT, "채팅방 정원이 가득 찼습니다."),
+    OPEN_CHAT_AI_REQUIRES_THREE_PARTICIPANTS(HttpStatus.BAD_REQUEST, "AI 약속 카드는 참여자 3명 이상인 오픈채팅방에서 사용할 수 있습니다."),
+    OPEN_CHAT_AI_REQUEST_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI 약속 카드 요청을 전달하지 못했습니다."),
 
     BOARD_NOT_FOUND(HttpStatus.NOT_FOUND, "게시판을 찾을 수 없습니다."),
     BOARD_POST_NOT_FOUND(HttpStatus.NOT_FOUND, "게시글을 찾을 수 없습니다."),
     BOARD_POST_FORBIDDEN(HttpStatus.FORBIDDEN, "게시글을 수정하거나 삭제할 권한이 없습니다."),
+    BOARD_POST_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "자신이 작성한 게시글에는 반응할 수 없습니다."),
     BOARD_NOT_EMPTY(HttpStatus.CONFLICT, "게시글이 있는 게시판은 삭제할 수 없습니다."),
     BOARD_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 게시판 이름입니다.");
 

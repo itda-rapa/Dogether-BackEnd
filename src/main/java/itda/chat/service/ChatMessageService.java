@@ -9,15 +9,20 @@ import itda.chat.repository.ChatMessageRepository;
 import itda.chat.repository.ChatMessageRepository.MessageUpsert;
 import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
+import itda.chat.event.ChatMessageCommittedEvent;
+import itda.chat.dto.response.ChatMessageResponse;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.repository.GreetingRepository;
+import itda.pet.domain.Pet;
+import itda.pet.repository.PetRepository;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +37,8 @@ public class ChatMessageService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomParticipantRepository participantRepository;
     private final GreetingRepository greetingRepository;
+    private final PetRepository petRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Send a user-authored message.
@@ -154,7 +161,8 @@ public class ChatMessageService {
         // Only members may speak in a room. This is a chat invariant rather than an access-control
         // detail, so it belongs here and not in a controller — and no DB constraint covers it:
         // ck_chat_message_sender only checks that a PET sender has an id at all.
-        if (senderPetId != null && !participantRepository.existsByRoomIdAndPetId(roomId, senderPetId)) {
+        if (senderPetId != null
+                && !participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(roomId, senderPetId)) {
             throw new BusinessException(ErrorCode.CHAT_SENDER_NOT_PARTICIPANT);
         }
 
@@ -174,8 +182,21 @@ public class ChatMessageService {
             // timestamp for it would contradict the sequential retry above, which returns early
             // and touches nothing.
             chatRoomRepository.activateAndTouchLastMessageAt(roomId);
+            eventPublisher.publishEvent(new ChatMessageCommittedEvent(
+                    message.getRoom().getType(),
+                    ChatMessageResponse.from(message, senderPetNickname(message.getSenderPetId()))
+            ));
         }
         return new ChatMessageResult(message, created);
+    }
+
+    private String senderPetNickname(Long senderPetId) {
+        if (senderPetId == null) {
+            return null;
+        }
+        return petRepository.findById(senderPetId)
+                .map(Pet::getNickname)
+                .orElse(null);
     }
 
     /**

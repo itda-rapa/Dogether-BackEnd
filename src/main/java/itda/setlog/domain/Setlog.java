@@ -75,6 +75,14 @@ public class Setlog extends BaseEntity {
         return new Setlog(authorPet, media, caption, true);
     }
 
+    public static Setlog createUser(
+            Pet authorPet,
+            Media media,
+            String caption
+    ) {
+        return new Setlog(authorPet, media, caption, false);
+    }
+
     public void incrementReaction(ReactionType type) {
         switch (type) {
             case CUTE -> cuteCount++;
@@ -87,5 +95,12 @@ public class Setlog extends BaseEntity {
             case CUTE -> cuteCount = Math.max(0, cuteCount - 1);
             case LIKE -> likeCount = Math.max(0, likeCount - 1);
         }
+    }
+
+    public void deleteByAuthor() {
+        if (seed) {
+            throw new IllegalStateException("Seed setlogs cannot be deleted by an author");
+        }
+        this.status = SetlogStatus.DELETED_BY_AUTHOR;
     }
 }

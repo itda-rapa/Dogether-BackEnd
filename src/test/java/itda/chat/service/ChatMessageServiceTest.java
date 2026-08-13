@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import itda.chat.domain.ChatMessage;
 import itda.chat.domain.ChatRoom;
 import itda.chat.domain.MessageType;
+import itda.chat.domain.RoomType;
 import itda.chat.domain.SenderType;
 import itda.chat.dto.ChatMessageCreateRequest;
 import itda.chat.dto.ChatMessageResult;
@@ -26,6 +27,8 @@ import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.repository.GreetingRepository;
+import itda.pet.domain.Pet;
+import itda.pet.repository.PetRepository;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 /**
  * Mocks are always built before the {@code when(...)} call that returns them — creating a mock
@@ -53,6 +57,12 @@ class ChatMessageServiceTest {
     @Mock
     private GreetingRepository greetingRepository;
 
+    @Mock
+    private PetRepository petRepository;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private ChatMessageService chatMessageService;
 
     @BeforeEach
@@ -61,7 +71,9 @@ class ChatMessageServiceTest {
                 chatMessageRepository,
                 chatRoomRepository,
                 participantRepository,
-                greetingRepository
+                greetingRepository,
+                petRepository,
+                eventPublisher
         );
     }
 
@@ -101,7 +113,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 999L)).thenReturn(false);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 999L)).thenReturn(false);
 
         assertThatThrownBy(() -> chatMessageService.sendText(1L, 999L, request("idem-1", "hello")))
                 .isInstanceOf(BusinessException.class)
@@ -132,17 +144,23 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
                 .thenReturn(upsert);
         when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
+        Pet sender = mock(Pet.class);
+        when(sender.getNickname()).thenReturn("Mong");
+        when(petRepository.findById(10L)).thenReturn(Optional.of(sender));
 
         ChatMessageResult result = chatMessageService.sendText(1L, 10L, request("idem-2", "hello"));
 
         assertThat(result.created()).isTrue();
         assertThat(result.message().getId()).isEqualTo(2L);
         verify(chatRoomRepository).activateAndTouchLastMessageAt(1L);
+        verify(eventPublisher).publishEvent(org.mockito.ArgumentMatchers.<Object>argThat(event ->
+                event instanceof itda.chat.event.ChatMessageCommittedEvent committed
+                        && "Mong".equals(committed.message().senderPetNickname())));
     }
 
     @Test
@@ -159,6 +177,7 @@ class ChatMessageServiceTest {
         verify(chatMessageRepository, never()).insertMessageOnConflictWithReturning(
                 anyLong(), anyString(), any(), anyString(), any(), any(), any());
         verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -174,7 +193,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-2"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
                 .thenReturn(upsert);
@@ -185,6 +204,7 @@ class ChatMessageServiceTest {
         assertThat(result.created()).isFalse();
         assertThat(result.message().getId()).isEqualTo(2L);
         verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     // ---------- idempotency key misuse ----------
@@ -270,7 +290,7 @@ class ChatMessageServiceTest {
                 "reply-1"
         )).thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 20L))
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 20L))
                 .thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L,
@@ -317,7 +337,8 @@ class ChatMessageServiceTest {
         assertThat(result.message().getSenderPetId()).isNull();
         // Without a key there is nothing to look up, and a system notice has no sending Pet to check.
         verify(chatMessageRepository, never()).findByRoomIdAndClientMessageId(any(), any());
-        verify(participantRepository, never()).existsByRoomIdAndPetId(anyLong(), anyLong());
+        verify(participantRepository, never())
+                .existsByRoomIdAndPetIdAndLeftAtIsNull(anyLong(), anyLong());
     }
 
     @Test
@@ -329,7 +350,7 @@ class ChatMessageServiceTest {
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "card-7"))
                 .thenReturn(Optional.empty());
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
-        when(participantRepository.existsByRoomIdAndPetId(1L, 10L)).thenReturn(true);
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "CARD", null, 7L, "card-7"))
                 .thenReturn(upsert);
@@ -373,6 +394,10 @@ class ChatMessageServiceTest {
     private static ChatMessage mockMsg(long id, SenderType senderType, Long senderPetId, MessageType type,
                                        String body, Long meetingCardId, String clientMessageId) {
         ChatMessage msg = mock(ChatMessage.class);
+        ChatRoom room = mock(ChatRoom.class);
+        lenient().when(room.getId()).thenReturn(1L);
+        lenient().when(room.getType()).thenReturn(RoomType.DIRECT);
+        lenient().when(msg.getRoom()).thenReturn(room);
         lenient().when(msg.getId()).thenReturn(id);
         lenient().when(msg.getSenderType()).thenReturn(senderType);
         lenient().when(msg.getSenderPetId()).thenReturn(senderPetId);

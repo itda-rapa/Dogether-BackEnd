@@ -10,6 +10,11 @@ spring:
     enabled: ${FLYWAY_ENABLED:false}
     locations:
       - classpath:db/migration
+      - classpath:db/seed
+      - classpath:db/demo
+  kafka:
+    #    kafka서버의 url
+    bootstrap-servers: localhost:9092
 
 springdoc:
   api-docs:
@@ -18,6 +23,17 @@ springdoc:
     enabled: false
 
 app:
+  setlog-upload:
+    # Production cleanup relies on exact object versions. Fail closed when HEAD
+    # does not return one; this requires Bucket Versioning to be enabled.
+    require-version-id: true
+  # 환경 변수로 열어두지 않고 고정한다. SimpleBroker는 replicas=1 전제이며, replica가
+  # 둘 이상이면 송신자와 수신자가 다른 JVM에 붙는 순간 오류 없이 전달만 누락된다.
+  # prod 개방은 배포 토폴로지 결정과 함께 별도로 판단한다.
+  # SimpleBroker는 replicas=1 전제다. replica가 둘 이상이면 송신자와 수신자가 다른
+  # JVM에 붙는 순간 오류 없이 전달이 누락되므로, 단일 replica 배포에서만 활성화한다.
+  websocket:
+    enabled: ${WEBSOCKET_ENABLED:false}
   jwt:
     issuer: ${JWT_ISSUER}
     secret: ${JWT_SECRET}
@@ -26,8 +42,14 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
   s3:
-    access-key: ${AWS_S3_ACCESS_KEY}
-    secret-key: ${AWS_S3_SECRET_KEY}
-    bucket: ${AWS_S3_BUCKET_NAME}
+    # Credentials are resolved by the AWS SDK default credential chain.
+    access-key: ${AWS_S3_ACCESS_KEY:}
+    secret-key: ${AWS_S3_SECRET_KEY:}
+    bucket: ${S3_BUCKET:${AWS_S3_BUCKET_NAME}}
     region: ${AWS_REGION}
     presigned-url-expiration-seconds: ${PRESIGNEDURL_EXPIRATION_TIME_SEC}
+    endpoint: ${S3_ENDPOINT:}
+    presign-endpoint: ${S3_PRESIGN_ENDPOINT:}
+    path-style-access-enabled: ${S3_PATH_STYLE:false}
+    # Production object storage endpoints must use TLS.
+    allow-insecure-endpoint: false

@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.meetingcard.dto.response.CardDraftResponse;
+import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
@@ -26,19 +27,21 @@ public interface CardDraftSwaggerSupporter {
                             {
                                 "success":true,
                                 "message":"약속 카드 초안 생성 성공",
-                                "data":{
+                                "data":[{
                                     "draftId":1,
                                     "roomId":1,
                                     "cardType":"WALK",
                                     "placeText":"한강공원",
+                                    "date":"2026-08-10",
+                                    "time":"18:00",
                                     "meetAt":"2026-08-10T09:00:00Z"
-                                },
+                                }],
                                 "error":null
                             }
                             """)
             )
     )
-    ResponseEntity<ApiResponse<CardDraftResponse>> createDraft(
+    ResponseEntity<ApiResponse<List<CardDraftResponse>>> createDraft(
             @Parameter(hidden = true) CurrentUser currentUser,
             @Parameter(description = "채팅방 ID") long roomId
     );

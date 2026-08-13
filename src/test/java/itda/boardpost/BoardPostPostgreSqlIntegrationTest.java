@@ -168,6 +168,43 @@ class BoardPostPostgreSqlIntegrationTest {
         assertThat(page.page().nextCursor()).isNotBlank();
     }
 
+    @Test
+    void boardDeletionRetainsEmptyBoardAndDeletedPostHistory() {
+        long emptyBoard = createBoard();
+        boardDeletionService.delete(emptyBoard);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from boards where id = ?", Long.class, emptyBoard
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is not null from boards where id = ?", Boolean.class, emptyBoard
+        )).isTrue();
+
+        long boardWithDeletedPost = createBoard();
+        Author author = createAuthor("deletedHistory", "4113111500");
+        jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
+        long postId = postService.create(
+                author.userId(),
+                boardWithDeletedPost,
+                new BoardPostCreateRequest("title", "content")
+        ).postId();
+        postService.delete(author.userId(), postId);
+
+        boardDeletionService.delete(boardWithDeletedPost);
+
+        assertThat(jdbc.queryForObject(
+                "select count(*) from boards where id = ?", Long.class, boardWithDeletedPost
+        )).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is not null from boards where id = ?", Boolean.class, boardWithDeletedPost
+        )).isTrue();
+        assertThat(jdbc.queryForObject(
+                "select status from board_posts where id = ?", String.class, postId
+        )).isEqualTo("DELETED");
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is not null from board_posts where id = ?", Boolean.class, postId
+        )).isTrue();
+    }
+
     private void assertBusiness(ThrowingSupplier action, String code) {
         assertThatThrownBy(action::get).isInstanceOf(BusinessException.class)
                 .extracting(error -> ((BusinessException) error).getErrorCode().name()).isEqualTo(code);
@@ -304,28 +341,115 @@ class BoardPostPostgreSqlIntegrationTest {
     }
 
     @Test
-    void concurrentPostCreateAndBoardDeleteLeaveNoOrphanPost() throws Exception {
+    void createFirstThenBoardDeleteKeepsActiveBoardAndPublishedPost() throws Exception {
         long board = createBoard();
         Author author = createAuthor("raceCreate", "4113111500");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
-        List<Throwable> outcomes = runStartedConcurrently(
-                () -> postService.create(author.userId(), board, new BoardPostCreateRequest("title", "content")),
-                () -> boardDeletionService.delete(board)
-        );
-        long boardsLeft = jdbc.queryForObject("select count(*) from boards where id = ?", Long.class, board);
-        long postsLeft = jdbc.queryForObject("select count(*) from board_posts where board_id = ?", Long.class, board);
-        Throwable create = outcomes.get(0);
-        Throwable delete = outcomes.get(1);
-        if (create == null) {
-            assertBusinessError(delete, "BOARD_NOT_EMPTY");
-            assertThat(boardsLeft).isEqualTo(1L);
-            assertThat(postsLeft).isEqualTo(1L);
-        } else {
-            assertBusinessError(create, "BOARD_NOT_FOUND");
-            assertThat(delete).isNull();
-            assertThat(boardsLeft).isZero();
-            assertThat(postsLeft).isZero();
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch publishedWhileReadLocked = new CountDownLatch(1);
+        CountDownLatch deleteStarted = new CountDownLatch(1);
+        CountDownLatch allowCreateCommit = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> create = executor.submit(() -> {
+                try {
+                    tx.executeWithoutResult(status -> {
+                        boards.findByIdForShare(board).orElseThrow();
+                        postService.create(author.userId(), board,
+                                new BoardPostCreateRequest("title", "content"));
+                        publishedWhileReadLocked.countDown();
+                        await(allowCreateCommit);
+                    });
+                    return null;
+                } catch (Throwable error) {
+                    return error;
+                }
+            });
+            assertThat(publishedWhileReadLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> delete = executor.submit(() -> {
+                try {
+                    deleteStarted.countDown();
+                    tx.executeWithoutResult(status -> boardDeletionService.delete(board));
+                    return null;
+                } catch (Throwable error) {
+                    return error;
+                }
+            });
+            assertThat(deleteStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait();
+
+            allowCreateCommit.countDown();
+
+            assertThat(create.get(30, TimeUnit.SECONDS)).isNull();
+            assertBusinessError(delete.get(30, TimeUnit.SECONDS), "BOARD_NOT_EMPTY");
+        } finally {
+            allowCreateCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is null from boards where id = ?", Boolean.class, board
+        )).isTrue();
+        assertThat(jdbc.queryForObject(
+                "select count(*) from board_posts where board_id = ? and status = 'PUBLISHED'", Long.class, board
+        )).isEqualTo(1L);
+    }
+
+    @Test
+    void deleteFirstThenPostCreateRetainsSoftDeletedBoardWithoutPublishedPost() throws Exception {
+        long board = createBoard();
+        Author author = createAuthor("raceDelete", "4113111500");
+        jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch deleteWriteLocked = new CountDownLatch(1);
+        CountDownLatch deletedWhileWriteLocked = new CountDownLatch(1);
+        CountDownLatch allowDeleteCommit = new CountDownLatch(1);
+        CountDownLatch createStarted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> delete = executor.submit(() -> {
+                try {
+                    tx.executeWithoutResult(status -> {
+                        boards.findByIdForUpdate(board).orElseThrow();
+                        deleteWriteLocked.countDown();
+                        boardDeletionService.delete(board);
+                        deletedWhileWriteLocked.countDown();
+                        await(allowDeleteCommit);
+                    });
+                    return null;
+                } catch (Throwable error) {
+                    return error;
+                }
+            });
+            assertThat(deleteWriteLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(deletedWhileWriteLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> create = executor.submit(() -> {
+                try {
+                    createStarted.countDown();
+                    postService.create(author.userId(), board,
+                            new BoardPostCreateRequest("title", "content"));
+                    return null;
+                } catch (Throwable error) {
+                    return error;
+                }
+            });
+            assertThat(createStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait();
+            allowDeleteCommit.countDown();
+
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+            assertBusinessError(create.get(30, TimeUnit.SECONDS), "BOARD_NOT_FOUND");
+        } finally {
+            allowDeleteCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is not null from boards where id = ?", Boolean.class, board
+        )).isTrue();
+        assertThat(jdbc.queryForObject(
+                "select count(*) from board_posts where board_id = ? and status = 'PUBLISHED'", Long.class, board
+        )).isZero();
     }
 
     @Test
@@ -392,6 +516,24 @@ class BoardPostPostgreSqlIntegrationTest {
             }
         }
         return false;
+    }
+
+    private void awaitDatabaseLockWait() {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Boolean waiting = jdbc.queryForObject("""
+                    select exists (
+                        select 1
+                          from pg_stat_activity
+                         where datname = current_database()
+                           and wait_event_type = 'Lock'
+                    )
+                    """, Boolean.class);
+            if (Boolean.TRUE.equals(waiting)) {
+                return;
+            }
+        }
+        throw new AssertionError("contender did not block on a PostgreSQL lock");
     }
 
     private List<Throwable> runStartedConcurrently(ThrowingAction first, ThrowingAction second) throws Exception {

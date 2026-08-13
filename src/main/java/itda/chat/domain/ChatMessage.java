@@ -12,14 +12,16 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
+
+import lombok.*;
+import lombok.experimental.Accessors;
 
 @Getter
 @Entity
+@Setter
 @Table(name = "chat_messages")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@Accessors(chain = true)
 public class ChatMessage {
 
     @Id
@@ -53,11 +55,28 @@ public class ChatMessage {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /*
-     * Messages are written exclusively through ChatMessageService, which issues an atomic
-     * INSERT ... ON CONFLICT DO UPDATE ... RETURNING against uk_chat_message_client. Type, sender
-     * and participation invariants are enforced there (and by the ck_chat_message_sender and
-     * ck_chat_message_payload DB checks), so this entity is hydrated by JPA on read only and
-     * intentionally exposes no construction API.
-     */
+    @Builder
+    private ChatMessage(
+            ChatRoom room,
+            String message
+    ){
+        this.room = room;
+        this.senderType = SenderType.PET;
+        this.type = MessageType.TEXT;
+        this.body = message;
+        this.createdAt = Instant.now();
+    }
+
+    public static ChatMessage fromPet(
+            ChatRoom chatRoom,
+            String message,
+            Long petId
+    ){
+        return ChatMessage.builder()
+                .room(chatRoom)
+                .message(message)
+                .build()
+                .setSenderPetId(petId);
+    }
+
 }
