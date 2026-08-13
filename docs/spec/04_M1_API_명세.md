@@ -1986,7 +1986,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 |---:|---|
 | `400` | `VALIDATION_FAILED` |
 | `401` | `UNAUTHORIZED` |
-| `403` | `BLOCKED_USER` |
+| `403` | `ACTIVE_PET_REQUIRED` |
 | `404` | `CHAT_ROOM_NOT_FOUND` |
 | `409` | `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE` |
 
@@ -2909,8 +2909,8 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 | `status` | ㅇ | string | enum: ACTIVE, ARCHIVED | - |
 | `origin` | ㄴ | string | enum: GREETING, FRIEND | - |
 | `counterpartPet` | ㅇ | [`PetSearchItem`](#schema-petsearchitem) | - | [`PetSearchItem`](#schema-petsearchitem) |
-| `canSend` | ㅇ | boolean | - | - |
-| `sendBlockedReason` | ㄴ | string / null | enum: GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null | - |
+| `canSend` | ㅇ | boolean | - | M1 구현은 방 상태만 본다. `ACTIVE`·`ARCHIVED`면 `true`이며 인사 답변 대기는 반영하지 않는다 |
+| `sendBlockedReason` | ㄴ | string / null | enum: GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null | **M1 구현은 항상 `null`을 반환한다.** enum 값은 예약이며 클라이언트는 이 필드로 전송 가능 여부를 판단하지 않는다 |
 | `lastMessage` | ㄴ | [`ChatMessage`](#schema-chatmessage) / null | - | - |
 | `lastMessageAt` | ㅇ | string / null | format: date-time | - |
 | `updatedAt` | ㅇ | string | format: date-time | - |
