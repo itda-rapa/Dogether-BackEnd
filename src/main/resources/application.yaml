@@ -99,6 +99,12 @@ app:
     stream-group: ${EMAIL_STREAM_GROUP:email-delivery}
     stream-consumer: ${EMAIL_STREAM_CONSUMER:email-worker-1}
     max-attempts: ${EMAIL_VERIFICATION_MAX_ATTEMPTS:5}
+  pet-verification:
+    hmac-secret: ${PET_VERIFICATION_HMAC_SECRET:}
+    service-key: ${PET_VERIFICATION_SERVICE_KEY:}
+    token-ttl: ${PET_VERIFICATION_TOKEN_TTL:15m}
+    connect-timeout: ${PET_VERIFICATION_CONNECT_TIMEOUT:3s}
+    read-timeout: ${PET_VERIFICATION_READ_TIMEOUT:5s}
   chat-room:
     lifecycle:
       enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}

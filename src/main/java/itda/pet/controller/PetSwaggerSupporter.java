@@ -40,7 +40,8 @@ public interface PetSwaggerSupporter {
                         "sizeCode":"SMALL",
                         "bio":"산책을 좋아해요",
                         "personalityTags":["활발함","사교적"],
-                        "careNote":"낯선 소리에 민감해요"
+                        "careNote":"낯선 소리에 민감해요",
+                        "petVerificationToken":"pet-verification-token-placeholder"
                     }
                     """)
     ))
@@ -68,6 +69,10 @@ public interface PetSwaggerSupporter {
                             """)
             )
     )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "VALIDATION_FAILED")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "PET_VERIFICATION_CONFLICT")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "PET_VERIFICATION_TOKEN_INVALID")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "PET_VERIFICATION_UNAVAILABLE")
     ResponseEntity<ApiResponse<PetCreateResponse>> createPet(
             @Parameter(hidden = true) CurrentUser currentUser,
             PetCreateRequest request

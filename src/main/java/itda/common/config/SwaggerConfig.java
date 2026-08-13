@@ -72,7 +72,7 @@ public class SwaggerConfig {
     public GroupedOpenApi petVerificationApi(){
         return GroupedOpenApi.builder()
                 .group("Pet Verification API")
-                .pathsToMatch("/pet-verification", "/pet-verification/**")
+                .pathsToMatch("/pet-verifications", "/pet-verifications/**", "/pets/*/verification")
                 .build();
     }
 

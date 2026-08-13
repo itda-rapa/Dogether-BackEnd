@@ -11,6 +11,7 @@ import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.petverification.PetVerificationBadgeService;
 import java.util.EnumSet;
 import java.util.Set;
 import org.springframework.stereotype.Service;
@@ -25,15 +26,18 @@ public class PetProfileImageService {
     private final PetRepository petRepository;
     private final MediaRepository mediaRepository;
     private final MediaService mediaService;
+    private final PetVerificationBadgeService badgeService;
 
     public PetProfileImageService(
             PetRepository petRepository,
             MediaRepository mediaRepository,
-            MediaService mediaService
+            MediaService mediaService,
+            PetVerificationBadgeService badgeService
     ) {
         this.petRepository = petRepository;
         this.mediaRepository = mediaRepository;
         this.mediaService = mediaService;
+        this.badgeService = badgeService;
     }
 
     @Transactional
@@ -63,7 +67,8 @@ public class PetProfileImageService {
         return PetResponse.from(
                 pet,
                 pet.getOwner().isActivePet(petId),
-                mediaService.getPresignedDownloadUrl(mediaId).url()
+                mediaService.getPresignedDownloadUrl(mediaId).url(),
+                badgeService.verifiedAt(petId)
         );
     }
 

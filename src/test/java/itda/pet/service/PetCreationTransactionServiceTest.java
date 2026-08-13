@@ -14,6 +14,7 @@ import itda.pet.domain.Pet;
 import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
 import itda.pet.repository.PetRepository;
+import itda.petverification.repository.PetVerificationRepository;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
@@ -47,13 +48,17 @@ class PetCreationTransactionServiceTest {
     @Mock
     private PetRepository petRepository;
 
+    @Mock
+    private PetVerificationRepository petVerificationRepository;
+
     private PetCreationTransactionService service;
 
     @BeforeEach
     void setUp() {
         service = new PetCreationTransactionService(
                 userRepository,
-                petRepository
+                petRepository,
+                petVerificationRepository
         );
     }
 
