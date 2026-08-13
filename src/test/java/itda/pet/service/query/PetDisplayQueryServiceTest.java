@@ -11,9 +11,13 @@ import static org.mockito.Mockito.times;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.media.domain.Media;
+import itda.media.domain.MediaStatus;
+import itda.media.domain.MediaType;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
+import itda.media.service.MediaService;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import java.time.Instant;
@@ -44,11 +48,14 @@ class PetDisplayQueryServiceTest {
     @Mock
     private PetRepository petRepository;
 
+    @Mock
+    private MediaService mediaService;
+
     private PetDisplayQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new PetDisplayQueryService(petRepository);
+        service = new PetDisplayQueryService(petRepository, mediaService);
     }
 
     @Nested
@@ -62,7 +69,7 @@ class PetDisplayQueryServiceTest {
             @Test
             @DisplayName("It: PET_NOT_FOUND를 반환한다")
             void itReturnsPetNotFound() {
-                given(petRepository.findById(PET_ID))
+                given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                         .willReturn(Optional.empty());
 
                 assertThatThrownBy(() ->
@@ -84,7 +91,7 @@ class PetDisplayQueryServiceTest {
             @DisplayName("It: 소유권이나 Active 선택 여부 검사 없이 표시 정보를 반환한다")
             void itReturnsDisplayInformation() {
                 Pet pet = pet(PetStatus.ACTIVE, null);
-                given(petRepository.findById(PET_ID))
+                given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                         .willReturn(Optional.of(pet));
 
                 PetDisplaySummary result =
@@ -96,6 +103,26 @@ class PetDisplayQueryServiceTest {
             }
         }
 
+        @Test
+        @DisplayName("It: 프로필 Media가 있으면 표시 요약에 Presigned URL을 전달한다")
+        void itPropagatesProfileUrlToDisplaySummary() {
+            Pet pet = pet(PetStatus.ACTIVE, null);
+            ReflectionTestUtils.setField(pet, "profileAsset", profileMedia(51L));
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
+                    .willReturn(Optional.of(pet));
+            given(mediaService.getPresignedDownloadUrl(51L)).willReturn(
+                    new MediaService.PresignedDownloadUrl(
+                            "https://presigned.example/pet/51", Instant.now()
+                    )
+            );
+
+            PetDisplaySummary result = service.getPetDisplaySummary(PET_ID);
+
+            assertThat(result.profileUrl())
+                    .isEqualTo("https://presigned.example/pet/51");
+            then(mediaService).should().getPresignedDownloadUrl(51L);
+        }
+
         @Nested
         @DisplayName("Context: SUSPENDED Pet이 존재할 때")
         class ContextWithSuspendedPet {
@@ -104,7 +131,7 @@ class PetDisplayQueryServiceTest {
             @DisplayName("It: ACTIVE 상태 필터 없이 요약을 반환한다")
             void itReturnsSummaryWithoutStatusFilter() {
                 Pet pet = pet(PetStatus.SUSPENDED, null);
-                given(petRepository.findById(PET_ID))
+                given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                         .willReturn(Optional.of(pet));
 
                 PetDisplaySummary result =
@@ -126,7 +153,7 @@ class PetDisplayQueryServiceTest {
                 Instant deletedAt =
                         Instant.parse("2026-07-28T00:00:00Z");
                 Pet pet = pet(PetStatus.DELETED, deletedAt);
-                given(petRepository.findById(PET_ID))
+                given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                         .willReturn(Optional.of(pet));
 
                 PetDisplaySummary result =
@@ -258,7 +285,7 @@ class PetDisplayQueryServiceTest {
                         PetStatus.SUSPENDED,
                         null
                 );
-                given(petRepository.findAllById(org.mockito.ArgumentMatchers.any()))
+                given(petRepository.findAllByIdWithOwnerAndProfileAsset(org.mockito.ArgumentMatchers.any()))
                         .willReturn(List.of(second, first));
 
                 Map<Long, PetDisplaySummary> result =
@@ -268,7 +295,7 @@ class PetDisplayQueryServiceTest {
 
                 assertThat(result).hasSize(2);
                 assertThat(result).containsKeys(PET_ID, SECOND_PET_ID);
-                then(petRepository).should(times(1)).findAllById(
+                then(petRepository).should(times(1)).findAllByIdWithOwnerAndProfileAsset(
                         argThat(ids -> toIdSet(ids).equals(
                                 Set.of(PET_ID, SECOND_PET_ID)
                         ))
@@ -303,7 +330,7 @@ class PetDisplayQueryServiceTest {
                         PetStatus.DELETED,
                         deletedAt
                 );
-                given(petRepository.findAllById(org.mockito.ArgumentMatchers.any()))
+                given(petRepository.findAllByIdWithOwnerAndProfileAsset(org.mockito.ArgumentMatchers.any()))
                         .willReturn(List.of(deleted, active, suspended));
 
                 Map<Long, PetDisplaySummary> result =
@@ -347,7 +374,7 @@ class PetDisplayQueryServiceTest {
             @DisplayName("It: 부분 결과를 반환하지 않고 PET_NOT_FOUND를 반환한다")
             void itRejectsWithoutPartialResult() {
                 Pet existing = pet(PetStatus.ACTIVE, null);
-                given(petRepository.findAllById(org.mockito.ArgumentMatchers.any()))
+                given(petRepository.findAllByIdWithOwnerAndProfileAsset(org.mockito.ArgumentMatchers.any()))
                         .willReturn(List.of(existing));
 
                 assertErrorCode(
@@ -367,7 +394,7 @@ class PetDisplayQueryServiceTest {
             @DisplayName("It: 수정할 수 없는 Map을 반환한다")
             void itReturnsUnmodifiableMap() {
                 Pet pet = pet(PetStatus.ACTIVE, null);
-                given(petRepository.findAllById(org.mockito.ArgumentMatchers.any()))
+                given(petRepository.findAllByIdWithOwnerAndProfileAsset(org.mockito.ArgumentMatchers.any()))
                         .willReturn(List.of(pet));
 
                 Map<Long, PetDisplaySummary> result =
@@ -466,6 +493,15 @@ class PetDisplayQueryServiceTest {
         );
         ReflectionTestUtils.setField(owner, "id", ownerId);
         return owner;
+    }
+
+    private Media profileMedia(Long mediaId) {
+        Media media = new Media(
+                MediaType.IMAGE, "users/1/pets/profile.jpg", OWNER_ID, 1L
+        );
+        ReflectionTestUtils.setField(media, "id", mediaId);
+        ReflectionTestUtils.setField(media, "status", MediaStatus.UPLOADED);
+        return media;
     }
 
     private Set<Long> toIdSet(Iterable<Long> ids) {

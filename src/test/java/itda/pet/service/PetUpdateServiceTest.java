@@ -8,12 +8,15 @@ import static org.mockito.BDDMockito.then;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.domain.Media;
+import itda.media.domain.MediaStatus;
+import itda.media.domain.MediaType;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.media.service.MediaService;
 import itda.pet.service.PetUpdateCommand.PatchValue;
 import itda.user.domain.User;
 import java.math.BigDecimal;
@@ -40,11 +43,14 @@ class PetUpdateServiceTest {
     @Mock
     private PetRepository petRepository;
 
+    @Mock
+    private MediaService mediaService;
+
     private PetUpdateService service;
 
     @BeforeEach
     void setUp() {
-        service = new PetUpdateService(petRepository);
+        service = new PetUpdateService(petRepository, mediaService);
     }
 
     @Nested
@@ -194,6 +200,28 @@ class PetUpdateServiceTest {
             assertThat(response.verifiedAt()).isNull();
             then(petRepository).should().findByIdWithOwner(PET_ID);
             then(petRepository).shouldHaveNoMoreInteractions();
+        }
+
+        @Test
+        @DisplayName("It: 수정 응답에 기존 프로필 Media의 Presigned URL을 전달한다")
+        void propagatesProfileUrlToUpdateResponse() {
+            Pet pet = pet(user(USER_ID));
+            ReflectionTestUtils.setField(pet, "profileAsset", profileMedia(41L));
+            given(petRepository.findByIdWithOwner(PET_ID))
+                    .willReturn(Optional.of(pet));
+            given(mediaService.getPresignedDownloadUrl(41L)).willReturn(
+                    new MediaService.PresignedDownloadUrl(
+                            "https://presigned.example/pet/41", Instant.now()
+                    )
+            );
+
+            PetResponse response = service.update(
+                    USER_ID, PET_ID, nickname("초코")
+            );
+
+            assertThat(response.profileUrl())
+                    .isEqualTo("https://presigned.example/pet/41");
+            assertThat(pet.getProfileAsset().getId()).isEqualTo(41L);
         }
 
         @Test
@@ -389,6 +417,15 @@ class PetUpdateServiceTest {
         );
         ReflectionTestUtils.setField(pet, "id", PET_ID);
         return pet;
+    }
+
+    private Media profileMedia(Long mediaId) {
+        Media media = new Media(
+                MediaType.IMAGE, "users/1/pets/profile.jpg", USER_ID, 1L
+        );
+        ReflectionTestUtils.setField(media, "id", mediaId);
+        ReflectionTestUtils.setField(media, "status", MediaStatus.UPLOADED);
+        return media;
     }
 
     private User user(Long id) {

@@ -3,25 +3,42 @@ package itda.boardpost.service;
 import itda.block.service.BlockRelationshipQueryService;
 import itda.board.repository.BoardRepository;
 import itda.boardpost.domain.BoardPost;
+import itda.boardpost.domain.BoardPostMedia;
+import itda.boardpost.domain.BoardPostReactionType;
 import itda.boardpost.domain.PostStatus;
 import itda.boardpost.dto.BoardPostCreateRequest;
 import itda.boardpost.dto.BoardPostCursorPage;
 import itda.boardpost.dto.BoardPostFeedResponse;
+import itda.boardpost.dto.BoardPostImageResponse;
+import itda.boardpost.dto.BoardPostReactionResponse;
+import itda.boardpost.dto.BoardPostReactionSnapshot;
 import itda.boardpost.dto.BoardPostResponse;
 import itda.boardpost.dto.BoardPostUpdateRequest;
+import itda.boardpost.repository.BoardPostMediaRepository;
+import itda.boardpost.repository.BoardPostReactionRepository;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.support.BoardPostCursorCodec;
 import itda.boardpost.support.BoardPostCursorCodec.CursorPayload;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.media.domain.Media;
+import itda.media.domain.MediaStatus;
+import itda.media.domain.MediaType;
+import itda.media.repository.MediaRepository;
+import itda.media.service.MediaService;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,26 +49,41 @@ public class BoardPostService {
     private static final int MAX_SIZE = 100;
 
     private final BoardPostRepository posts;
+    private final BoardPostMediaRepository postMedia;
     private final BoardRepository boards;
     private final UserRepository users;
     private final LockedActivePetCommandGuard actorGuard;
     private final PetDisplayQueryService petDisplays;
     private final BlockRelationshipQueryService blocks;
+    private final MediaRepository media;
+    private final MediaService mediaService;
+    private final BoardPostReactionRepository reactions;
+    private final BoardPostReactionQueryService reactionQueries;
 
     public BoardPostService(
             BoardPostRepository posts,
+            BoardPostMediaRepository postMedia,
             BoardRepository boards,
             UserRepository users,
             LockedActivePetCommandGuard actorGuard,
             PetDisplayQueryService petDisplays,
-            BlockRelationshipQueryService blocks
+            BlockRelationshipQueryService blocks,
+            MediaRepository media,
+            MediaService mediaService,
+            BoardPostReactionRepository reactions,
+            BoardPostReactionQueryService reactionQueries
     ) {
         this.posts = posts;
+        this.postMedia = postMedia;
         this.boards = boards;
         this.users = users;
         this.actorGuard = actorGuard;
         this.petDisplays = petDisplays;
         this.blocks = blocks;
+        this.media = media;
+        this.mediaService = mediaService;
+        this.reactions = reactions;
+        this.reactionQueries = reactionQueries;
     }
 
     @Transactional
@@ -64,6 +96,7 @@ public class BoardPostService {
         LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
         boards.findByIdForShare(boardId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BOARD_NOT_FOUND));
+        List<Media> attachments = validAttachments(request.mediaIds(), actor.userId());
         BoardPost post = posts.save(BoardPost.publish(
                 boardId,
                 actor.userId(),
@@ -72,9 +105,18 @@ public class BoardPostService {
                 request.title(),
                 request.content()
         ));
+        List<BoardPostMedia> links = new ArrayList<>(attachments.size());
+        for (int index = 0; index < attachments.size(); index++) {
+            links.add(BoardPostMedia.attach(post.getId(), attachments.get(index).getId(), index));
+        }
+        if (!links.isEmpty()) {
+            postMedia.saveAll(links);
+        }
         return BoardPostResponse.of(
                 post,
-                petDisplays.getPetDisplaySummary(actor.petId())
+                petDisplays.getPetDisplaySummary(actor.petId()),
+                images(links),
+                BoardPostReactionSnapshot.none()
         );
     }
 
@@ -113,10 +155,22 @@ public class BoardPostService {
                         .distinct()
                         .toList()
         );
+        Map<Long, List<BoardPostMedia>> attachments = attachmentsByPostId(
+                page.stream().map(BoardPost::getId).toList()
+        );
+        Map<Long, BoardPostReactionSnapshot> reactionStates = reactionStates(
+                userId,
+                page.stream().map(BoardPost::getId).toList()
+        );
         List<BoardPostResponse> items = page.stream()
                 .map(post -> BoardPostResponse.of(
                         post,
-                        pets.get(post.getAuthorPetId())
+                        pets.get(post.getAuthorPetId()),
+                        images(attachments.getOrDefault(post.getId(), List.of())),
+                        Objects.requireNonNull(
+                                reactionStates.get(post.getId()),
+                                "reaction snapshot must exist for every feed post"
+                        )
                 ))
                 .toList();
         String next = hasNext && !page.isEmpty()
@@ -146,7 +200,9 @@ public class BoardPostService {
         }
         return BoardPostResponse.of(
                 post,
-                petDisplays.getPetDisplaySummary(post.getAuthorPetId())
+                petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
+                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
+                reactionState(userId, postId)
         );
     }
 
@@ -175,7 +231,9 @@ public class BoardPostService {
         }
         return BoardPostResponse.of(
                 post,
-                petDisplays.getPetDisplaySummary(post.getAuthorPetId())
+                petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
+                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
+                new BoardPostReactionSnapshot(reactionCount(postId), false)
         );
     }
 
@@ -185,6 +243,58 @@ public class BoardPostService {
         BoardPost post = published(postId);
         requireAuthor(actor, post);
         post.delete(Instant.now());
+    }
+
+    @Transactional
+    public BoardPostReactionResponse addReaction(
+            Long userId,
+            Long postId,
+            BoardPostReactionType type
+    ) {
+        LockedActivePetCommandGuard.LockedActor actor = reactionActor(userId, postId);
+        reactions.insertIgnore(postId, actor.petId(), type.name());
+        return reactionResponse(postId, type, true);
+    }
+
+    @Transactional
+    public BoardPostReactionResponse removeReaction(
+            Long userId,
+            Long postId,
+            BoardPostReactionType type
+    ) {
+        LockedActivePetCommandGuard.LockedActor actor = reactionActor(userId, postId);
+        reactions.deleteReaction(postId, actor.petId(), type.name());
+        return reactionResponse(postId, type, false);
+    }
+
+    private LockedActivePetCommandGuard.LockedActor reactionActor(
+            Long userId,
+            Long postId
+    ) {
+        LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
+        BoardPost post = published(postId);
+        if ((!post.getAuthorUserId().equals(actor.userId())
+                && !post.getNeighborhoodCode().equals(actor.neighborhoodCode()))
+                || blocks.existsBlockBetween(actor.userId(), post.getAuthorUserId())) {
+            throw notFound();
+        }
+        if (post.getAuthorUserId().equals(actor.userId())) {
+            throw new BusinessException(ErrorCode.BOARD_POST_SELF_REACTION_FORBIDDEN);
+        }
+        return actor;
+    }
+
+    private BoardPostReactionResponse reactionResponse(
+            Long postId,
+            BoardPostReactionType type,
+            boolean reacted
+    ) {
+        return new BoardPostReactionResponse(
+                postId,
+                type,
+                reacted,
+                reactions.countForPost(postId, type.name())
+        );
     }
 
     private BoardPost published(Long id) {
@@ -233,5 +343,86 @@ public class BoardPostService {
 
     private BusinessException notFound() {
         return new BusinessException(ErrorCode.BOARD_POST_NOT_FOUND);
+    }
+
+    private BoardPostReactionSnapshot reactionState(Long userId, Long postId) {
+        return reactionQueries.findForPost(userId, postId);
+    }
+
+    private Map<Long, BoardPostReactionSnapshot> reactionStates(
+            Long userId,
+            Collection<Long> postIds
+    ) {
+        if (postIds.isEmpty()) {
+            return Map.of();
+        }
+        return reactionQueries.findForPosts(userId, postIds);
+    }
+
+    private long reactionCount(Long postId) {
+        return reactionQueries.countForPost(postId);
+    }
+
+    private List<Media> validAttachments(List<Long> mediaIds, Long userId) {
+        if (mediaIds == null || mediaIds.size() > 5) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+        Set<Long> unique = new HashSet<>();
+        for (Long mediaId : mediaIds) {
+            if (mediaId == null || mediaId <= 0 || !unique.add(mediaId)) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+            }
+        }
+        if (mediaIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Media> byId = new HashMap<>();
+        for (Media attachment : media.findAllById(mediaIds)) {
+            byId.put(attachment.getId(), attachment);
+        }
+        List<Media> attachments = new ArrayList<>(mediaIds.size());
+        for (Long mediaId : mediaIds) {
+            Media attachment = byId.get(mediaId);
+            if (attachment == null || attachment.getDeletedAt() != null) {
+                throw new BusinessException(ErrorCode.MEDIA_NOT_FOUND);
+            }
+            if (!userId.equals(attachment.getUserId())) {
+                throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);
+            }
+            if (attachment.getMediaType() != MediaType.IMAGE) {
+                throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
+            }
+            if (attachment.getStatus() != MediaStatus.UPLOADED
+                    && attachment.getStatus() != MediaStatus.COMPLETED) {
+                throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
+            }
+            attachments.add(attachment);
+        }
+        return attachments;
+    }
+
+    private Map<Long, List<BoardPostMedia>> attachmentsByPostId(Collection<Long> postIds) {
+        if (postIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<BoardPostMedia>> byPostId = new HashMap<>();
+        for (BoardPostMedia attachment : postMedia.findByPostIdIn(postIds)) {
+            byPostId.computeIfAbsent(attachment.getPostId(), ignored -> new ArrayList<>())
+                    .add(attachment);
+        }
+        byPostId.values().forEach(links -> links.sort(
+                java.util.Comparator.comparingInt(BoardPostMedia::getDisplayOrder)
+        ));
+        return byPostId;
+    }
+
+    private List<BoardPostImageResponse> images(List<BoardPostMedia> links) {
+        return links.stream()
+                .map(link -> new BoardPostImageResponse(
+                        link.getMediaId(),
+                        mediaService.getPresignedDownloadUrl(link.getMediaId()).url(),
+                        link.getDisplayOrder()
+                ))
+                .toList();
     }
 }

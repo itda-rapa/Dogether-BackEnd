@@ -3,8 +3,11 @@ package itda.setlog.service;
 import itda.block.service.BlockRelationshipQueryService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.interaction.dto.InteractionPairContext;
+import itda.interaction.service.InteractionPairLockService;
 import itda.media.domain.MediaStatus;
 import itda.pet.domain.Pet;
+import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
@@ -15,7 +18,9 @@ import itda.setlog.domain.SetlogStatus;
 import itda.setlog.dto.SetlogReactionResponse;
 import itda.setlog.repository.SetlogReactionRepository;
 import itda.setlog.repository.SetlogRepository;
+import itda.user.domain.AccountStatus;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +34,7 @@ public class SetlogReactionService {
     private final SetlogReactionRepository setlogReactionRepository;
     private final PetRepository petRepository;
     private final ActivePetQueryService activePetQueryService;
+    private final InteractionPairLockService interactionPairLockService;
     private final BlockRelationshipQueryService blockRelationshipQueryService;
 
     public SetlogReactionService(
@@ -36,12 +42,14 @@ public class SetlogReactionService {
             SetlogReactionRepository setlogReactionRepository,
             PetRepository petRepository,
             ActivePetQueryService activePetQueryService,
+            InteractionPairLockService interactionPairLockService,
             BlockRelationshipQueryService blockRelationshipQueryService
     ) {
         this.setlogRepository = setlogRepository;
         this.setlogReactionRepository = setlogReactionRepository;
         this.petRepository = petRepository;
         this.activePetQueryService = activePetQueryService;
+        this.interactionPairLockService = interactionPairLockService;
         this.blockRelationshipQueryService = blockRelationshipQueryService;
     }
 
@@ -106,7 +114,31 @@ public class SetlogReactionService {
     ) {
         ActivePetContext activePet =
                 activePetQueryService.requireActivePet(userId);
-        Setlog setlog = setlogRepository.findVisibleSeedByIdForUpdate(
+        Long targetPetId = setlogRepository.findAuthorPetIdById(setlogId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.SETLOG_NOT_FOUND)
+                );
+        InteractionPairContext pair =
+                interactionPairLockService.lockInteractionPair(
+                        activePet.petId(),
+                        targetPetId
+                );
+        validateLockedPair(userId, activePet, pair);
+
+        Long authorOwnerId = pair.targetUser().userId();
+        if (activePet.ownerUserId().equals(authorOwnerId)) {
+            throw new BusinessException(
+                    ErrorCode.SETLOG_SELF_REACTION_FORBIDDEN
+            );
+        }
+        if (blockRelationshipQueryService.existsBlockBetween(
+                pair.sourceUser().userId(),
+                authorOwnerId
+        )) {
+            throw new BusinessException(ErrorCode.BLOCKED_USER);
+        }
+
+        Setlog setlog = setlogRepository.findInteractableByIdForUpdate(
                         setlogId,
                         SetlogStatus.VISIBLE,
                         PLAYABLE_MEDIA_STATUSES
@@ -114,18 +146,8 @@ public class SetlogReactionService {
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.SETLOG_NOT_FOUND)
                 );
-
-        Long authorOwnerId = setlog.getAuthorPet().getOwner().getId();
-        if (activePet.ownerUserId().equals(authorOwnerId)) {
-            throw new BusinessException(
-                    ErrorCode.SETLOG_SELF_REACTION_FORBIDDEN
-            );
-        }
-        if (blockRelationshipQueryService.existsBlockBetween(
-                activePet.ownerUserId(),
-                authorOwnerId
-        )) {
-            throw new BusinessException(ErrorCode.BLOCKED_USER);
+        if (!Objects.equals(setlog.getAuthorPet().getId(), targetPetId)) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
         }
 
         Pet reactorPet = petRepository.findById(activePet.petId())
@@ -133,6 +155,34 @@ public class SetlogReactionService {
                         new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED)
                 );
         return new ReactionContext(setlog, reactorPet);
+    }
+
+    private void validateLockedPair(
+            Long userId,
+            ActivePetContext activePet,
+            InteractionPairContext pair
+    ) {
+        if (!Objects.equals(userId, pair.sourceUser().userId())
+                || !Objects.equals(
+                        activePet.ownerUserId(),
+                        pair.sourceUser().userId()
+                )) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+        if (pair.sourceUser().accountStatus() != AccountStatus.ACTIVE
+                || !Objects.equals(
+                        pair.sourceUser().activePetId(),
+                        activePet.petId()
+                )
+                || pair.sourcePet().status() != PetStatus.ACTIVE
+                || pair.sourcePet().deletedAt() != null) {
+            throw new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
+        }
+        if (pair.targetUser().accountStatus() != AccountStatus.ACTIVE
+                || pair.targetPet().status() != PetStatus.ACTIVE
+                || pair.targetPet().deletedAt() != null) {
+            throw new BusinessException(ErrorCode.SETLOG_NOT_FOUND);
+        }
     }
 
     private SetlogReactionResponse toResponse(

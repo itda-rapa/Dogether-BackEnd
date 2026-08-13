@@ -1,21 +1,27 @@
 package itda.setlog.controller;
 
 import itda.common.dto.ApiResponse;
+import itda.common.constants.ErrorCode;
+import itda.common.exception.BusinessException;
 import itda.common.security.CurrentUser;
 import itda.greeting.dto.GreetingResponse;
 import itda.greeting.service.GreetingService;
 import itda.setlog.domain.ReactionType;
-import itda.setlog.dto.SetlogCreateRequest;
-import itda.setlog.dto.SetlogCreateResponse;
+import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogReactionResponse;
+import itda.setlog.dto.SetlogUploadCreateRequest;
+import itda.setlog.dto.SetlogUploadCreateResponse;
+import itda.setlog.dto.SetlogUploadCompleteRequest;
 import itda.setlog.dto.SetlogResponse;
-import itda.setlog.service.SetlogCreationService;
-import itda.setlog.service.SetlogQueryService;
+import itda.setlog.service.SetlogReadService;
 import itda.setlog.service.SetlogReactionService;
+import itda.setlog.service.SetlogUploadSessionService;
+import itda.setlog.service.SetlogUploadCompletionService;
+import itda.setlog.service.SetlogDeleteService;
 import jakarta.validation.Valid;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -31,32 +38,74 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class SetlogController implements SetlogSwaggerSupporter {
 
-    private final SetlogQueryService setlogQueryService;
+    private final SetlogReadService setlogReadService;
     private final SetlogReactionService setlogReactionService;
-    private final SetlogCreationService setlogCreationService;
+    private final SetlogUploadSessionService setlogUploadSessionService;
+    private final SetlogUploadCompletionService setlogUploadCompletionService;
+    private final SetlogDeleteService setlogDeleteService;
     private final GreetingService greetingService;
 
-    @PostMapping
-    public ResponseEntity<ApiResponse<SetlogCreateResponse>> createSetlog(
+    @PostMapping("/uploads")
+    public ResponseEntity<ApiResponse<SetlogUploadCreateResponse>> createUploadSession(
             @AuthenticationPrincipal CurrentUser currentUser,
-            @Valid @RequestBody SetlogCreateRequest request
+            @Valid @RequestBody SetlogUploadCreateRequest request
     ) {
-        SetlogCreateResponse setlog =
-                setlogCreationService.create(currentUser.id(), request);
-        return ResponseEntity.status(201).body(
-                ApiResponse.created(setlog, "셋로그 생성 성공")
+        SetlogUploadCreateResponse upload = setlogUploadSessionService.create(
+                currentUser.id(),
+                request
+        );
+        return ResponseEntity.status(201).cacheControl(CacheControl.noStore()).body(
+                ApiResponse.created(upload, "셋로그 업로드 세션 생성 성공")
         );
     }
 
-    @GetMapping
-    public ResponseEntity<ApiResponse<List<SetlogResponse>>> getSetlogs(
-            @AuthenticationPrincipal CurrentUser currentUser
+    @PostMapping("/uploads/{uploadId}/complete")
+    public ResponseEntity<ApiResponse<SetlogResponse>> completeUpload(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable java.util.UUID uploadId,
+            @Valid @RequestBody SetlogUploadCompleteRequest request
     ) {
-        List<SetlogResponse> setlogs =
-                setlogQueryService.getSeedSetlogs(currentUser.id());
-        return ResponseEntity.ok(
-                ApiResponse.ok(setlogs, "시드 셋로그 조회 성공")
+        SetlogUploadCompletionService.CompletionResult result =
+                setlogUploadCompletionService.complete(
+                        currentUser.id(), uploadId, request.clientRequestId()
+                );
+        ApiResponse<SetlogResponse> body = result.replayed()
+                ? ApiResponse.ok(result.response(), "셋로그 업로드 완료 재처리 성공")
+                : ApiResponse.created(result.response(), "셋로그 업로드 완료 성공");
+        return ResponseEntity.status(result.replayed() ? 200 : 201)
+                .cacheControl(CacheControl.noStore())
+                .body(body);
+    }
+
+    /** The legacy direct-create path bypassed storage metadata verification. */
+    @PostMapping
+    public ResponseEntity<Void> rejectDirectSetlogCreation() {
+        throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+    }
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<SetlogListResponse>> getSetlogs(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) Integer size
+    ) {
+        SetlogListResponse setlogs = setlogReadService.getSetlogs(
+                currentUser.id(),
+                cursor,
+                size
         );
+        return ResponseEntity.ok(
+                ApiResponse.ok(setlogs, "셋로그 조회 성공")
+        );
+    }
+
+    @DeleteMapping("/{setlogId}")
+    public ResponseEntity<Void> deleteSetlog(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long setlogId
+    ) {
+        setlogDeleteService.delete(currentUser.id(), setlogId);
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{setlogId}/reactions/{type}")

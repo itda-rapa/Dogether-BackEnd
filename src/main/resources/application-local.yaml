@@ -16,6 +16,15 @@ spring:
     #    kafka서버의 url
     bootstrap-servers: localhost:9092
 app:
+  setlog-upload:
+    # Local RustFS may run without Bucket Versioning.
+    require-version-id: false
+  s3:
+    # Spring imports local .env values, while the AWS SDK default credential
+    # chain only reads process-level environment variables. Bridge the local
+    # RustFS credentials explicitly without changing the production contract.
+    access-key: ${AWS_S3_ACCESS_KEY:${AWS_ACCESS_KEY_ID:}}
+    secret-key: ${AWS_S3_SECRET_KEY:${AWS_SECRET_ACCESS_KEY:}}
   email-verification:
     worker-enabled: ${EMAIL_VERIFICATION_WORKER_ENABLED:false}
 
