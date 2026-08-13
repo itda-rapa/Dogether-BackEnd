@@ -30,7 +30,7 @@ public class BoardService {
 
     @Transactional(readOnly = true)
     public List<BoardResponse> getBoards() {
-        return boardRepository.findAllByOrderByIdAsc().stream()
+        return boardRepository.findAllByDeletedAtIsNullOrderByIdAsc().stream()
                 .map(BoardResponse::from)
                 .toList();
     }

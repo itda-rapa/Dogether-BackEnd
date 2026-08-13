@@ -5,6 +5,8 @@ import itda.board.repository.BoardRepository;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.boardpost.domain.PostStatus;
+import java.time.Instant;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,10 +30,9 @@ public class BoardDeletionService {
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.BOARD_NOT_FOUND)
                 );
-        if (posts.existsByBoardId(boardId)) {
+        if (posts.existsByBoardIdAndStatus(boardId, PostStatus.PUBLISHED)) {
             throw new BusinessException(ErrorCode.BOARD_NOT_EMPTY);
         }
-        boards.delete(board);
-        boards.flush();
+        board.delete(Instant.now());
     }
 }

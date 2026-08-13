@@ -3,6 +3,7 @@ package itda.board;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -105,6 +106,33 @@ class BoardApiIntegrationTest {
                 .andExpect(jsonPath("$.data[0].version").value(0))
                 .andExpect(jsonPath("$.data[1].boardId").value(second.getId()))
                 .andExpect(jsonPath("$.data[1].version").value(0));
+    }
+
+    @Test
+    void hidesSoftDeletedBoardAndRejectsItsPatchAndRepeatedDelete() throws Exception {
+        Board deleted = saved("삭제 대상");
+        Board active = saved("활성 대상");
+
+        deleteBoard(deleted.getId())
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/boards").with(user(principal(Role.USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].boardId").value(active.getId()));
+        patch(deleted.getId(), "{\"name\":\"변경\",\"version\":0}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+        deleteBoard(deleted.getId())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from boards where id = ?", Integer.class, deleted.getId()
+        )).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select deleted_at from boards where id = ?", Instant.class, deleted.getId()
+        )).isNotNull();
     }
 
     @Test
@@ -264,6 +292,11 @@ class BoardApiIntegrationTest {
             request.contentType(MediaType.APPLICATION_JSON).content(body);
         }
         return mockMvc.perform(request);
+    }
+
+    private ResultActions deleteBoard(Long boardId) throws Exception {
+        return mockMvc.perform(delete("/admin/boards/{boardId}", boardId)
+                .with(user(principal(Role.ADMIN))));
     }
 
     private Board saved(String name) {

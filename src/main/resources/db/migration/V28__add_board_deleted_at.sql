@@ -1,0 +1,2 @@
+ALTER TABLE boards
+    ADD COLUMN deleted_at TIMESTAMPTZ NULL;

@@ -317,7 +317,7 @@ class BoardPostApiIntegrationTest {
     }
 
     @Test
-    void boardDeletionRequiresAdminAndIsBlockedByPublishedOrDeletedPost() throws Exception {
+    void boardDeletionRequiresAdminAndIsBlockedOnlyByPublishedPost() throws Exception {
         long postId = createPost(authorId, "제목", "내용");
         mockMvc.perform(delete("/admin/boards/{boardId}", boardId).with(user(principal(authorId))))
                 .andExpect(status().isForbidden());
@@ -326,7 +326,15 @@ class BoardPostApiIntegrationTest {
         mockMvc.perform(delete("/posts/{postId}", postId).with(user(principal(authorId))))
                 .andExpect(status().isNoContent());
         mockMvc.perform(delete("/admin/boards/{boardId}", boardId).with(user(admin())))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("BOARD_NOT_EMPTY"));
+                .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("select count(*) from boards where id = ?", Integer.class, boardId))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("select deleted_at from boards where id = ?", Instant.class, boardId))
+                .isNotNull();
+        assertThat(jdbc.queryForObject("select status from board_posts where id = ?", String.class, postId))
+                .isEqualTo("DELETED");
+        assertThat(jdbc.queryForObject("select deleted_at from board_posts where id = ?", Instant.class, postId))
+                .isNotNull();
     }
 
     @Test
@@ -336,8 +344,25 @@ class BoardPostApiIntegrationTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(delete("/admin/boards/{boardId}", emptyBoardId).with(user(admin())))
                 .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("select count(*) from boards where id = ?", Integer.class, emptyBoardId))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("select deleted_at from boards where id = ?", Instant.class, emptyBoardId))
+                .isNotNull();
         mockMvc.perform(delete("/admin/boards/{boardId}", emptyBoardId).with(user(admin())))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+    }
+
+    @Test
+    void rejectsPostCreateAndFeedOnSoftDeletedBoard() throws Exception {
+        mockMvc.perform(delete("/admin/boards/{boardId}", boardId).with(user(admin())))
+                .andExpect(status().isNoContent());
+
+        create(authorId, boardId, "{\"title\":\"제목\",\"content\":\"내용\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
+        mockMvc.perform(get("/boards/{boardId}/posts", boardId).with(user(principal(authorId))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("BOARD_NOT_FOUND"));
     }
 
     private ResultActions create(long userId, long targetBoardId, String body) throws Exception {
