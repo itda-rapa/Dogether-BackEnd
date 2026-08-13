@@ -233,8 +233,7 @@ public class SetlogReadService {
         PresignedDownloadUrl mediaUrl = mediaUrls.get(
                 setlog.getMedia().getId()
         );
-        boolean canInteract = setlog.isSeed()
-                && activePet != null
+        boolean canInteract = activePet != null
                 && !activePet.ownerUserId().equals(authorPet.ownerUserId());
         FriendRelationship relationship = activePet == null
                 ? null

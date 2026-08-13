@@ -181,13 +181,41 @@ class SetlogReadServiceTest {
         assertThat(result.items()).hasSize(1);
         assertThat(result.items().getFirst().source())
                 .isEqualTo(SetlogSource.USER);
-        assertThat(result.items().getFirst().canInteract()).isFalse();
+        assertThat(result.items().getFirst().canInteract()).isTrue();
         assertThat(result.items().getFirst().authorPet().relationship())
                 .isEqualTo(FriendRelationship.FRIEND);
         then(friendRelationshipQueryService).should()
                 .getRelationships(9L, List.of(130L));
         then(setlogReactionRepository).should()
                 .findAllBySetlog_IdInAndReactorPet_Id(List.of(30L), 9L);
+    }
+
+    @Test
+    void ownUserSetlogCannotBeInteractedWith() {
+        activeUser(true);
+        given(activePetQueryService.requireActivePet(USER_ID))
+                .willReturn(new ActivePetContext(
+                        9L, USER_ID, "내개#ABCD", "내개", null, true
+                ));
+        Setlog setlog = setlog(30L, 130L, 230L, "2026-08-11T03:00:00Z");
+        given(setlogRepository.findVisibleFeedFirstPage(
+                any(), any(), anyList(), any(), any(), any()
+        )).willReturn(List.of(setlog));
+        given(petDisplayQueryService.getPetDisplaySummaries(List.of(130L)))
+                .willReturn(Map.of(130L, petSummary(130L, USER_ID)));
+        given(friendRelationshipQueryService.getRelationships(9L, List.of(130L)))
+                .willReturn(Map.of());
+        given(setlogReactionRepository
+                .findAllBySetlog_IdInAndReactorPet_Id(List.of(30L), 9L))
+                .willReturn(List.of());
+        given(mediaService.getPresignedDownloadUrls(anyList()))
+                .willReturn(Map.of(230L, url("own")));
+
+        SetlogListResponse result = service.getSetlogs(USER_ID, null, 1);
+
+        assertThat(result.items().getFirst().source())
+                .isEqualTo(SetlogSource.USER);
+        assertThat(result.items().getFirst().canInteract()).isFalse();
     }
 
     @Test
