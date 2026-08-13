@@ -121,7 +121,7 @@ class BoardPostReactionServiceTest {
         BoardPost first = post(101L, 2L, 20L, "4113111500");
         BoardPost second = post(102L, 3L, 30L, "4113111500");
         given(users.findById(1L)).willReturn(Optional.of(viewer));
-        given(boards.existsById(10L)).willReturn(true);
+        given(boards.existsByIdAndDeletedAtIsNull(10L)).willReturn(true);
         given(posts.findVisibleFeed(10L, "4113111500", 1L, null, null, 21)).willReturn(List.of(first, second));
         given(petDisplays.getPetDisplaySummaries(List.of(20L, 30L))).willReturn(Map.of(
                 20L, summary(20L), 30L, summary(30L)

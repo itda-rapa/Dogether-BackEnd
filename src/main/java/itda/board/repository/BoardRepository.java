@@ -11,13 +11,17 @@ import org.springframework.data.repository.query.Param;
 
 public interface BoardRepository extends JpaRepository<Board, Long> {
 
-    List<Board> findAllByOrderByIdAsc();
+    List<Board> findAllByDeletedAtIsNullOrderByIdAsc();
+
+    Optional<Board> findByIdAndDeletedAtIsNull(Long boardId);
+
+    boolean existsByIdAndDeletedAtIsNull(Long boardId);
 
     @Lock(LockModeType.PESSIMISTIC_READ)
-    @Query("select b from Board b where b.id = :boardId")
+    @Query("select b from Board b where b.id = :boardId and b.deletedAt is null")
     Optional<Board> findByIdForShare(@Param("boardId") Long boardId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select b from Board b where b.id = :boardId")
+    @Query("select b from Board b where b.id = :boardId and b.deletedAt is null")
     Optional<Board> findByIdForUpdate(@Param("boardId") Long boardId);
 }

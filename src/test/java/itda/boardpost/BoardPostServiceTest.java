@@ -61,7 +61,7 @@ class BoardPostServiceTest {
         User viewer = User.register("viewer@test.com", "encoded", "viewer", "viewer#A1B2C3D4", "4113111500");
         ReflectionTestUtils.setField(viewer, "id", 1L);
         given(users.findById(1L)).willReturn(Optional.of(viewer));
-        given(boards.existsById(10L)).willReturn(true);
+        given(boards.existsByIdAndDeletedAtIsNull(10L)).willReturn(true);
         BoardPost first = post(101L, 20L, 200L);
         BoardPost second = post(102L, 20L, 200L);
         BoardPost third = post(103L, 21L, 201L);
@@ -108,6 +108,43 @@ class BoardPostServiceTest {
     }
 
     @Test
+    void createRejectsSoftDeletedBoardThroughActiveShareLookup() {
+        BoardPostService service = service();
+        given(actorGuard.require(1L)).willReturn(
+                new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500")
+        );
+        given(boards.findByIdForShare(10L)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.create(
+                1L,
+                10L,
+                new BoardPostCreateRequest("title", "content")
+        )).isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(itda.common.constants.ErrorCode.BOARD_NOT_FOUND);
+
+        then(posts).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void feedRejectsSoftDeletedBoardThroughActiveExistenceLookup() {
+        BoardPostService service = service();
+        User viewer = User.register(
+                "viewer@test.com", "encoded", "viewer", "viewer#A1B2C3D4", "4113111500"
+        );
+        ReflectionTestUtils.setField(viewer, "id", 1L);
+        given(users.findById(1L)).willReturn(Optional.of(viewer));
+        given(boards.existsByIdAndDeletedAtIsNull(10L)).willReturn(false);
+
+        assertThatThrownBy(() -> service.feed(1L, 10L, null, null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(itda.common.constants.ErrorCode.BOARD_NOT_FOUND);
+
+        then(posts).shouldHaveNoInteractions();
+    }
+
+    @Test
     void createAcceptsCompletedImageAndReturnsItsLinkImage() {
         BoardPostService service = service();
         itda.media.domain.Media completed = media(10L, 1L);
@@ -138,7 +175,7 @@ class BoardPostServiceTest {
         BoardPost first = post(101L, 20L, 200L);
         BoardPost second = post(102L, 21L, 201L);
         given(users.findById(1L)).willReturn(Optional.of(viewer));
-        given(boards.existsById(10L)).willReturn(true);
+        given(boards.existsByIdAndDeletedAtIsNull(10L)).willReturn(true);
         given(posts.findVisibleFeed(10L, "4113111500", 1L, null, null, 21)).willReturn(List.of(first, second));
         given(petDisplays.getPetDisplaySummaries(org.mockito.ArgumentMatchers.anyCollection()))
                 .willReturn(Map.of(200L, summary(200L), 201L, summary(201L)));

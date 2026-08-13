@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface BoardPostRepository extends JpaRepository<BoardPost, Long> {
     boolean existsByBoardId(Long boardId);
+    boolean existsByBoardIdAndStatus(Long boardId, PostStatus status);
     Optional<BoardPost> findByIdAndStatus(Long id, PostStatus status);
 
     @Query(value = """

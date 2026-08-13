@@ -30,7 +30,7 @@ public class BoardWriteTransactionService {
             long requestedVersion,
             String normalizedName
     ) {
-        Board board = boardRepository.findById(boardId)
+        Board board = boardRepository.findByIdAndDeletedAtIsNull(boardId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BOARD_NOT_FOUND));
         if (board.getVersion() != requestedVersion) {
             throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
