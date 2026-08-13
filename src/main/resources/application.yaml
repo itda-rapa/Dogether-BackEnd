@@ -45,6 +45,11 @@ app:
     refresh-ttl: ${JWT_REFRESH_TTL:7d}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  websocket:
+    enabled: ${WEBSOCKET_ENABLED:false}
+    heartbeat-send: 10s
+    heartbeat-receive: 10s
+    message-size-limit: 32KB
   s3:
     # Credentials use the AWS SDK default chain, including AWS_ACCESS_KEY_ID /
     # AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) and IAM workload roles.
