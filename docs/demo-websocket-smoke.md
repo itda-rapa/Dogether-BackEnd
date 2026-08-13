@@ -24,11 +24,16 @@ WEBSOCKET_ENABLED=true
 CORS_ALLOWED_ORIGINS=<demo frontend origin>
 ```
 
-`FLYWAY_ENABLED=true`는 V23~V27 migration이 아직 적용되지 않은 빈 DB 또는
-시연 전용 DB를 처음 구성할 때만 일시적으로 사용한다. 기동 로그와 DB의 Flyway
-적용 상태로 migration 적용을 확인한 뒤 `FLYWAY_ENABLED=false`로 되돌릴 수 있다.
-이미 사용 중인 DB에 이 값을 임의로 켜거나, migration 적용을 확인하지 않은 채
-시연을 시작하지 않는다.
+빈 DB에서는 V23~V27만 따로 적용하지 않는다. Flyway가 V1부터 현재 최신
+migration까지 순서대로 적용하며, V23~V27은 이번 시연에 관련된 최신 추가
+migration 범위일 뿐이다. `local` 프로필은 migration과 seed를 적용할 수 있고,
+`prod` 프로필은 migration만 적용한다.
+
+`FLYWAY_ENABLED=true`는 빈 DB 초기화 또는 팀에서 승인한 migration 적용 상황에서만
+사용한다. 기존 시연 DB나 이미 사용 중인 DB에서는 임의로 켜지 않는다. 기존 DB의
+schema history와 현재 적용 migration을 확인하고, 팀에서 승인한 DB 업그레이드
+절차에 따라 진행한다. 적용 확인 뒤에는 `FLYWAY_ENABLED=false`로 되돌릴 수 있다.
+이 문서에는 실제 DB 접속 정보나 migration 실행 명령을 기록하지 않는다.
 
 시연이 끝나면 `WEBSOCKET_ENABLED=false`로 되돌린다. `.env`는 Git에 포함하지
 않으며 실제 secret은 출력·화면 공유·commit하지 않는다.
@@ -40,8 +45,10 @@ CORS_ALLOWED_ORIGINS=<demo frontend origin>
 1. PostgreSQL과 Redis가 실행 중이고, 애플리케이션이 해당 주소로 연결되는지 확인한다.
 2. IntelliJ 실행 구성의 환경변수에 `WEBSOCKET_ENABLED=true`와
    `CORS_ALLOWED_ORIGINS=<demo frontend origin>`을 넣는다.
-3. 빈 시연 DB에 migration이 필요한 경우에만 `FLYWAY_ENABLED=true`로 한 번 기동해
-   V23~V27 적용을 확인한다. 확인 후에는 `FLYWAY_ENABLED=false`로 되돌린다.
+3. 빈 시연 DB 초기화 또는 승인된 DB 업그레이드가 필요한 경우에만
+   `FLYWAY_ENABLED=true`로 기동한다. V1부터 현재 최신 migration까지의 적용을
+   확인한 뒤 `FLYWAY_ENABLED=false`로 되돌린다. 기존 시연 DB에는 임의로 켜지
+   않는다.
 4. IntelliJ에서 애플리케이션을 실행하고 health endpoint가 정상인지 확인한다.
 
 기본 설정 파일의 `WEBSOCKET_ENABLED` 기본값 false는 유지한다. 시연용 값은
@@ -59,14 +66,33 @@ CORS_ALLOWED_ORIGINS=<demo frontend origin>
 3. `deployment/server/docker-compose.yml`의 `app` 컨테이너는 한 개만 실행한다.
    PostgreSQL과 Redis는 compose 외부의 준비된 서비스일 수 있으므로 연결 상태를
    먼저 확인한다.
-4. 빈 시연 DB에 V23~V27 적용이 필요한 경우에만 `FLYWAY_ENABLED=true`로 기동하고,
-   적용 확인 뒤 `FLYWAY_ENABLED=false`로 되돌린다.
+4. 빈 시연 DB 초기화 또는 승인된 DB 업그레이드가 필요한 경우에만
+   `FLYWAY_ENABLED=true`로 기동하고, V1부터 현재 최신 migration까지 적용됐는지
+   확인한 뒤 `FLYWAY_ENABLED=false`로 되돌린다. 기존 시연 DB에는 임의로 켜지
+   않는다.
 5. 컨테이너 health endpoint와 애플리케이션 로그에서 기동·WebSocket 활성화를
    확인한 뒤 브라우저 smoke를 진행한다.
 
 실제 시연 방식이 A인지 B인지 확정되지 않았다면 컨테이너를 새로 올리거나 배포를
 변경하지 말고, 해당 방식에 맞는 외부 PostgreSQL·Redis와 프론트엔드 Origin을
 확인한 뒤 진행한다.
+
+## HTTPS/WSS 프록시·LB 점검
+
+HTTPS 프론트 시연에서 `wss://<backend-host>/ws`를 사용하는 것만으로는 충분하지
+않다. TLS 종료 지점이 프록시 또는 LB라면 시연 전에 다음을 확인한다.
+
+- TLS 종료 지점에서 `/ws` WebSocket Upgrade 요청이 backend까지 전달된다.
+- `Upgrade`와 `Connection` header가 backend까지 전달된다.
+- 프록시/LB idle timeout이 WebSocket heartbeat(10초 송신/10초 수신)보다 충분히
+  길다.
+- TLS 종료 후 backend 연결 경로가 실제 `/ws`로 전달된다.
+- `/actuator/health` 성공만으로 WebSocket Upgrade 성공을 보장하지 않으므로,
+  실제 STOMP `CONNECT`까지 별도로 확인한다.
+
+`deployment/server/docker-compose.yml`은 app의 8080 포트만 노출한다. 프록시/LB
+구성 자체는 이 저장소와 이 PR의 범위 밖이며, 이 문서에서 프록시/LB 설정을
+수정하거나 예시 설정 파일을 추가하지 않는다.
 
 ## 두 사용자 브라우저 Smoke 시나리오
 
@@ -124,6 +150,21 @@ CORS_ALLOWED_ORIGINS=<demo frontend origin>
 클라이언트 또는 프론트 담당자의 실제 클라이언트로 위 endpoint, 인증 header, 두
 구독, SEND를 수동 검증한 뒤 시연한다. 테스트 클라이언트 구현·commit은 이 PR
 범위 밖이다.
+
+## 시연 준비 완료 판정
+
+다음 조건을 모두 실제로 확인했을 때만 시연 준비 완료로 판정한다.
+
+- 정확히 한 application instance, 즉 **단일 인스턴스**에서 실행한다.
+- 서로 다른 실제 계정 A/B로 `A→B`와 `B→A` 메시지가 즉시 수신된다.
+- `WEBSOCKET_ENABLED=false`로 되돌린 뒤 같은 DIRECT 채팅이 **REST polling**
+  fallback으로 동작한다.
+- 실제 프론트가 STOMP를 구현하지 않았다면, 프론트 담당자의 실제 클라이언트
+  또는 프로젝트 밖의 임시 STOMP 클라이언트로 같은 절차를 검증한다.
+- 토큰·secret·실제 Origin·DB 정보 없이, 검증 환경의 형태·실행 시각·성공/실패·
+  fallback 결과만 **Issue #94** 댓글에 기록한다.
+
+Issue #94 댓글 작성은 이 PR/브랜치에서 직접 수행하지 않는다.
 
 ## 실패 시 대응
 
