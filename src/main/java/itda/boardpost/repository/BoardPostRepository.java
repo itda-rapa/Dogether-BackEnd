@@ -2,10 +2,12 @@ package itda.boardpost.repository;
 
 import itda.boardpost.domain.BoardPost;
 import itda.boardpost.domain.PostStatus;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +15,22 @@ public interface BoardPostRepository extends JpaRepository<BoardPost, Long> {
     boolean existsByBoardId(Long boardId);
     boolean existsByBoardIdAndStatus(Long boardId, PostStatus status);
     Optional<BoardPost> findByIdAndStatus(Long id, PostStatus status);
+
+    /**
+     * Acquires the parent post share lock only while it is still published.
+     * This keeps Comment creation from observing a post that a concurrent soft-delete
+     * has already made unavailable.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("""
+            select post
+            from BoardPost post
+            where post.id = :postId
+              and post.status = itda.boardpost.domain.PostStatus.PUBLISHED
+            """)
+    Optional<BoardPost> findPublishedByIdForShare(
+            @Param("postId") Long postId
+    );
 
     @Query(value = """
             SELECT post.* FROM board_posts post
