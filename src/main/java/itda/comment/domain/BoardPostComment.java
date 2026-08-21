@@ -33,6 +33,15 @@ public class BoardPostComment extends BaseEntity {
     @Column(name = "author_pet_id", nullable = false)
     private Long authorPetId;
 
+    @Column(name = "parent_comment_id")
+    private Long parentCommentId;
+
+    @Column(name = "root_comment_id")
+    private Long rootCommentId;
+
+    @Column(nullable = false)
+    private short depth;
+
     @Column(nullable = false, columnDefinition = "text")
     private String content;
 
@@ -47,12 +56,18 @@ public class BoardPostComment extends BaseEntity {
             Long postId,
             Long authorUserId,
             Long authorPetId,
-            String content
+            String content,
+            Long parentCommentId,
+            Long rootCommentId,
+            short depth
     ) {
         this.postId = postId;
         this.authorUserId = authorUserId;
         this.authorPetId = authorPetId;
         this.content = content;
+        this.parentCommentId = parentCommentId;
+        this.rootCommentId = rootCommentId;
+        this.depth = depth;
     }
 
     public static BoardPostComment create(
@@ -61,7 +76,27 @@ public class BoardPostComment extends BaseEntity {
             Long authorPetId,
             String content
     ) {
-        return new BoardPostComment(postId, authorUserId, authorPetId, content);
+        return new BoardPostComment(postId, authorUserId, authorPetId, content, null, null, (short) 0);
+    }
+
+    public static BoardPostComment reply(
+            Long postId,
+            Long authorUserId,
+            Long authorPetId,
+            String content,
+            Long parentCommentId,
+            Long rootCommentId,
+            short depth
+    ) {
+        return new BoardPostComment(
+                postId,
+                authorUserId,
+                authorPetId,
+                content,
+                parentCommentId,
+                rootCommentId,
+                depth
+        );
     }
 
     public boolean changeContent(String content) {

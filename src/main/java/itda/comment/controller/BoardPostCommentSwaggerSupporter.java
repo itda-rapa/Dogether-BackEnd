@@ -37,7 +37,7 @@ public interface BoardPostCommentSwaggerSupporter {
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
-                            {"success":true,"message":"댓글이 등록되었습니다.","data":{"commentId":1,"postId":10,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"같이 산책해요!","version":0,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:00:00Z"},"error":null}
+                            {"success":true,"message":"댓글이 등록되었습니다.","data":{"commentId":1,"postId":10,"parentCommentId":null,"depth":0,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"같이 산책해요!","version":0,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:00:00Z"},"error":null}
                             """)
             )
     )
@@ -47,7 +47,37 @@ public interface BoardPostCommentSwaggerSupporter {
             JsonNode body
     );
 
-    @Operation(summary = "게시글 댓글 목록", description = "공개 범위와 양방향 차단 관계를 적용해 오래된 댓글부터 cursor 방식으로 조회합니다.")
+    @Operation(summary = "게시글 대댓글 작성", description = "상위 댓글 아래에 최대 3-depth까지 대댓글을 작성합니다. 허용 필드는 content뿐입니다.")
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            required = true,
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = CommentCreateRequest.class),
+                    examples = @ExampleObject("{\"content\":\"저도 같은 경험이 있었어요.\"}")
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "201",
+            description = "대댓글 작성 성공",
+            useReturnTypeSchema = true,
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {"success":true,"message":"대댓글이 등록되었습니다.","data":{"commentId":2,"postId":10,"parentCommentId":1,"depth":1,"authorPet":{"petId":3,"publicTag":"dog-3","nickname":"보리","profileUrl":null,"verified":false},"content":"저도 같은 경험이 있었어요.","version":0,"createdAt":"2026-08-10T00:01:00Z","updatedAt":"2026-08-10T00:01:00Z"},"error":null}
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "409",
+            description = "상위 댓글이 depth 3인 경우 (COMMENT_DEPTH_EXCEEDED)"
+    )
+    ResponseEntity<ApiResponse<CommentResponse>> createReply(
+            @Parameter(hidden = true) CurrentUser user,
+            @Parameter(description = "상위 댓글 ID") Long parentCommentId,
+            JsonNode body
+    );
+
+    @Operation(summary = "게시글 댓글 목록", description = "공개 범위와 양방향 차단 관계를 적용해 Root thread를 오래된 순으로 cursor 조회합니다. size는 Root thread 수이며 각 thread는 중첩 replies로 반환됩니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "댓글 목록 조회 성공",
@@ -55,7 +85,7 @@ public interface BoardPostCommentSwaggerSupporter {
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
-                            {"success":true,"message":"댓글 목록이 조회되었습니다.","data":{"items":[{"commentId":1,"postId":10,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"같이 산책해요!","version":0,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:00:00Z"}],"page":{"nextCursor":"MjAyNi0wOC0xMFQwMDowMDowMFp8MQ","hasNext":true}},"error":null}
+                            {"success":true,"message":"댓글 목록이 조회되었습니다.","data":{"items":[{"commentId":1,"postId":10,"parentCommentId":null,"depth":0,"deleted":false,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"같이 산책해요!","version":0,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:00:00Z","replies":[{"commentId":2,"postId":10,"parentCommentId":1,"depth":1,"deleted":false,"authorPet":{"petId":3,"publicTag":"dog-3","nickname":"보리","profileUrl":null,"verified":false},"content":"동의해요!","version":0,"createdAt":"2026-08-10T00:01:00Z","updatedAt":"2026-08-10T00:01:00Z","replies":[]}]}],"page":{"nextCursor":"MjAyNi0wOC0xMFQwMDowMDowMFp8MQ","hasNext":true}},"error":null}
                             """)
             )
     )
@@ -82,7 +112,7 @@ public interface BoardPostCommentSwaggerSupporter {
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
-                            {"success":true,"message":"댓글이 수정되었습니다.","data":{"commentId":1,"postId":10,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"수정한 댓글입니다.","version":1,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:01:00Z"},"error":null}
+                            {"success":true,"message":"댓글이 수정되었습니다.","data":{"commentId":1,"postId":10,"parentCommentId":null,"depth":0,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"수정한 댓글입니다.","version":1,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:01:00Z"},"error":null}
                             """)
             )
     )
@@ -92,7 +122,7 @@ public interface BoardPostCommentSwaggerSupporter {
             JsonNode body
     );
 
-    @Operation(summary = "댓글 삭제", description = "현재 활성 반려견이 작성한 댓글을 soft delete 합니다. 삭제된 게시글의 댓글도 삭제할 수 있습니다.")
+    @Operation(summary = "댓글 삭제", description = "현재 활성 반려견이 작성한 Root 댓글 또는 대댓글을 soft delete 합니다. 삭제된 게시글의 댓글도 삭제할 수 있습니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "댓글 삭제 성공")
     ResponseEntity<Void> delete(
             @Parameter(hidden = true) CurrentUser user,

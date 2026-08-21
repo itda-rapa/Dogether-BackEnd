@@ -1,6 +1,8 @@
 package itda.block.service;
 
 import itda.block.repository.UserBlockRepository;
+import java.util.Collection;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,5 +40,16 @@ public class BlockRelationshipQueryService {
             return false;
         }
         return userBlockRepository.existsByBlockerUserIdAndBlockedUserId(blockerUserId, blockedUserId);
+    }
+
+    @Transactional(readOnly = true)
+    public Set<Long> findBlockedUserIdsBetween(
+            Long viewerUserId,
+            Collection<Long> authorUserIds
+    ) {
+        if (viewerUserId == null || authorUserIds == null || authorUserIds.isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(userBlockRepository.findRelatedUserIds(viewerUserId, authorUserIds));
     }
 }
