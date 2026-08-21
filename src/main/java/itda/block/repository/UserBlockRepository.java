@@ -73,4 +73,18 @@ public interface UserBlockRepository extends JpaRepository<UserBlock, Long> {
      */
     @Query("SELECT ub.blockedUserId FROM UserBlock ub WHERE ub.blockerUserId = :blockerUserId")
     List<Long> findBlockedUserIdsByBlockerUserId(@Param("blockerUserId") Long blockerUserId);
+
+    @Query("""
+            SELECT DISTINCT CASE
+                WHEN ub.blockerUserId = :viewerUserId THEN ub.blockedUserId
+                ELSE ub.blockerUserId
+            END
+            FROM UserBlock ub
+            WHERE (ub.blockerUserId = :viewerUserId AND ub.blockedUserId IN :authorUserIds)
+               OR (ub.blockedUserId = :viewerUserId AND ub.blockerUserId IN :authorUserIds)
+            """)
+    List<Long> findRelatedUserIds(
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("authorUserIds") java.util.Collection<Long> authorUserIds
+    );
 }

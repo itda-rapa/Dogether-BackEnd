@@ -10,6 +10,7 @@ import itda.comment.dto.CommentCreateRequest;
 import itda.comment.dto.CommentCursorPage;
 import itda.comment.dto.CommentListResponse;
 import itda.comment.dto.CommentResponse;
+import itda.comment.dto.CommentTreeResponse;
 import itda.comment.dto.CommentUpdateRequest;
 import itda.comment.repository.BoardPostCommentRepository;
 import itda.comment.support.CommentCursorCodec;
@@ -22,8 +23,11 @@ import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -84,6 +88,55 @@ public class BoardPostCommentService {
         );
     }
 
+    @Transactional
+    public CommentResponse createReply(
+            Long userId,
+            Long parentCommentId,
+            CommentCreateRequest request
+    ) {
+        validateContent(request.content());
+        LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
+
+        // This lookup supplies only the post ID needed for the lock order. The locked
+        // lookup below is the authoritative parent state check.
+        Long postId = comments.findById(parentCommentId)
+                .map(BoardPostComment::getPostId)
+                .orElseThrow(this::commentNotFound);
+        BoardPost post = posts.findPublishedByIdForShare(postId)
+                .orElseThrow(this::postNotFound);
+        requireParentVisible(actor.userId(), actor.neighborhoodCode(), post);
+
+        BoardPostComment parent = comments.findActiveByIdForShare(parentCommentId)
+                .orElseThrow(this::commentNotFound);
+        if (!post.getId().equals(parent.getPostId())) {
+            throw commentNotFound();
+        }
+
+        List<BoardPostComment> path = hierarchyPath(parent);
+        if (parent.getDepth() >= 3) {
+            throw new BusinessException(ErrorCode.COMMENT_DEPTH_EXCEEDED);
+        }
+        if (path.stream().anyMatch(comment ->
+                blocks.existsBlockBetween(actor.userId(), comment.getAuthorUserId()))) {
+            throw commentNotFound();
+        }
+
+        BoardPostComment root = path.getFirst();
+        BoardPostComment reply = comments.save(BoardPostComment.reply(
+                post.getId(),
+                actor.userId(),
+                actor.petId(),
+                request.content(),
+                parent.getId(),
+                root.getId(),
+                (short) (parent.getDepth() + 1)
+        ));
+        return CommentResponse.of(
+                reply,
+                petDisplays.getPetDisplaySummary(actor.petId())
+        );
+    }
+
     @Transactional(readOnly = true)
     public CommentListResponse list(
             Long userId,
@@ -105,34 +158,53 @@ public class BoardPostCommentService {
 
         int size = size(rawSize);
         CursorPayload payload = CommentCursorCodec.decode(cursor);
-        List<BoardPostComment> page = new ArrayList<>(comments.findVisibleByPostId(
+        List<BoardPostComment> roots = new ArrayList<>(comments.findVisibleByPostId(
                 post.getId(),
                 viewer.getId(),
                 payload == null ? null : payload.createdAt(),
                 payload == null ? null : payload.commentId(),
                 size + 1
         ));
-        boolean hasNext = page.size() > size;
+        boolean hasNext = roots.size() > size;
         if (hasNext) {
-            page = new ArrayList<>(page.subList(0, size));
+            roots = new ArrayList<>(roots.subList(0, size));
         }
 
-        Map<Long, PetDisplaySummary> authorPets = petDisplays.getPetDisplaySummaries(
-                page.stream()
-                        .map(BoardPostComment::getAuthorPetId)
-                        .distinct()
-                        .toList()
+        List<BoardPostComment> descendants = roots.isEmpty()
+                ? List.of()
+                : comments.findDescendantsByRootCommentIdIn(
+                        post.getId(),
+                        roots.stream().map(BoardPostComment::getId).toList()
+                );
+        List<BoardPostComment> allComments = new ArrayList<>(roots);
+        allComments.addAll(descendants);
+        Set<Long> blockedAuthorUserIds = blocks.findBlockedUserIdsBetween(
+                viewer.getId(),
+                allComments.stream()
+                        .map(BoardPostComment::getAuthorUserId)
+                        .collect(java.util.stream.Collectors.toSet())
         );
-        List<CommentResponse> items = page.stream()
-                .map(comment -> CommentResponse.of(
-                        comment,
-                        authorPets.get(comment.getAuthorPetId())
+        Map<Long, List<BoardPostComment>> childrenByParentId = childrenByParentId(descendants);
+        List<VisibleCommentNode> visibleRoots = roots.stream()
+                .map(root -> toVisibleTree(
+                        root,
+                        childrenByParentId,
+                        blockedAuthorUserIds
                 ))
+                .filter(java.util.Objects::nonNull)
                 .toList();
-        String nextCursor = hasNext && !page.isEmpty()
+        Set<Long> visibleActivePetIds = new java.util.LinkedHashSet<>();
+        visibleRoots.forEach(root -> collectVisibleActivePetIds(root, visibleActivePetIds));
+        Map<Long, PetDisplaySummary> authorPets = petDisplays.getPetDisplaySummaries(
+                visibleActivePetIds
+        );
+        List<CommentTreeResponse> items = visibleRoots.stream()
+                .map(root -> toTree(root, authorPets))
+                .toList();
+        String nextCursor = hasNext && !roots.isEmpty()
                 ? CommentCursorCodec.encode(
-                        page.getLast().getId(),
-                        page.getLast().getCreatedAt()
+                        roots.getLast().getId(),
+                        roots.getLast().getCreatedAt()
                 )
                 : null;
         return new CommentListResponse(
@@ -167,7 +239,8 @@ public class BoardPostCommentService {
     @Transactional
     public void delete(Long userId, Long commentId) {
         LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
-        BoardPostComment comment = active(commentId);
+        BoardPostComment comment = comments.findActiveByIdForUpdate(commentId)
+                .orElseThrow(this::commentNotFound);
         requireAuthor(actor, comment);
         comment.delete(Instant.now());
     }
@@ -175,6 +248,139 @@ public class BoardPostCommentService {
     private BoardPostComment active(Long commentId) {
         return comments.findByIdAndDeletedAtIsNull(commentId)
                 .orElseThrow(this::commentNotFound);
+    }
+
+    private List<BoardPostComment> hierarchyPath(BoardPostComment parent) {
+        List<BoardPostComment> reversed = new ArrayList<>();
+        BoardPostComment current = parent;
+        short expectedDepth = parent.getDepth();
+        Long expectedRootCommentId = parent.getDepth() == 0
+                ? parent.getId()
+                : parent.getRootCommentId();
+        while (true) {
+            if (expectedDepth < 0 || expectedDepth > 3 || current.getDepth() != expectedDepth) {
+                throw commentNotFound();
+            }
+            reversed.add(current);
+            if (expectedDepth == 0) {
+                if (current.getParentCommentId() != null
+                        || current.getRootCommentId() != null
+                        || !current.getId().equals(expectedRootCommentId)) {
+                    throw commentNotFound();
+                }
+                break;
+            }
+            if (current.getParentCommentId() == null
+                    || expectedRootCommentId == null
+                    || !expectedRootCommentId.equals(current.getRootCommentId())) {
+                throw commentNotFound();
+            }
+            BoardPostComment ancestor = comments.findById(current.getParentCommentId())
+                    .orElseThrow(this::commentNotFound);
+            if (!ancestor.getPostId().equals(parent.getPostId())) {
+                throw commentNotFound();
+            }
+            current = ancestor;
+            expectedDepth--;
+        }
+        if (!current.getId().equals(expectedRootCommentId)) {
+            throw commentNotFound();
+        }
+        java.util.Collections.reverse(reversed);
+        return reversed;
+    }
+
+    private Map<Long, List<BoardPostComment>> childrenByParentId(
+            List<BoardPostComment> descendants
+    ) {
+        Map<Long, List<BoardPostComment>> children = new HashMap<>();
+        for (BoardPostComment descendant : descendants) {
+            children.computeIfAbsent(descendant.getParentCommentId(), ignored -> new ArrayList<>())
+                    .add(descendant);
+        }
+        Comparator<BoardPostComment> byCreatedAtAndId = Comparator
+                .comparing(BoardPostComment::getCreatedAt)
+                .thenComparing(BoardPostComment::getId);
+        children.values().forEach(items -> items.sort(byCreatedAtAndId));
+        return children;
+    }
+
+    private VisibleCommentNode toVisibleTree(
+            BoardPostComment comment,
+            Map<Long, List<BoardPostComment>> childrenByParentId,
+            Set<Long> blockedAuthorUserIds
+    ) {
+        if (blockedAuthorUserIds.contains(comment.getAuthorUserId())) {
+            return null;
+        }
+        List<VisibleCommentNode> replies = childrenByParentId
+                .getOrDefault(comment.getId(), List.of())
+                .stream()
+                .map(child -> toVisibleTree(child, childrenByParentId, blockedAuthorUserIds))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (comment.getDeletedAt() != null) {
+            if (replies.isEmpty()) {
+                return null;
+            }
+        }
+        return new VisibleCommentNode(comment, replies);
+    }
+
+    private void collectVisibleActivePetIds(
+            VisibleCommentNode node,
+            Set<Long> authorPetIds
+    ) {
+        if (node.comment().getDeletedAt() == null) {
+            authorPetIds.add(node.comment().getAuthorPetId());
+        }
+        node.replies().forEach(reply -> collectVisibleActivePetIds(reply, authorPetIds));
+    }
+
+    private CommentTreeResponse toTree(
+            VisibleCommentNode node,
+            Map<Long, PetDisplaySummary> authorPets
+    ) {
+        BoardPostComment comment = node.comment();
+        List<CommentTreeResponse> replies = node.replies().stream()
+                .map(reply -> toTree(reply, authorPets))
+                .toList();
+        if (comment.getDeletedAt() != null) {
+            return new CommentTreeResponse(
+                    comment.getId(),
+                    comment.getPostId(),
+                    comment.getParentCommentId(),
+                    comment.getDepth(),
+                    true,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    replies
+            );
+        }
+        return new CommentTreeResponse(
+                comment.getId(),
+                comment.getPostId(),
+                comment.getParentCommentId(),
+                comment.getDepth(),
+                false,
+                itda.boardpost.dto.BoardPostAuthorPetResponse.from(
+                        authorPets.get(comment.getAuthorPetId())
+                ),
+                comment.getContent(),
+                comment.getVersion(),
+                comment.getCreatedAt(),
+                comment.getUpdatedAt(),
+                replies
+        );
+    }
+
+    private record VisibleCommentNode(
+            BoardPostComment comment,
+            List<VisibleCommentNode> replies
+    ) {
     }
 
     private BoardPost published(Long postId) {

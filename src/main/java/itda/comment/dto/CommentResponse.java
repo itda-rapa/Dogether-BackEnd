@@ -8,6 +8,8 @@ import java.time.Instant;
 public record CommentResponse(
         Long commentId,
         Long postId,
+        Long parentCommentId,
+        short depth,
         BoardPostAuthorPetResponse authorPet,
         String content,
         long version,
@@ -22,6 +24,8 @@ public record CommentResponse(
         return new CommentResponse(
                 comment.getId(),
                 comment.getPostId(),
+                comment.getParentCommentId(),
+                comment.getDepth(),
                 BoardPostAuthorPetResponse.from(authorPet),
                 comment.getContent(),
                 comment.getVersion(),

@@ -51,7 +51,7 @@ class PetVerificationMigrationPostgreSqlIntegrationTest {
     void migrationIsAppliedWithHibernateValidationAndContractualConstraints() {
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(Arrays.stream(flyway.info().all())).anyMatch(migration -> migration.getVersion() != null
-                && "26".equals(migration.getVersion().getVersion())
+                && "26.1".equals(migration.getVersion().getVersion())
                 && migration.getState() == MigrationState.SUCCESS);
         assertThat(jdbc.queryForList("""
                 select constraint_name from information_schema.table_constraints

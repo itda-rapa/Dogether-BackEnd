@@ -47,6 +47,24 @@ public class BoardPostCommentController implements BoardPostCommentSwaggerSuppor
         );
     }
 
+    @PostMapping("/comments/{parentCommentId}/replies")
+    public ResponseEntity<ApiResponse<CommentResponse>> createReply(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long parentCommentId,
+            @RequestBody(required = true) JsonNode body
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                ApiResponse.created(
+                        service.createReply(
+                                user.id(),
+                                parentCommentId,
+                                parser.parseCreate(body)
+                        ),
+                        "대댓글이 등록되었습니다."
+                )
+        );
+    }
+
     @GetMapping("/posts/{postId}/comments")
     public ResponseEntity<ApiResponse<CommentListResponse>> list(
             @AuthenticationPrincipal CurrentUser user,

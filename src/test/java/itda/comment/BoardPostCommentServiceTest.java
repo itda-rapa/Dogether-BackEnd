@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -28,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -104,9 +106,100 @@ class BoardPostCommentServiceTest {
         var result = service().list(1L, 10L, null, 2);
 
         assertThat(result.items()).extracting(item -> item.commentId()).containsExactly(31L, 32L);
+        assertThat(result.items()).allSatisfy(item -> {
+            assertThat(item.parentCommentId()).isNull();
+            assertThat(item.depth()).isZero();
+            assertThat(item.replies()).isEmpty();
+        });
         assertThat(result.page().hasNext()).isFalse();
         then(comments).should().findVisibleByPostId(10L, 1L, null, null, 3);
-        then(petDisplays).should().getPetDisplaySummaries(List.of(20L, 21L));
+        then(petDisplays).should().getPetDisplaySummaries(argThat(ids -> Set.copyOf(ids).equals(Set.of(20L, 21L))));
+        then(blocks).should().findBlockedUserIdsBetween(1L, Set.of(2L, 3L));
+    }
+
+    @Test
+    void createReplyUsesPathIdentityAndReturnsDirectParentAndDepthOnly() {
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment root = comment(30L, 10L, 2L, 20L, "root", 0L);
+        BoardPostComment created = BoardPostComment.reply(10L, 1L, 3L, "reply", 30L, 30L, (short) 1);
+        ReflectionTestUtils.setField(created, "id", 31L);
+        ReflectionTestUtils.setField(created, "createdAt", Instant.parse("2026-08-10T00:00:01Z"));
+        ReflectionTestUtils.setField(created, "updatedAt", Instant.parse("2026-08-10T00:00:01Z"));
+        given(actorGuard.require(1L)).willReturn(actor(1L, 3L, "4113111500"));
+        given(comments.findById(30L)).willReturn(Optional.of(root));
+        given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.of(post));
+        given(comments.findActiveByIdForShare(30L)).willReturn(Optional.of(root));
+        given(blocks.existsBlockBetween(1L, 20L)).willReturn(false);
+        given(blocks.existsBlockBetween(1L, 2L)).willReturn(false);
+        given(comments.save(any(BoardPostComment.class))).willReturn(created);
+        given(petDisplays.getPetDisplaySummary(3L)).willReturn(summary(3L));
+
+        var response = service().createReply(1L, 30L, new CommentCreateRequest("reply"));
+
+        ArgumentCaptor<BoardPostComment> saved = ArgumentCaptor.forClass(BoardPostComment.class);
+        then(comments).should().save(saved.capture());
+        assertThat(saved.getValue().getParentCommentId()).isEqualTo(30L);
+        assertThat(saved.getValue().getRootCommentId()).isEqualTo(30L);
+        assertThat(saved.getValue().getDepth()).isEqualTo((short) 1);
+        assertThat(response.parentCommentId()).isEqualTo(30L);
+        assertThat(response.depth()).isEqualTo((short) 1);
+    }
+
+    @Test
+    void createReplyHidesBlockedAncestorAndRejectsDepthFour() {
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment root = comment(30L, 10L, 2L, 20L, "root", 0L);
+        BoardPostComment child = reply(31L, 10L, 3L, 21L, "child", 30L, 30L, (short) 1);
+        BoardPostComment grandchild = reply(32L, 10L, 4L, 22L, "grandchild", 31L, 30L, (short) 2);
+        BoardPostComment depthThree = reply(33L, 10L, 5L, 23L, "depth-three", 32L, 30L, (short) 3);
+        given(actorGuard.require(1L)).willReturn(actor(1L, 3L, "4113111500"));
+        given(comments.findById(31L)).willReturn(Optional.of(child));
+        given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.of(post));
+        given(comments.findActiveByIdForShare(31L)).willReturn(Optional.of(child));
+        given(comments.findById(30L)).willReturn(Optional.of(root));
+        given(blocks.existsBlockBetween(1L, 20L)).willReturn(false);
+        given(blocks.existsBlockBetween(1L, 2L)).willReturn(true, false);
+
+        assertBusiness(() -> service().createReply(1L, 31L, new CommentCreateRequest("reply")), "BOARD_POST_COMMENT_NOT_FOUND");
+        then(comments).should(never()).save(any());
+
+        given(comments.findById(33L)).willReturn(Optional.of(depthThree));
+        given(comments.findActiveByIdForShare(33L)).willReturn(Optional.of(depthThree));
+        given(comments.findById(32L)).willReturn(Optional.of(grandchild));
+        given(comments.findById(31L)).willReturn(Optional.of(child));
+        assertBusiness(() -> service().createReply(1L, 33L, new CommentCreateRequest("too deep")), "COMMENT_DEPTH_EXCEEDED");
+    }
+
+    @Test
+    void listBuildsTombstoneTreePrunesBlockedSubtreeAndUsesOnlyBatchQueries() {
+        User viewer = activeUser(1L, "4113111500");
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment deletedRoot = comment(30L, 10L, 2L, 20L, "secret", 0L);
+        deletedRoot.delete(Instant.now());
+        BoardPostComment visibleReply = reply(31L, 10L, 3L, 21L, "visible", 30L, 30L, (short) 1);
+        BoardPostComment blockedReply = reply(32L, 10L, 4L, 22L, "blocked", 30L, 30L, (short) 1);
+        BoardPostComment hiddenDescendant = reply(33L, 10L, 5L, 23L, "must not promote", 32L, 30L, (short) 2);
+        given(users.findById(1L)).willReturn(Optional.of(viewer));
+        given(posts.findByIdAndStatus(10L, PostStatus.PUBLISHED)).willReturn(Optional.of(post));
+        given(comments.findVisibleByPostId(10L, 1L, null, null, 2)).willReturn(List.of(deletedRoot));
+        given(comments.findDescendantsByRootCommentIdIn(10L, List.of(30L)))
+                .willReturn(List.of(visibleReply, blockedReply, hiddenDescendant));
+        given(blocks.findBlockedUserIdsBetween(1L, Set.of(2L, 3L, 4L, 5L))).willReturn(Set.of(4L));
+        given(petDisplays.getPetDisplaySummaries(anyCollection()))
+                .willReturn(Map.of(21L, summary(21L)));
+
+        var result = service().list(1L, 10L, null, 1);
+
+        assertThat(result.items()).hasSize(1);
+        var tombstone = result.items().getFirst();
+        assertThat(tombstone.deleted()).isTrue();
+        assertThat(tombstone.content()).isNull();
+        assertThat(tombstone.authorPet()).isNull();
+        assertThat(tombstone.version()).isNull();
+        assertThat(tombstone.replies()).extracting(item -> item.commentId()).containsExactly(31L);
+        then(blocks).should().existsBlockBetween(1L, 20L);
+        then(comments).should().findDescendantsByRootCommentIdIn(10L, List.of(30L));
+        then(petDisplays).should().getPetDisplaySummaries(argThat(ids -> Set.copyOf(ids).equals(Set.of(21L))));
     }
 
     @Test
@@ -132,7 +225,7 @@ class BoardPostCommentServiceTest {
     void deleteDoesNotRequirePublishedParentButStillRequiresOriginalUserAndActivePet() {
         BoardPostComment owned = comment(30L, 10L, 1L, 2L, "content", 0L);
         given(actorGuard.require(1L)).willReturn(actor(1L, 2L, "4113111500"));
-        given(comments.findByIdAndDeletedAtIsNull(30L)).willReturn(Optional.of(owned));
+        given(comments.findActiveByIdForUpdate(30L)).willReturn(Optional.of(owned));
 
         service().delete(1L, 30L);
 
@@ -140,7 +233,7 @@ class BoardPostCommentServiceTest {
         then(posts).shouldHaveNoInteractions();
 
         BoardPostComment otherPet = comment(31L, 10L, 1L, 3L, "content", 0L);
-        given(comments.findByIdAndDeletedAtIsNull(31L)).willReturn(Optional.of(otherPet));
+        given(comments.findActiveByIdForUpdate(31L)).willReturn(Optional.of(otherPet));
         assertBusiness(() -> service().delete(1L, 31L), "BOARD_POST_COMMENT_FORBIDDEN");
         assertThat(otherPet.getDeletedAt()).isNull();
     }
@@ -171,6 +264,17 @@ class BoardPostCommentServiceTest {
         ReflectionTestUtils.setField(comment, "version", version);
         ReflectionTestUtils.setField(comment, "createdAt", Instant.parse("2026-08-10T00:00:00Z"));
         ReflectionTestUtils.setField(comment, "updatedAt", Instant.parse("2026-08-10T00:00:00Z"));
+        return comment;
+    }
+
+    private BoardPostComment reply(long id, long postId, long authorUserId, long authorPetId, String content,
+            long parentCommentId, long rootCommentId, short depth) {
+        BoardPostComment comment = BoardPostComment.reply(
+                postId, authorUserId, authorPetId, content, parentCommentId, rootCommentId, depth
+        );
+        ReflectionTestUtils.setField(comment, "id", id);
+        ReflectionTestUtils.setField(comment, "createdAt", Instant.parse("2026-08-10T00:00:00Z").plusSeconds(id));
+        ReflectionTestUtils.setField(comment, "updatedAt", Instant.parse("2026-08-10T00:00:00Z").plusSeconds(id));
         return comment;
     }
 
