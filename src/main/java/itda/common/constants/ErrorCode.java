@@ -35,6 +35,7 @@ public enum ErrorCode {
     EMAIL_DELIVERY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이메일 발송 요청을 처리할 수 없습니다."),
 
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어 자산을 찾을 수 없습니다."),
+    MEDIA_NOT_READY(HttpStatus.CONFLICT, "업로드가 완료된 미디어만 전송할 수 있습니다."),
     MEDIA_NOT_UPLOADED(HttpStatus.UNPROCESSABLE_CONTENT, "업로드된 객체를 확인할 수 없습니다."),
     MEDIA_EXPIRED(HttpStatus.GONE, "미디어 업로드 요청이 만료되었습니다."),
     MEDIA_NOT_OWNED(HttpStatus.FORBIDDEN, "해당 미디어 자산의 소유자가 아닙니다."),
@@ -96,6 +97,7 @@ public enum ErrorCode {
     NOT_PARTICIPANT_OF_CHAT_ROOM(HttpStatus.NOT_FOUND, "해당 채팅방의 참여자가 아닙니다."),
 
     SETLOG_NOT_FOUND(HttpStatus.NOT_FOUND, "셋로그를 찾을 수 없습니다."),
+    SETLOG_SHARE_FORBIDDEN(HttpStatus.FORBIDDEN, "공유할 수 없는 셋로그입니다."),
     SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "작성자만 셋로그를 삭제할 수 있습니다."),
     SEED_SETLOG_DELETE_FORBIDDEN(HttpStatus.FORBIDDEN, "시드 셋로그는 삭제할 수 없습니다."),
     SETLOG_ALREADY_DELETED(HttpStatus.CONFLICT, "이미 삭제된 셋로그입니다."),
@@ -114,6 +116,8 @@ public enum ErrorCode {
     CHAT_SENDER_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "채팅방 참여자만 메시지를 보낼 수 있습니다."),
     CHAT_CLIENT_MESSAGE_ID_REQUIRED(HttpStatus.BAD_REQUEST, "TEXT 메시지는 clientMessageId가 필요합니다."),
     CHAT_DUPLICATE_MESSAGE(HttpStatus.CONFLICT, "동일한 clientMessageId의 메시지가 이미 존재합니다."),
+    CHAT_MESSAGE_TYPE_INVALID(HttpStatus.BAD_REQUEST, "사용자가 전송할 수 없는 메시지 타입입니다."),
+    CHAT_MESSAGE_PAYLOAD_INVALID(HttpStatus.BAD_REQUEST, "메시지 타입에 맞지 않는 필드가 포함되었습니다."),
     CHAT_ROOM_FULL(HttpStatus.CONFLICT, "채팅방 정원이 가득 찼습니다."),
     OPEN_CHAT_AI_REQUIRES_THREE_PARTICIPANTS(HttpStatus.BAD_REQUEST, "AI 약속 카드는 참여자 3명 이상인 오픈채팅방에서 사용할 수 있습니다."),
     OPEN_CHAT_AI_REQUEST_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI 약속 카드 요청을 전달하지 못했습니다."),

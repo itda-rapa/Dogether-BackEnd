@@ -1860,15 +1860,30 @@ components:
           format: date-time
     ChatMessageCreateRequest:
       type: object
-      required: [clientMessageId, body]
+      required: [clientMessageId]
       properties:
         clientMessageId:
           type: string
           maxLength: 64
-        body:
+        type:
           type: string
-          minLength: 1
+          enum: [TEXT, IMAGE, VIDEO, SETLOG_SHARE]
+          description: >-
+            사용자 전송 타입. CARD/SYSTEM은 서버 전용이다. TEXT의 하위 호환으로 생략 가능하며,
+            생략 시 body만 허용하는 legacy TEXT 요청으로 정규화된다.
+            IMAGE/VIDEO/SETLOG_SHARE는 type이 필수다.
+        body:
+          type: [string, 'null']
           maxLength: 2000
+          description: TEXT에서만 필수. IMAGE/VIDEO/SETLOG_SHARE는 null.
+        mediaId:
+          type: [integer, 'null']
+          format: int64
+          description: IMAGE/VIDEO에서 필수.
+        setlogId:
+          type: [integer, 'null']
+          format: int64
+          description: SETLOG_SHARE에서 필수.
     ChatMessage:
       type: object
       required: [messageId, roomId, senderType, senderPetNickname, type, createdAt]
@@ -1890,15 +1905,88 @@ components:
           description: 발신 펫의 현재 이름. SYSTEM 메시지는 null
         type:
           type: string
-          enum: [TEXT, CARD, SYSTEM]
+          enum: [TEXT, CARD, IMAGE, VIDEO, SETLOG_SHARE, SYSTEM]
         body:
           type: [string, 'null']
+        attachment:
+          oneOf:
+            - $ref: '#/components/schemas/ChatMessageAttachment'
+            - type: 'null'
+        sharedSetlog:
+          oneOf:
+            - $ref: '#/components/schemas/SharedSetlog'
+            - type: 'null'
         meetingCardId:
           type: [integer, 'null']
           format: int64
         clientMessageId:
           type: [string, 'null']
         createdAt:
+          type: string
+          format: date-time
+
+    ChatMessageAttachment:
+      type: object
+      required: [mediaId, mediaType, url, expiresAt]
+      properties:
+        mediaId:
+          type: integer
+          format: int64
+        mediaType:
+          type: string
+          enum: [IMAGE, VIDEO]
+        contentType:
+          type: [string, 'null']
+        fileSize:
+          type: [integer, 'null']
+          format: int64
+        url:
+          type: string
+          description: 응답 시점에 발급한 Presigned URL. DB에 저장하지 않는다.
+        expiresAt:
+          type: string
+          format: date-time
+
+    SharedSetlog:
+      type: object
+      required: [setlogId, available]
+      properties:
+        setlogId:
+          type: integer
+          format: int64
+        available:
+          type: boolean
+        unavailableReason:
+          type: [string, 'null']
+          enum: [SETLOG_UNAVAILABLE, null]
+        authorPetId:
+          type: [integer, 'null']
+          format: int64
+        authorPetNickname:
+          type: [string, 'null']
+        caption:
+          type: [string, 'null']
+        media:
+          oneOf:
+            - $ref: '#/components/schemas/SharedSetlogMedia'
+            - type: 'null'
+        reactionCount:
+          type: [integer, 'null']
+        detailPath:
+          type: [string, 'null']
+
+    SharedSetlogMedia:
+      type: object
+      properties:
+        mediaId:
+          type: integer
+          format: int64
+        mediaType:
+          type: string
+          enum: [IMAGE, VIDEO]
+        url:
+          type: string
+        expiresAt:
           type: string
           format: date-time
 

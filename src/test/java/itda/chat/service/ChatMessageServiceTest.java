@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,12 +13,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import itda.chat.domain.ChatMessage;
+import itda.chat.domain.ChatMessageAttachment;
 import itda.chat.domain.ChatRoom;
 import itda.chat.domain.MessageType;
 import itda.chat.domain.RoomType;
 import itda.chat.domain.SenderType;
 import itda.chat.dto.ChatMessageCreateRequest;
 import itda.chat.dto.ChatMessageResult;
+import itda.chat.dto.response.ChatMessageResponse;
+import itda.chat.repository.ChatMessageAttachmentRepository;
 import itda.chat.repository.ChatMessageRepository;
 import itda.chat.repository.ChatMessageRepository.MessageUpsert;
 import itda.chat.repository.ChatRoomParticipantRepository;
@@ -27,8 +31,11 @@ import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.repository.GreetingRepository;
+import itda.media.domain.MediaType;
+import itda.media.service.MediaService;
 import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
+import itda.setlog.service.SetlogQueryService;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,15 +45,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
-/**
- * Mocks are always built before the {@code when(...)} call that returns them — creating a mock
- * inside a {@code thenReturn(...)} argument nests stubbing and trips UnfinishedStubbingException.
- */
 @ExtendWith(MockitoExtension.class)
 class ChatMessageServiceTest {
 
     @Mock
     private ChatMessageRepository chatMessageRepository;
+
+    @Mock
+    private ChatMessageAttachmentRepository attachmentRepository;
 
     @Mock
     private ChatRoomRepository chatRoomRepository;
@@ -61,6 +67,15 @@ class ChatMessageServiceTest {
     private PetRepository petRepository;
 
     @Mock
+    private MediaService mediaService;
+
+    @Mock
+    private SetlogQueryService setlogQueryService;
+
+    @Mock
+    private ChatMessageResponseAssembler responseAssembler;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     private ChatMessageService chatMessageService;
@@ -69,10 +84,14 @@ class ChatMessageServiceTest {
     void setUp() {
         chatMessageService = new ChatMessageService(
                 chatMessageRepository,
+                attachmentRepository,
                 chatRoomRepository,
                 participantRepository,
                 greetingRepository,
                 petRepository,
+                mediaService,
+                setlogQueryService,
+                responseAssembler,
                 eventPublisher
         );
     }
@@ -97,9 +116,6 @@ class ChatMessageServiceTest {
 
     @Test
     void systemNoticeRejectsBlankBody() {
-        // postSystem is an internal entry point and never sees bean validation, so the service
-        // must reject this itself rather than letting ck_chat_message_payload raise a raw
-        // persistence exception.
         assertThatThrownBy(() -> chatMessageService.postSystem(1L, "   ", null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
@@ -146,12 +162,14 @@ class ChatMessageServiceTest {
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
-                1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
+                1L, "PET", 10L, "TEXT", "hello", null, null, "idem-2"))
                 .thenReturn(upsert);
         when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
         Pet sender = mock(Pet.class);
         when(sender.getNickname()).thenReturn("Mong");
         when(petRepository.findById(10L)).thenReturn(Optional.of(sender));
+        when(responseAssembler.toResponse(any(ChatMessage.class), eq("Mong")))
+                .thenReturn(responseWithNickname("Mong"));
 
         ChatMessageResult result = chatMessageService.sendText(1L, 10L, request("idem-2", "hello"));
 
@@ -175,17 +193,13 @@ class ChatMessageServiceTest {
         assertThat(result.created()).isFalse();
         assertThat(result.message().getId()).isEqualTo(1L);
         verify(chatMessageRepository, never()).insertMessageOnConflictWithReturning(
-                anyLong(), anyString(), any(), anyString(), any(), any(), any());
+                anyLong(), anyString(), any(), anyString(), any(), any(), any(), any());
         verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(anyLong());
         verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
     void concurrentRetryLosesTheRaceAndLeavesRoomActivityAlone() {
-        // This caller passed the fast-path lookup before the winner committed, so it reaches the
-        // upsert and gets the winner's row back. It must behave like the sequential retry above:
-        // not created, and no activity bump. Reporting it as created would also answer 201 to a
-        // duplicate send.
         ChatRoom room = mock(ChatRoom.class);
         ChatMessage winner = textMsg(2L, 10L, "hello", "idem-2");
         MessageUpsert upsert = upsert(2L, false);
@@ -195,7 +209,7 @@ class ChatMessageServiceTest {
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
-                1L, "PET", 10L, "TEXT", "hello", null, "idem-2"))
+                1L, "PET", 10L, "TEXT", "hello", null, null, "idem-2"))
                 .thenReturn(upsert);
         when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(winner));
 
@@ -225,7 +239,6 @@ class ChatMessageServiceTest {
 
     @Test
     void reusingAnotherPetsKeyIsRejected() {
-        // Same room, same key, same body — but pet 20 did not author the stored message.
         ChatMessage original = textMsg(1L, 10L, "hello", "idem-1");
 
         when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-1"))
@@ -263,14 +276,7 @@ class ChatMessageServiceTest {
 
         verify(chatMessageRepository, never())
                 .insertMessageOnConflictWithReturning(
-                        anyLong(),
-                        anyString(),
-                        any(),
-                        anyString(),
-                        any(),
-                        any(),
-                        any()
-                );
+                        anyLong(), anyString(), any(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -299,6 +305,7 @@ class ChatMessageServiceTest {
                 "TEXT",
                 "반가워요",
                 null,
+                null,
                 "reply-1"
         )).thenReturn(upsert);
         when(chatMessageRepository.findById(3L))
@@ -326,7 +333,7 @@ class ChatMessageServiceTest {
 
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
-                1L, "SYSTEM", null, "SYSTEM", "System notice", null, null))
+                1L, "SYSTEM", null, "SYSTEM", "System notice", null, null, null))
                 .thenReturn(upsert);
         when(chatMessageRepository.findById(100L)).thenReturn(Optional.of(stored));
 
@@ -335,7 +342,6 @@ class ChatMessageServiceTest {
         assertThat(result.message().getType()).isEqualTo(MessageType.SYSTEM);
         assertThat(result.message().getSenderType()).isEqualTo(SenderType.SYSTEM);
         assertThat(result.message().getSenderPetId()).isNull();
-        // Without a key there is nothing to look up, and a system notice has no sending Pet to check.
         verify(chatMessageRepository, never()).findByRoomIdAndClientMessageId(any(), any());
         verify(participantRepository, never())
                 .existsByRoomIdAndPetIdAndLeftAtIsNull(anyLong(), anyLong());
@@ -352,7 +358,7 @@ class ChatMessageServiceTest {
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
-                1L, "PET", 10L, "CARD", null, 7L, "card-7"))
+                1L, "PET", 10L, "CARD", null, 7L, null, "card-7"))
                 .thenReturn(upsert);
         when(chatMessageRepository.findById(50L)).thenReturn(Optional.of(stored));
 
@@ -362,10 +368,177 @@ class ChatMessageServiceTest {
         assertThat(result.message().getMeetingCardId()).isEqualTo(7L);
     }
 
+    // ---------- typed message dispatch ----------
+
+    @Test
+    void serverOnlyTypesAreRejectedFromUsers() {
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-c", MessageType.CARD, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-s", MessageType.SYSTEM, "notice", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
+    }
+
+    @Test
+    void legacyTextWithoutTypeIsNormalizedToText() {
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = textMsg(2L, 10L, "hello", "legacy-1");
+        MessageUpsert upsert = upsert(2L, true);
+
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "legacy-1"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 10L, "TEXT", "hello", null, null, "legacy-1"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
+
+        ChatMessageResult result = chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("legacy-1", null, "hello", null, null));
+
+        assertThat(result.created()).isTrue();
+        assertThat(result.message().getType()).isEqualTo(MessageType.TEXT);
+    }
+
+    @Test
+    void typeMissingWithMediaIdIsRejected() {
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("legacy-m", null, "hello", 501L, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+    }
+
+    @Test
+    void typeMissingWithSetlogIdIsRejected() {
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("legacy-s", null, "hello", null, 77L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+    }
+
+    @Test
+    void imageWithoutMediaIdIsRejected() {
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-i", MessageType.IMAGE, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+    }
+
+    @Test
+    void imageWithBodyIsRejected() {
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-i", MessageType.IMAGE, "caption", 501L, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+    }
+
+    @Test
+    void setlogShareWithoutSetlogIdIsRejected() {
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-s", MessageType.SETLOG_SHARE, null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+    }
+
+    @Test
+    void imageValidatesMediaThenStoresAttachment() {
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = mediaMsg(2L, 10L, MessageType.IMAGE, 501L, "idem-img");
+        MessageUpsert upsert = upsert(2L, true);
+        itda.media.domain.Media media = mock(itda.media.domain.Media.class);
+
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-img"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
+        when(mediaService.requireOwnedPlayableMedia(501L, 7L, MediaType.IMAGE)).thenReturn(media);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 10L, "IMAGE", null, null, null, "idem-img"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
+
+        ChatMessageResult result = chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-img", MessageType.IMAGE, null, 501L, null));
+
+        assertThat(result.created()).isTrue();
+        verify(mediaService).requireOwnedPlayableMedia(501L, 7L, MediaType.IMAGE);
+        verify(attachmentRepository).save(any(ChatMessageAttachment.class));
+        verify(chatRoomRepository).activateAndTouchLastMessageAt(1L);
+    }
+
+    @Test
+    void setlogShareValidatesSetlogThenStoresSharedSetlogId() {
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = setlogShareMsg(3L, 10L, 77L, "idem-set");
+        MessageUpsert upsert = upsert(3L, true);
+
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-set"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 10L, "SETLOG_SHARE", null, null, 77L, "idem-set"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(3L)).thenReturn(Optional.of(stored));
+
+        ChatMessageResult result = chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-set", MessageType.SETLOG_SHARE, null, null, 77L));
+
+        assertThat(result.created()).isTrue();
+        verify(setlogQueryService).requireShareableSetlog(77L, 7L);
+        verify(chatRoomRepository).activateAndTouchLastMessageAt(1L);
+    }
+
+    @Test
+    void reusingKeyWithDifferentMediaIdIsRejected() {
+        ChatMessage original = mediaMsg(1L, 10L, MessageType.IMAGE, 501L, "idem-img");
+        ChatMessageAttachment attachment = mock(ChatMessageAttachment.class);
+        when(attachment.getMediaId()).thenReturn(501L);
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-img"))
+                .thenReturn(Optional.of(original));
+        when(attachmentRepository.findByMessageId(1L)).thenReturn(Optional.of(attachment));
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-img", MessageType.IMAGE, null, 999L, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_DUPLICATE_MESSAGE);
+    }
+
+    @Test
+    void reusingKeyWithDifferentSetlogIdIsRejected() {
+        ChatMessage original = setlogShareMsg(1L, 10L, 77L, "idem-set");
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "idem-set"))
+                .thenReturn(Optional.of(original));
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("idem-set", MessageType.SETLOG_SHARE, null, null, 88L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_DUPLICATE_MESSAGE);
+    }
+
     // ---------- helpers ----------
 
     private static ChatMessageCreateRequest request(String clientMessageId, String body) {
         return new ChatMessageCreateRequest(clientMessageId, body);
+    }
+
+    private static ChatMessageResponse responseWithNickname(String nickname) {
+        return new ChatMessageResponse(
+                1L, 1L, "PET", 10L, nickname, "TEXT", "body", null, null, null, "idem", Instant.now());
     }
 
     private static MessageUpsert upsert(long id, boolean created) {
@@ -376,23 +549,27 @@ class ChatMessageServiceTest {
     }
 
     private static ChatMessage textMsg(long id, Long senderPetId, String body, String clientMessageId) {
-        return mockMsg(id, SenderType.PET, senderPetId, MessageType.TEXT, body, null, clientMessageId);
+        return mockMsg(id, SenderType.PET, senderPetId, MessageType.TEXT, body, null, null, clientMessageId);
     }
 
     private static ChatMessage systemMsg(long id, String body) {
-        return mockMsg(id, SenderType.SYSTEM, null, MessageType.SYSTEM, body, null, null);
+        return mockMsg(id, SenderType.SYSTEM, null, MessageType.SYSTEM, body, null, null, null);
     }
 
     private static ChatMessage cardMsg(long id, Long creatorPetId, Long meetingCardId, String clientMessageId) {
-        return mockMsg(id, SenderType.PET, creatorPetId, MessageType.CARD, null, meetingCardId, clientMessageId);
+        return mockMsg(id, SenderType.PET, creatorPetId, MessageType.CARD, null, meetingCardId, null, clientMessageId);
     }
 
-    /**
-     * Each test drives a different service path, so only a subset of these getters is read.
-     * Stub leniently so unused ones do not trip strict-stub checking.
-     */
+    private static ChatMessage mediaMsg(long id, Long senderPetId, MessageType type, Long mediaId, String clientMessageId) {
+        return mockMsg(id, SenderType.PET, senderPetId, type, null, null, null, clientMessageId);
+    }
+
+    private static ChatMessage setlogShareMsg(long id, Long senderPetId, Long setlogId, String clientMessageId) {
+        return mockMsg(id, SenderType.PET, senderPetId, MessageType.SETLOG_SHARE, null, null, setlogId, clientMessageId);
+    }
+
     private static ChatMessage mockMsg(long id, SenderType senderType, Long senderPetId, MessageType type,
-                                       String body, Long meetingCardId, String clientMessageId) {
+                                       String body, Long meetingCardId, Long sharedSetlogId, String clientMessageId) {
         ChatMessage msg = mock(ChatMessage.class);
         ChatRoom room = mock(ChatRoom.class);
         lenient().when(room.getId()).thenReturn(1L);
@@ -404,6 +581,7 @@ class ChatMessageServiceTest {
         lenient().when(msg.getType()).thenReturn(type);
         lenient().when(msg.getBody()).thenReturn(body);
         lenient().when(msg.getMeetingCardId()).thenReturn(meetingCardId);
+        lenient().when(msg.getSharedSetlogId()).thenReturn(sharedSetlogId);
         lenient().when(msg.getClientMessageId()).thenReturn(clientMessageId);
         return msg;
     }

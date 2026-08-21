@@ -21,7 +21,7 @@ class ChatWebSocketControllerTest {
         ChatWebSocketController controller = new ChatWebSocketController(chatQueryService, new ObjectMapper());
         ChatMessageCreateRequest request = new ChatMessageCreateRequest("client-1", "hello");
         ChatMessageResponse response = new ChatMessageResponse(
-                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, "client-1",
+                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, null, null, "client-1",
                 Instant.parse("2026-08-07T12:00:00Z")
         );
         when(chatQueryService.sendMessage(7L, 123L, request))
@@ -42,7 +42,7 @@ class ChatWebSocketControllerTest {
         ChatWebSocketController controller = new ChatWebSocketController(chatQueryService, new ObjectMapper());
         ChatMessageCreateRequest request = new ChatMessageCreateRequest("client-1", "hello");
         ChatMessageResponse response = new ChatMessageResponse(
-                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, "client-1", null
+                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, null, null, "client-1", null
         );
         when(chatQueryService.sendMessage(7L, 123L, request))
                 .thenReturn(new ChatQueryService.SendMessageResult(response, false));
