@@ -7,6 +7,7 @@ import itda.setlog.domain.SetlogStatus;
 import itda.user.domain.AccountStatus;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +20,25 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
 
     @Query("select setlog.authorPet.id from Setlog setlog where setlog.id = :setlogId")
     Optional<Long> findAuthorPetIdById(@Param("setlogId") Long setlogId);
+
+    @Query("""
+            select setlog
+              from Setlog setlog
+              join fetch setlog.authorPet authorPet
+              join fetch authorPet.owner
+             where setlog.id = :setlogId
+            """)
+    Optional<Setlog> findByIdForShare(@Param("setlogId") Long setlogId);
+
+    @Query("""
+            select setlog
+              from Setlog setlog
+              join fetch setlog.authorPet authorPet
+              join fetch authorPet.owner
+              join fetch setlog.media media
+             where setlog.id in :setlogIds
+            """)
+    List<Setlog> findAllByIdForShare(@Param("setlogIds") Collection<Long> setlogIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""

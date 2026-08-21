@@ -123,7 +123,7 @@ class ChatApiContractPostgreSqlIntegrationTest {
 
     private String body(String clientMessageId, String text) {
         return """
-                {"clientMessageId":"%s","body":"%s"}
+                {"clientMessageId":"%s","type":"TEXT","body":"%s"}
                 """.formatted(clientMessageId, text);
     }
 
@@ -179,7 +179,7 @@ class ChatApiContractPostgreSqlIntegrationTest {
     @DisplayName("요청 본문의 senderPetId는 무시되고 Active Pet이 발신자가 된다")
     void senderPetIdInBodyIsIgnored() throws Exception {
         String forged = """
-                {"clientMessageId":"c-forge","body":"hi","senderPetId":%d,"type":"SYSTEM"}
+                {"clientMessageId":"c-forge","body":"hi","senderPetId":%d,"type":"TEXT"}
                 """.formatted(PET_2);
 
         mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
@@ -189,6 +189,60 @@ class ChatApiContractPostgreSqlIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.senderPetId").value((int) PET_1))
                 .andExpect(jsonPath("$.data.type").value("TEXT"));
+    }
+
+    @Test
+    @DisplayName("type이 없는 legacy TEXT 요청은 TEXT로 정규화되어 201을 준다")
+    void legacyTextWithoutTypeIsCreated() throws Exception {
+        mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clientMessageId\":\"legacy-1\",\"body\":\"안녕\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.type").value("TEXT"))
+                .andExpect(jsonPath("$.data.body").value("안녕"));
+    }
+
+    @Test
+    @DisplayName("legacy TEXT 재전송은 기존 메시지를 200으로 반환한다")
+    void legacyTextResendReturns200WithSameMessageId() throws Exception {
+        String payload = "{\"clientMessageId\":\"legacy-dup\",\"body\":\"안녕\"}";
+        String first = mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long firstId = ((Number) JsonPath.read(first, "$.data.messageId")).longValue();
+
+        mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.messageId").value((int) firstId));
+    }
+
+    @Test
+    @DisplayName("type 누락 + mediaId는 400으로 거부된다")
+    void typeMissingWithMediaIdIsRejected() throws Exception {
+        mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clientMessageId\":\"legacy-m\",\"mediaId\":501}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHAT_MESSAGE_PAYLOAD_INVALID"));
+    }
+
+    @Test
+    @DisplayName("type 누락 + setlogId는 400으로 거부된다")
+    void typeMissingWithSetlogIdIsRejected() throws Exception {
+        mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clientMessageId\":\"legacy-s\",\"setlogId\":77}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHAT_MESSAGE_PAYLOAD_INVALID"));
     }
 
     // ── GET /chat/rooms/{roomId} ──────────────────────────────────────────────

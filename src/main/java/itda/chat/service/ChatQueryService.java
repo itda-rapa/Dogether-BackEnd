@@ -49,10 +49,10 @@ public class ChatQueryService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatMessageService chatMessageService;
+    private final ChatMessageResponseAssembler responseAssembler;
     private final GreetingRepository greetingRepository;
     private final ActivePetQueryService activePetQueryService;
     private final PetDisplayQueryService petDisplayQueryService;
-    private final ChatMessageEventPublisher chatMessageEventPublisher;
 
     // ── GET /chat/rooms ──────────────────────────────────────────────────────
 
@@ -175,6 +175,7 @@ public class ChatQueryService {
                 row.getMsgSenderPetId(), senderPetNickname(
                         row.getMsgSenderPetId(), actorPetId, summaries, actor.nickname()),
                 row.getMsgType(), row.getMsgBody(),
+                null, null,
                 row.getMsgMeetingCardId(), row.getMsgClientMessageId(),
                 row.getMsgCreatedAt())
                 : null;
@@ -265,11 +266,8 @@ public class ChatQueryService {
         Map<Long, PetDisplaySummary> senderPets = petDisplayQueryService
                 .getPetDisplaySummaries(senderPetIds);
 
-        List<ChatMessageResponse> items = messages.stream()
-                .map(message -> ChatMessageResponse.from(
-                        message,
-                        senderPetNickname(message.getSenderPetId(), actor.petId(), senderPets, actor.nickname())))
-                .collect(Collectors.toList());
+        List<ChatMessageResponse> items = responseAssembler.toResponses(
+                messages, senderPets, actor.petId(), actor.nickname());
 
         Long nextAfterMessageId;
         if (!items.isEmpty()) {
@@ -292,16 +290,21 @@ public class ChatQueryService {
      * {@code message.getRoom().getId()} for {@link ChatMessageResponse#from}.
      * {@code requireParticipant} runs first — the controller must never reach
      * Core's own {@code CHAT_SENDER_NOT_PARTICIPANT} guard (§7.3 existence hiding).
+     *
+     * <p><b>Do not publish realtime events here.</b> Core's {@code insert()} raises
+     * {@code ChatMessageCommittedEvent} and {@code ChatMessageRealtimeListener} fans it
+     * out after commit, so REST and WebSocket sends already share one path. A second
+     * publisher on this method once shipped a Kafka send with no consumer that could
+     * fail an already-committed message — removed 2026-08-18, see
+     * {@code docs/spec/07_M2_마일스톤_WBS.md} §7.
      */
     @Transactional
     public SendMessageResult sendMessage(long userId, long roomId, ChatMessageCreateRequest request) {
         ActivePetContext actor = activePetQueryService.requireActivePet(userId);
         requireParticipant(roomId, actor.petId());
-        ChatMessageResult result = chatMessageService.sendText(roomId, actor.petId(), request);
-        ChatMessageResponse dto = ChatMessageResponse.from(result.message(), actor.nickname());
-        if (result.created()) {
-            chatMessageEventPublisher.publishAfterCommit(dto);
-        }
+        ChatMessageResult result = chatMessageService.sendMessage(
+                roomId, actor.petId(), actor.ownerUserId(), request);
+        ChatMessageResponse dto = responseAssembler.toResponse(result.message(), actor.nickname());
         return new SendMessageResult(dto, result.created());
     }
 

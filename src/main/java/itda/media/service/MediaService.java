@@ -124,6 +124,50 @@ public class MediaService {
         return PresignedUrl.forMultipartUpload(media, uploadInfo.uploadId(), uploadInfo.presignedUrlParts());
     }
 
+    /**
+     * Chat IMAGE/VIDEO 전송용 공개 검증 계약: 소유자(발신자의 Active Pet 소유 User)가 업로드한,
+     * 재생 가능(UPLOADED/COMPLETED)하고 요청 MessageType과 일치하는 media만 통과시킨다.
+     * Chat이 media 내부 상태를 직접 해석하지 않도록 이 메서드가 단일 검증 지점을 제공한다.
+     */
+    public Media requireOwnedPlayableMedia(Long mediaId, Long ownerUserId, MediaType expectedType) {
+        Media media = mediaRepository.findByIdAndDeletedAtIsNull(mediaId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
+        if (ownerUserId == null || !ownerUserId.equals(media.getUserId())) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);
+        }
+        if (!isPlayable(media)) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_READY);
+        }
+        if (media.getMediaType() != expectedType) {
+            throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
+        }
+        return media;
+    }
+
+    /**
+     * 메시지 목록 hydration용 batch 계약. 재생 불가·삭제 media는 결과에서 빠진다.
+     * 반환값은 mediaId를 key로 하므로 누락된 mediaId는 "접근 불가"로 처리할 수 있다.
+     */
+    public Map<Long, OwnedPresignedDownload> getMediaDownloadsByIds(Collection<Long> mediaIds) {
+        if (mediaIds == null || mediaIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, OwnedPresignedDownload> result = new LinkedHashMap<>();
+        for (Media media : mediaRepository.findAllById(mediaIds)) {
+            if (isPlayable(media)) {
+                result.put(media.getId(), new OwnedPresignedDownload(media, presignDownload(media)));
+            }
+        }
+        return Map.copyOf(result);
+    }
+
+    private boolean isPlayable(Media media) {
+        return media != null
+                && media.getDeletedAt() == null
+                && (media.getStatus() == MediaStatus.UPLOADED
+                || media.getStatus() == MediaStatus.COMPLETED);
+    }
+
     public Media mediaUploaded(
             Long mediaId,
             List<MultipartUploaded> parts,
