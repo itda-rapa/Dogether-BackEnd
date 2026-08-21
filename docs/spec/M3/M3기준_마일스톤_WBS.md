@@ -53,7 +53,7 @@
 | M3-BE3-104 | Naver OAuth | M3-BE3-103 | callback·loginCode·신규 signup·동일 이메일 정책 테스트 | 8/24 |
 | M3-BE3-105 | Pet 프로필·Board Post 이미지 수정·삭제 | M3-000 | 소유권·동시성·Storage 정리 테스트 | 8/24 |
 | M3-BE3-106 | FriendRequest reject RiskSignal event | M3-004 | eventId 멱등·재처리 계약 테스트 | 8/23 |
-| M2-BE3-201 | 대댓글 | M3-000 | 계층·삭제·권한 테스트 | 8/24 |
+| M2-BE3-201 | 대댓글·계층형 댓글 조회 | M3-000 | V32 hierarchy FK/CHECK·depth 0~3·strict reply endpoint·Root cursor nested tree·tombstone/Block subtree·Parent/Post DELETE 경합 테스트 | 8/24 |
 | M2-BE3-202 | 게시판 Place 연결 | M3-005 | 장소 첨부·지도 이동 테스트 | 8/24 |
 | M2-BE3-203 | Redis Cache/Lock 적용 판단 | 측정 결과 | 측정 결과와 적용/미적용 근거; 적용 시 TTL·무효화/Lock 실패 테스트 | 8/25 |
 | M2-BE3-204 | Pet/Board 이미지 N+1 제거 | M3-BE-MIA-102 | 공용 batch 계약과 쿼리 수 회귀 테스트 | 8/25 |
@@ -109,7 +109,7 @@
 - [ ] RiskSignal event와 멱등키
 - [ ] Place·Board·Map DTO
 - [ ] OAuth callback·신규 signup·동일 이메일 연결 정책
-- [ ] 대댓글 flat 조회·cursor·tombstone
+- [x] 대댓글 depth 0~3·별도 Reply CREATE·Root cursor nested tree·tombstone·Block subtree·`COMMENT_DEPTH_EXCEEDED` 계약
 - [ ] Board Place upsert와 PATCH 생략/null 의미
 - [x] 비로그인 공개 미도입·로그인 기반 유지
 

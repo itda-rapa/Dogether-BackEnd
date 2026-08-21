@@ -8,6 +8,8 @@
 users 1 ─ N oauth_identities
 users 1 ─ N pets
 pets 1 ─ N board_posts / comments / chat_messages
+board_post_comments 1 ─ 0..N board_post_comments (parent)
+board_post_comments 1 ─ 0..N board_post_comments (root)
 
 chat_messages 1 ─ 0..N chat_message_attachments N ─ 1 media
 chat_messages N ─ 0..1 setlogs
@@ -51,10 +53,17 @@ safety_review_cases 1 ─ N evidence_access_audits
 
 ### `board_post_comments`
 
-- `parent_comment_id BIGINT NULL FK board_post_comments(id)` 추가
-- `depth SMALLINT NOT NULL DEFAULT 0`
-- 권고 제약: `depth IN (0,1)`
-- 부모와 자식은 같은 `post_id`여야 하며 Service에서 검증한다.
+| 컬럼 | 형식 | 제약·의미 |
+|---|---|---|
+| parent_comment_id | BIGINT | nullable, self FK. 대댓글의 직접 부모 ID |
+| root_comment_id | BIGINT | nullable, self FK. 대댓글이 속한 Root ID |
+| depth | SMALLINT | NOT NULL DEFAULT 0 |
+
+- DB CHECK `ck_board_post_comments_hierarchy`: Root는 `parent_comment_id/root_comment_id IS NULL AND depth=0`, 대댓글은 두 ID가 모두 있고 `depth BETWEEN 1 AND 3`이다.
+- self FK는 cascade를 지정하지 않는다. V32 적용 전 행은 추가 컬럼의 기본값에 따라 Root(`null/null/0`)로 보존된다.
+- Root는 자신의 ID를 `root_comment_id`에 저장하지 않는다. 대댓글은 직접 부모 ID와 최상위 Root ID를 각각 저장한다.
+- Service는 부모·조상 경로의 같은 `post_id`, `parent.depth + 1`, Root의 `depth=0` 및 parent/root chain 정합성을 검증한다. DB trigger로 same-post·chain 정합성을 강제하지 않는다.
+- 실제 조회 인덱스: Root cursor용 `(post_id, created_at ASC, id ASC) WHERE parent_comment_id IS NULL`, 대댓글 일괄 조회용 `(root_comment_id, created_at ASC, id ASC) WHERE parent_comment_id IS NOT NULL`.
 
 ### `board_posts`
 

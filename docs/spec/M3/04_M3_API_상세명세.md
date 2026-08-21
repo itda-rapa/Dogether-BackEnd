@@ -289,30 +289,34 @@ Provider 인증
 
 ### `POST /posts/{postId}/comments`
 
-일반 댓글 요청:
+Root 댓글 작성이다. 요청 본문은 strict JSON이며 서버 관리 필드(`parentCommentId`, `rootCommentId`, `depth`, 작성자, version)를 받지 않는다.
 
 ```json
 {
-  "content": "정보 감사합니다.",
-  "parentCommentId": null
+  "content": "정보 감사합니다."
 }
 ```
 
-대댓글 요청:
+응답은 `201 ApiResponse<CommentResponse>`다. Root의 hierarchy 필드는 `parentCommentId: null`, `depth: 0`이다.
+
+### `POST /comments/{parentCommentId}/replies`
+
+직접 부모 ID는 path로만 받고, body는 Root 작성과 동일하게 `content`만 허용한다.
 
 ```json
 {
-  "content": "저도 같은 경험이 있었어요.",
-  "parentCommentId": 301
+  "content": "저도 같은 경험이 있었어요."
 }
 ```
 
-응답:
+대댓글은 Root부터 직접 부모까지의 조상 path가 같은 게시글·정상 hierarchy인지 확인하고, path 중 어느 작성자와도 양방향 차단 관계가 없어야 한다. deleted 조상 자체는 숨김 사유가 아니지만, blocked 조상은 그 subtree를 숨기므로 404다. 부모가 depth 3이면 `409 COMMENT_DEPTH_EXCEEDED`다.
+
+응답은 `201 ApiResponse<CommentResponse>`다.
 
 ```json
 {
   "success": true,
-  "message": "댓글이 등록되었습니다.",
+  "message": "대댓글이 등록되었습니다.",
   "data": {
     "commentId": 302,
     "postId": 41,
@@ -334,15 +338,17 @@ Provider 인증
 }
 ```
 
-오류: `404 BOARD_POST_NOT_FOUND`, `404 PARENT_COMMENT_NOT_FOUND`, `409 COMMENT_DEPTH_EXCEEDED`, `403 BLOCKED_USER`.
+오류: 게시글이 없거나 공개 범위 밖이면 `404 BOARD_POST_NOT_FOUND`; 부모가 없거나 soft delete·차단으로 보이지 않으면 `404 BOARD_POST_COMMENT_NOT_FOUND`; depth 3 부모 아래 생성은 `409 COMMENT_DEPTH_EXCEEDED`; 요청 형식·content 검증 실패는 `400 VALIDATION_FAILED`다. `PARENT_COMMENT_NOT_FOUND`와 `BLOCKED_USER`는 이 API에 사용하지 않는다.
+
+`PATCH /comments/{commentId}`도 같은 `CommentResponse`를 반환하므로 Root/대댓글의 `parentCommentId`, `depth`를 보존한다. `DELETE /comments/{commentId}`는 Root와 대댓글 모두 soft delete하며 `204`다.
 
 ### `GET /posts/{postId}/comments`
 
-- 기존 `items`, `page.nextCursor`, `page.hasNext` 구조를 유지한다.
-- 응답은 nested가 아닌 flat 목록이다.
-- `createdAt`, `commentId` 오름차순으로 정렬하고 모든 댓글을 같은 cursor 단위로 조회한다.
-- 페이지 경계에서 부모와 자식이 분리될 수 있으며 Client는 `parentCommentId`로 연결한다.
-- 자식이 있는 삭제 부모는 content 대신 tombstone 문구를 반환하고 식별자·parent/depth는 유지한다.
+- 기존 envelope의 `items`, `page.nextCursor`, `page.hasNext`는 유지하지만, `items`는 nested Root thread 목록으로 변경된다.
+- `size`는 댓글 row 수가 아닌 Root thread 수다. 기본 20, 최대 100이며 cursor는 마지막 반환 Root의 불변 `(createdAt, id)` 키다. Root 및 sibling은 `(createdAt, id)` 오름차순이다. 새 대댓글은 Root cursor key를 바꾸지 않는다.
+- 최종 Root visibility는 blocked Root 제외, deleted Root의 최종 visible active descendant 유무까지 반영한 candidate에 대해 `size + 1`로 계산한다. 따라서 `hasNext`·`nextCursor`는 최종 Root candidate에서 나온다.
+- 양방향 차단된 노드는 descendants까지 제거하며, 차단되지 않은 descendant를 상위로 승격하지 않는다. deleted node는 활성 자손을 연결하는 경우에만 tombstone으로 남고, deleted leaf는 숨긴다.
+- `rootCommentId`는 노출하지 않는다. tombstone은 tree 연결에 필요한 `commentId`, `postId`, `parentCommentId`, `depth`, `deleted=true`, `replies`만 반환하고 `authorPet`, `content`, `version`, `createdAt`, `updatedAt`은 null이다.
 
 Query: `cursor` optional, `size` 기본 20·최대 100.
 
@@ -357,6 +363,7 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
         "postId": 41,
         "parentCommentId": null,
         "depth": 0,
+        "deleted": false,
         "authorPet": {
           "petId": 8,
           "publicTag": "dog-8",
@@ -367,24 +374,28 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
         "content": "정보 감사합니다.",
         "version": 0,
         "createdAt": "2026-08-20T08:59:00Z",
-        "updatedAt": "2026-08-20T08:59:00Z"
-      },
-      {
-        "commentId": 302,
-        "postId": 41,
-        "parentCommentId": 301,
-        "depth": 1,
-        "authorPet": {
-          "petId": 12,
-          "publicTag": "dog-12",
-          "nickname": "보리",
-          "profileUrl": null,
-          "verified": false
-        },
-        "content": "저도 같은 경험이 있었어요.",
-        "version": 0,
-        "createdAt": "2026-08-20T09:00:00Z",
-        "updatedAt": "2026-08-20T09:00:00Z"
+        "updatedAt": "2026-08-20T08:59:00Z",
+        "replies": [
+          {
+            "commentId": 302,
+            "postId": 41,
+            "parentCommentId": 301,
+            "depth": 1,
+            "deleted": false,
+            "authorPet": {
+              "petId": 12,
+              "publicTag": "dog-12",
+              "nickname": "보리",
+              "profileUrl": null,
+              "verified": false
+            },
+            "content": "저도 같은 경험이 있었어요.",
+            "version": 0,
+            "createdAt": "2026-08-20T09:00:00Z",
+            "updatedAt": "2026-08-20T09:00:00Z",
+            "replies": []
+          }
+        ]
       }
     ],
     "page": {
