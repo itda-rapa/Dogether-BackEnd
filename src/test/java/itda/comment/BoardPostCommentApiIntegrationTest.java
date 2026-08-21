@@ -187,6 +187,109 @@ class BoardPostCommentApiIntegrationTest {
                 .isTrue();
     }
 
+    @Test
+    void replyCreateIsStrictReturnsDirectHierarchyAndRejectsFourthDepth() throws Exception {
+        long rootId = createComment(authorId, postId, "root");
+        for (String body : new String[] {
+                "null", "[]", "{}", "{\"content\":null}", "{\"content\":\"reply\",\"parentCommentId\":1}",
+                "{\"content\":\" \"}"
+        }) {
+            reply(authorId, rootId, body).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+        }
+
+        long depthOne = responseCommentId(reply(authorId, rootId, "{\"content\":\"depth one\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.postId").value(postId))
+                .andExpect(jsonPath("$.data.parentCommentId").value(rootId))
+                .andExpect(jsonPath("$.data.depth").value(1)));
+        long depthTwo = responseCommentId(reply(authorId, depthOne, "{\"content\":\"depth two\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.depth").value(2)));
+        long depthThree = responseCommentId(reply(authorId, depthTwo, "{\"content\":\"depth three\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.depth").value(3)));
+        reply(authorId, depthThree, "{\"content\":\"depth four\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("COMMENT_DEPTH_EXCEEDED"));
+
+        assertThat(jdbc.queryForObject("select parent_comment_id from board_post_comments where id = ?", Long.class, depthThree)).isEqualTo(depthTwo);
+        assertThat(jdbc.queryForObject("select root_comment_id from board_post_comments where id = ?", Long.class, depthThree)).isEqualTo(rootId);
+        assertThat(jdbc.queryForObject("select depth from board_post_comments where id = ?", Short.class, depthThree)).isEqualTo((short) 3);
+    }
+
+    @Test
+    void listReturnsNestedTombstoneAndPrunesBlockedSubtreeWithoutPromotion() throws Exception {
+        long viewerId = createUser("viewer", "4113111500");
+        long visiblePetId = createPet(authorId, "보이는견");
+        long blockedId = createUser("blocked", "4113111500");
+        long blockedPetId = createPet(blockedId, "차단견");
+        Instant base = Instant.parse("2026-08-10T00:00:00Z");
+        long rootId = insertHierarchyComment(authorId, authorPetId, "secret root", base, base.plusSeconds(1), null, null, (short) 0);
+        long visibleReplyId = insertHierarchyComment(authorId, visiblePetId, "visible reply", base.plusSeconds(2), null, rootId, rootId, (short) 1);
+        long blockedReplyId = insertHierarchyComment(blockedId, blockedPetId, "blocked reply", base.plusSeconds(3), null, rootId, rootId, (short) 1);
+        insertHierarchyComment(authorId, visiblePetId, "must stay hidden", base.plusSeconds(4), null, blockedReplyId, rootId, (short) 2);
+        jdbc.update("insert into user_blocks (blocker_user_id, blocked_user_id, created_at) values (?, ?, current_timestamp)", viewerId, blockedId);
+
+        mockMvc.perform(get("/posts/{postId}/comments", postId).with(user(principal(viewerId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].commentId").value(rootId))
+                .andExpect(jsonPath("$.data.items[0].deleted").value(true))
+                .andExpect(jsonPath("$.data.items[0].content").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].authorPet").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].version").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].replies.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].replies[0].commentId").value(visibleReplyId))
+                .andExpect(jsonPath("$.data.items[0].replies[0].content").value("visible reply"));
+    }
+
+    @Test
+    void replyCreateHidesMissingDeletedAndBlockedDirectOrAncestorParentsButAllowsDeletedAncestor() throws Exception {
+        long replierId = createUser("replier", "4113111500");
+        long replierPetId = createPet(replierId, "답글견");
+        jdbc.update("update users set active_pet_id = ? where id = ?", replierPetId, replierId);
+        long parentAuthorId = createUser("parent", "4113111500");
+        long parentAuthorPetId = createPet(parentAuthorId, "상위견");
+        jdbc.update("update users set active_pet_id = ? where id = ?", parentAuthorPetId, parentAuthorId);
+
+        reply(replierId, 999999999L, "{\"content\":\"missing\"}")
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_POST_COMMENT_NOT_FOUND"));
+
+        long deletedParent = createComment(parentAuthorId, postId, "deleted parent");
+        jdbc.update("update board_post_comments set deleted_at = current_timestamp where id = ?", deletedParent);
+        reply(replierId, deletedParent, "{\"content\":\"hidden\"}")
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_POST_COMMENT_NOT_FOUND"));
+
+        long blockedParent = createComment(parentAuthorId, postId, "blocked parent");
+        jdbc.update("insert into user_blocks (blocker_user_id, blocked_user_id, created_at) values (?, ?, current_timestamp)", replierId, parentAuthorId);
+        reply(replierId, blockedParent, "{\"content\":\"blocked\"}")
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_POST_COMMENT_NOT_FOUND"));
+        jdbc.execute("delete from user_blocks");
+
+        long rootId = createComment(parentAuthorId, postId, "ancestor");
+        long childId = createCommentReply(replierId, rootId, "child");
+        jdbc.update("insert into user_blocks (blocker_user_id, blocked_user_id, created_at) values (?, ?, current_timestamp)", replierId, parentAuthorId);
+        reply(replierId, childId, "{\"content\":\"blocked ancestor\"}")
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_POST_COMMENT_NOT_FOUND"));
+        jdbc.execute("delete from user_blocks");
+
+        jdbc.update("update board_post_comments set deleted_at = current_timestamp where id = ?", rootId);
+        reply(replierId, childId, "{\"content\":\"allowed below tombstone\"}")
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.parentCommentId").value(childId))
+                .andExpect(jsonPath("$.data.depth").value(2));
+    }
+
+    @Test
+    void patchReplyPreservesItsHierarchyIdentityInMutationResponse() throws Exception {
+        long rootId = createComment(authorId, postId, "root");
+        long replyId = createCommentReply(authorId, rootId, "reply");
+
+        patchComment(authorId, replyId, "{\"content\":\"changed reply\",\"version\":0}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.commentId").value(replyId))
+                .andExpect(jsonPath("$.data.parentCommentId").value(rootId))
+                .andExpect(jsonPath("$.data.depth").value(1))
+                .andExpect(jsonPath("$.data.content").value("changed reply"));
+    }
+
     private ResultActions create(long userId, long targetPostId, String body) throws Exception {
         return mockMvc.perform(post("/posts/{postId}/comments", targetPostId).with(user(principal(userId)))
                 .contentType(MediaType.APPLICATION_JSON).content(body));
@@ -197,10 +300,36 @@ class BoardPostCommentApiIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
+    private ResultActions reply(long userId, long parentCommentId, String body) throws Exception {
+        return mockMvc.perform(post("/comments/{parentCommentId}/replies", parentCommentId).with(user(principal(userId)))
+                .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
     private long createComment(long userId, long targetPostId, String content) throws Exception {
         String response = create(userId, targetPostId, "{\"content\":\"%s\"}".formatted(content))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(response, "$.data.commentId")).longValue();
+    }
+
+    private long createCommentReply(long userId, long parentCommentId, String content) throws Exception {
+        return responseCommentId(reply(userId, parentCommentId, "{\"content\":\"%s\"}".formatted(content))
+                .andExpect(status().isCreated()));
+    }
+
+    private long responseCommentId(ResultActions result) throws Exception {
+        return ((Number) JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$.data.commentId")).longValue();
+    }
+
+    private long insertHierarchyComment(long userId, long petId, String content, Instant createdAt, Instant deletedAt,
+            Long parentCommentId, Long rootCommentId, short depth) {
+        jdbc.update("""
+                insert into board_post_comments
+                    (post_id, author_user_id, author_pet_id, content, parent_comment_id, root_comment_id, depth,
+                     version, created_at, updated_at, deleted_at)
+                values (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                """, postId, userId, petId, content, parentCommentId, rootCommentId, depth,
+                createdAt, createdAt, deletedAt);
+        return latestCommentId();
     }
 
     private long createPublishedPost(long userId, long petId, String neighborhood) {
