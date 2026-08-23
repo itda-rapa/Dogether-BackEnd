@@ -6,13 +6,17 @@ import itda.boardpost.domain.PostStatus;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.service.LockedActivePetCommandGuard;
 import itda.comment.domain.BoardPostComment;
+import itda.comment.domain.CommentReactionType;
 import itda.comment.dto.CommentCreateRequest;
 import itda.comment.dto.CommentCursorPage;
 import itda.comment.dto.CommentListResponse;
+import itda.comment.dto.CommentReactionResponse;
+import itda.comment.dto.CommentReactionSnapshot;
 import itda.comment.dto.CommentResponse;
 import itda.comment.dto.CommentTreeResponse;
 import itda.comment.dto.CommentUpdateRequest;
 import itda.comment.repository.BoardPostCommentRepository;
+import itda.comment.repository.BoardPostCommentReactionRepository;
 import itda.comment.support.CommentCursorCodec;
 import itda.comment.support.CommentCursorCodec.CursorPayload;
 import itda.common.constants.ErrorCode;
@@ -43,6 +47,8 @@ public class BoardPostCommentService {
     private final LockedActivePetCommandGuard actorGuard;
     private final PetDisplayQueryService petDisplays;
     private final BlockRelationshipQueryService blocks;
+    private final BoardPostCommentReactionRepository reactions;
+    private final CommentReactionQueryService reactionQueries;
 
     public BoardPostCommentService(
             BoardPostCommentRepository comments,
@@ -50,7 +56,9 @@ public class BoardPostCommentService {
             UserRepository users,
             LockedActivePetCommandGuard actorGuard,
             PetDisplayQueryService petDisplays,
-            BlockRelationshipQueryService blocks
+            BlockRelationshipQueryService blocks,
+            BoardPostCommentReactionRepository reactions,
+            CommentReactionQueryService reactionQueries
     ) {
         this.comments = comments;
         this.posts = posts;
@@ -58,6 +66,8 @@ public class BoardPostCommentService {
         this.actorGuard = actorGuard;
         this.petDisplays = petDisplays;
         this.blocks = blocks;
+        this.reactions = reactions;
+        this.reactionQueries = reactionQueries;
     }
 
     @Transactional
@@ -195,11 +205,17 @@ public class BoardPostCommentService {
                 .toList();
         Set<Long> visibleActivePetIds = new java.util.LinkedHashSet<>();
         visibleRoots.forEach(root -> collectVisibleActivePetIds(root, visibleActivePetIds));
+        Set<Long> visibleActiveCommentIds = new java.util.LinkedHashSet<>();
+        visibleRoots.forEach(root -> collectVisibleActiveCommentIds(root, visibleActiveCommentIds));
         Map<Long, PetDisplaySummary> authorPets = petDisplays.getPetDisplaySummaries(
                 visibleActivePetIds
         );
+        Map<Long, CommentReactionSnapshot> reactionStates = reactionStates(
+                userId,
+                visibleActiveCommentIds
+        );
         List<CommentTreeResponse> items = visibleRoots.stream()
-                .map(root -> toTree(root, authorPets))
+                .map(root -> toTree(root, authorPets, reactionStates))
                 .toList();
         String nextCursor = hasNext && !roots.isEmpty()
                 ? CommentCursorCodec.encode(
@@ -245,6 +261,28 @@ public class BoardPostCommentService {
         comment.delete(Instant.now());
     }
 
+    @Transactional
+    public CommentReactionResponse addReaction(
+            Long userId,
+            Long commentId,
+            CommentReactionType type
+    ) {
+        ReactionTarget target = reactionTarget(userId, commentId);
+        reactions.insertIgnore(commentId, target.actor().petId(), type.name());
+        return reactionResponse(commentId, type, true);
+    }
+
+    @Transactional
+    public CommentReactionResponse removeReaction(
+            Long userId,
+            Long commentId,
+            CommentReactionType type
+    ) {
+        ReactionTarget target = reactionTarget(userId, commentId);
+        reactions.deleteReaction(commentId, target.actor().petId(), type.name());
+        return reactionResponse(commentId, type, false);
+    }
+
     private BoardPostComment active(Long commentId) {
         return comments.findByIdAndDeletedAtIsNull(commentId)
                 .orElseThrow(this::commentNotFound);
@@ -288,6 +326,46 @@ public class BoardPostCommentService {
         }
         java.util.Collections.reverse(reversed);
         return reversed;
+    }
+
+    private ReactionTarget reactionTarget(Long userId, Long commentId) {
+        LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
+
+        // This lookup supplies only the post ID required to establish the command lock order.
+        Long postId = comments.findById(commentId)
+                .map(BoardPostComment::getPostId)
+                .orElseThrow(this::commentNotFound);
+        BoardPost post = posts.findPublishedByIdForShare(postId)
+                .orElseThrow(this::postNotFound);
+        requireParentVisible(actor.userId(), actor.neighborhoodCode(), post);
+
+        BoardPostComment comment = comments.findActiveByIdForShare(commentId)
+                .orElseThrow(this::commentNotFound);
+        if (!post.getId().equals(comment.getPostId())) {
+            throw commentNotFound();
+        }
+        List<BoardPostComment> path = hierarchyPath(comment);
+        if (path.stream().anyMatch(ancestor ->
+                blocks.existsBlockBetween(actor.userId(), ancestor.getAuthorUserId()))) {
+            throw commentNotFound();
+        }
+        if (actor.userId().equals(comment.getAuthorUserId())) {
+            throw new BusinessException(ErrorCode.BOARD_POST_COMMENT_SELF_REACTION_FORBIDDEN);
+        }
+        return new ReactionTarget(actor, comment);
+    }
+
+    private CommentReactionResponse reactionResponse(
+            Long commentId,
+            CommentReactionType type,
+            boolean reacted
+    ) {
+        return new CommentReactionResponse(
+                commentId,
+                type,
+                reacted,
+                reactions.countForComment(commentId, type.name())
+        );
     }
 
     private Map<Long, List<BoardPostComment>> childrenByParentId(
@@ -337,13 +415,34 @@ public class BoardPostCommentService {
         node.replies().forEach(reply -> collectVisibleActivePetIds(reply, authorPetIds));
     }
 
+    private void collectVisibleActiveCommentIds(
+            VisibleCommentNode node,
+            Set<Long> commentIds
+    ) {
+        if (node.comment().getDeletedAt() == null) {
+            commentIds.add(node.comment().getId());
+        }
+        node.replies().forEach(reply -> collectVisibleActiveCommentIds(reply, commentIds));
+    }
+
+    private Map<Long, CommentReactionSnapshot> reactionStates(
+            Long userId,
+            Set<Long> commentIds
+    ) {
+        if (commentIds.isEmpty()) {
+            return Map.of();
+        }
+        return reactionQueries.findForComments(userId, commentIds);
+    }
+
     private CommentTreeResponse toTree(
             VisibleCommentNode node,
-            Map<Long, PetDisplaySummary> authorPets
+            Map<Long, PetDisplaySummary> authorPets,
+            Map<Long, CommentReactionSnapshot> reactionsByCommentId
     ) {
         BoardPostComment comment = node.comment();
         List<CommentTreeResponse> replies = node.replies().stream()
-                .map(reply -> toTree(reply, authorPets))
+                .map(reply -> toTree(reply, authorPets, reactionsByCommentId))
                 .toList();
         if (comment.getDeletedAt() != null) {
             return new CommentTreeResponse(
@@ -357,9 +456,15 @@ public class BoardPostCommentService {
                     null,
                     null,
                     null,
+                    null,
+                    null,
                     replies
             );
         }
+        CommentReactionSnapshot reaction = reactionsByCommentId.getOrDefault(
+                comment.getId(),
+                CommentReactionSnapshot.none()
+        );
         return new CommentTreeResponse(
                 comment.getId(),
                 comment.getPostId(),
@@ -373,6 +478,8 @@ public class BoardPostCommentService {
                 comment.getVersion(),
                 comment.getCreatedAt(),
                 comment.getUpdatedAt(),
+                reaction.helpfulCount(),
+                reaction.helpfulByMe(),
                 replies
         );
     }
@@ -380,6 +487,12 @@ public class BoardPostCommentService {
     private record VisibleCommentNode(
             BoardPostComment comment,
             List<VisibleCommentNode> replies
+    ) {
+    }
+
+    private record ReactionTarget(
+            LockedActivePetCommandGuard.LockedActor actor,
+            BoardPostComment comment
     ) {
     }
 

@@ -60,7 +60,8 @@ public interface PetSwaggerSupporter {
                                         "publicTag":"pet#TAG1",
                                         "nickname":"초코",
                                         "profileUrl":null,
-                                        "verified":true
+                                        "verified":true,
+                                        "helpfulReceivedCount":0
                                     },
                                     "activePetAssignmentStatus":"ASSIGNED"
                                 },
@@ -78,7 +79,7 @@ public interface PetSwaggerSupporter {
             PetCreateRequest request
     );
 
-    @Operation(summary = "내 Pet 목록 조회", description = "내 Pet 목록을 조회하는 API")
+    @Operation(summary = "내 Pet 목록 조회", description = "내 Pet 목록을 조회하는 API입니다. 각 PetResponse의 helpfulReceivedCount는 삭제되지 않은 게시글·댓글이 받은 HELPFUL 합계입니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "내 Pet 목록 조회 성공",
@@ -94,7 +95,8 @@ public interface PetSwaggerSupporter {
                                         "publicTag":"pet#TAG1",
                                         "nickname":"초코",
                                         "profileUrl":null,
-                                        "verified":true
+                                        "verified":true,
+                                        "helpfulReceivedCount":12
                                     }
                                 ],
                                 "error":null
@@ -134,7 +136,7 @@ public interface PetSwaggerSupporter {
             @Parameter(description = "검색할 Pet 공개 태그") String publicTag
     );
 
-    @Operation(summary = "내 Pet 상세 조회", description = "내 Pet 상세 정보를 조회하는 API")
+    @Operation(summary = "내 Pet 상세 조회", description = "내 Pet 상세 정보를 조회하는 API입니다. helpfulReceivedCount는 삭제되지 않은 게시글·댓글이 받은 HELPFUL 합계입니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "Pet 상세 조회 성공",
@@ -149,7 +151,8 @@ public interface PetSwaggerSupporter {
                                     "publicTag":"pet#TAG1",
                                     "nickname":"초코",
                                     "profileUrl":null,
-                                    "verified":true
+                                    "verified":true,
+                                    "helpfulReceivedCount":12
                                 },
                                 "error":null
                             }
@@ -178,7 +181,7 @@ public interface PetSwaggerSupporter {
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
-                            {"success":true,"message":"Pet 프로필 이미지가 설정되었습니다.","data":{"petId":10,"publicTag":"pet#TAG1","nickname":"초코","profileUrl":"https://...","verified":false},"error":null}
+                            {"success":true,"message":"Pet 프로필 이미지가 설정되었습니다.","data":{"petId":10,"publicTag":"pet#TAG1","nickname":"초코","profileUrl":"https://...","verified":false,"helpfulReceivedCount":12},"error":null}
                             """)
             )
     )
@@ -217,7 +220,8 @@ public interface PetSwaggerSupporter {
                                     "publicTag":"pet#TAG1",
                                     "nickname":"초코",
                                     "profileUrl":null,
-                                    "verified":true
+                                    "verified":true,
+                                    "helpfulReceivedCount":12
                                 },
                                 "error":null
                             }

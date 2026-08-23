@@ -16,6 +16,8 @@ public record CommentTreeResponse(
         @Schema(nullable = true) Long version,
         @Schema(nullable = true) Instant createdAt,
         @Schema(nullable = true) Instant updatedAt,
+        @Schema(nullable = true) Long helpfulCount,
+        @Schema(nullable = true) Boolean helpfulByMe,
         List<CommentTreeResponse> replies
 ) {
 }

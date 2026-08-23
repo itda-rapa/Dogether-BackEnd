@@ -15,10 +15,14 @@ import itda.boardpost.domain.PostStatus;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.service.LockedActivePetCommandGuard;
 import itda.comment.domain.BoardPostComment;
+import itda.comment.domain.CommentReactionType;
 import itda.comment.dto.CommentCreateRequest;
+import itda.comment.dto.CommentReactionSnapshot;
 import itda.comment.dto.CommentUpdateRequest;
 import itda.comment.repository.BoardPostCommentRepository;
+import itda.comment.repository.BoardPostCommentReactionRepository;
 import itda.comment.service.BoardPostCommentService;
+import itda.comment.service.CommentReactionQueryService;
 import itda.common.exception.BusinessException;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.PetDisplayQueryService;
@@ -46,6 +50,8 @@ class BoardPostCommentServiceTest {
     @Mock private LockedActivePetCommandGuard actorGuard;
     @Mock private PetDisplayQueryService petDisplays;
     @Mock private BlockRelationshipQueryService blocks;
+    @Mock private BoardPostCommentReactionRepository reactions;
+    @Mock private CommentReactionQueryService reactionQueries;
 
     @Test
     void createSnapshotsTheLockedActorsUserAndActivePetAndPreservesContent() {
@@ -187,8 +193,10 @@ class BoardPostCommentServiceTest {
         given(blocks.findBlockedUserIdsBetween(1L, Set.of(2L, 3L, 4L, 5L))).willReturn(Set.of(4L));
         given(petDisplays.getPetDisplaySummaries(anyCollection()))
                 .willReturn(Map.of(21L, summary(21L)));
+        given(reactionQueries.findForComments(1L, Set.of(31L)))
+                .willReturn(Map.of(31L, new CommentReactionSnapshot(2L, true)));
 
-        var result = service().list(1L, 10L, null, 1);
+        var result = fullService().list(1L, 10L, null, 1);
 
         assertThat(result.items()).hasSize(1);
         var tombstone = result.items().getFirst();
@@ -196,10 +204,15 @@ class BoardPostCommentServiceTest {
         assertThat(tombstone.content()).isNull();
         assertThat(tombstone.authorPet()).isNull();
         assertThat(tombstone.version()).isNull();
+        assertThat(tombstone.helpfulCount()).isNull();
+        assertThat(tombstone.helpfulByMe()).isNull();
         assertThat(tombstone.replies()).extracting(item -> item.commentId()).containsExactly(31L);
+        assertThat(tombstone.replies().getFirst().helpfulCount()).isEqualTo(2L);
+        assertThat(tombstone.replies().getFirst().helpfulByMe()).isTrue();
         then(blocks).should().existsBlockBetween(1L, 20L);
         then(comments).should().findDescendantsByRootCommentIdIn(10L, List.of(30L));
         then(petDisplays).should().getPetDisplaySummaries(argThat(ids -> Set.copyOf(ids).equals(Set.of(21L))));
+        then(reactionQueries).should().findForComments(1L, Set.of(31L));
     }
 
     @Test
@@ -238,8 +251,85 @@ class BoardPostCommentServiceTest {
         assertThat(otherPet.getDeletedAt()).isNull();
     }
 
+    @Test
+    void helpfulPutAndDeleteForRootAreIdempotentCommandsWithTypeSpecificCounts() {
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment root = comment(30L, 10L, 2L, 20L, "root", 0L);
+        reactionTarget(1L, 30L, post, root);
+        given(reactions.countForComment(30L, "HELPFUL")).willReturn(2L, 1L);
+
+        var added = fullService().addReaction(1L, 30L, CommentReactionType.HELPFUL);
+        var removed = fullService().removeReaction(1L, 30L, CommentReactionType.HELPFUL);
+
+        assertThat(added.reacted()).isTrue();
+        assertThat(added.reactionCount()).isEqualTo(2L);
+        assertThat(removed.reacted()).isFalse();
+        assertThat(removed.reactionCount()).isEqualTo(1L);
+        then(reactions).should().insertIgnore(30L, 3L, "HELPFUL");
+        then(reactions).should().deleteReaction(30L, 3L, "HELPFUL");
+    }
+
+    @Test
+    void helpfulReactionSupportsRepliesButRejectsSameUserEvenAfterActivePetSwitch() {
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment root = comment(30L, 10L, 2L, 20L, "root", 0L);
+        BoardPostComment reply = reply(31L, 10L, 2L, 21L, "reply", 30L, 30L, (short) 1);
+        reactionTarget(1L, 31L, post, reply);
+        given(comments.findById(30L)).willReturn(Optional.of(root));
+        given(reactions.countForComment(31L, "HELPFUL")).willReturn(1L);
+
+        var response = fullService().addReaction(1L, 31L, CommentReactionType.HELPFUL);
+
+        assertThat(response.commentId()).isEqualTo(31L);
+        then(reactions).should().insertIgnore(31L, 3L, "HELPFUL");
+
+        BoardPostComment ownComment = comment(32L, 10L, 1L, 99L, "own", 0L);
+        reactionTarget(1L, 32L, post, ownComment);
+        assertBusiness(() -> fullService().addReaction(1L, 32L, CommentReactionType.HELPFUL),
+                "BOARD_POST_COMMENT_SELF_REACTION_FORBIDDEN");
+        then(reactions).should(never()).insertIgnore(32L, 3L, "HELPFUL");
+    }
+
+    @Test
+    void helpfulReactionHidesBlockedAncestorAndDoesNotMutate() {
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment root = comment(30L, 10L, 2L, 20L, "root", 0L);
+        BoardPostComment reply = reply(31L, 10L, 3L, 21L, "reply", 30L, 30L, (short) 1);
+        given(actorGuard.require(1L)).willReturn(actor(1L, 4L, "4113111500"));
+        given(comments.findById(31L)).willReturn(Optional.of(reply));
+        given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.of(post));
+        given(comments.findActiveByIdForShare(31L)).willReturn(Optional.of(reply));
+        given(comments.findById(30L)).willReturn(Optional.of(root));
+        given(blocks.existsBlockBetween(1L, 20L)).willReturn(false);
+        given(blocks.existsBlockBetween(1L, 2L)).willReturn(true);
+
+        assertBusiness(() -> fullService().addReaction(1L, 31L, CommentReactionType.HELPFUL),
+                "BOARD_POST_COMMENT_NOT_FOUND");
+        then(reactions).shouldHaveNoInteractions();
+    }
+
     private BoardPostCommentService service() {
-        return new BoardPostCommentService(comments, posts, users, actorGuard, petDisplays, blocks);
+        return fullService();
+    }
+
+    private BoardPostCommentService fullService() {
+        return new BoardPostCommentService(
+                comments, posts, users, actorGuard, petDisplays, blocks, reactions, reactionQueries
+        );
+    }
+
+    private void reactionTarget(
+            long actorUserId,
+            long commentId,
+            BoardPost post,
+            BoardPostComment target
+    ) {
+        given(actorGuard.require(actorUserId)).willReturn(actor(actorUserId, 3L, "4113111500"));
+        given(comments.findById(commentId)).willReturn(Optional.of(target));
+        given(posts.findPublishedByIdForShare(target.getPostId())).willReturn(Optional.of(post));
+        given(comments.findActiveByIdForShare(commentId)).willReturn(Optional.of(target));
+        given(blocks.existsBlockBetween(actorUserId, post.getAuthorUserId())).willReturn(false);
+        given(blocks.existsBlockBetween(actorUserId, target.getAuthorUserId())).willReturn(false);
     }
 
     private LockedActivePetCommandGuard.LockedActor actor(long userId, long petId, String neighborhood) {

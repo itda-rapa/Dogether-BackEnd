@@ -49,6 +49,9 @@ class BoardPostApiIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbc.execute("delete from user_blocks");
+        jdbc.execute("delete from board_post_comment_reactions");
+        jdbc.execute("delete from board_post_reactions");
+        jdbc.execute("delete from board_post_comments");
         jdbc.execute("delete from board_posts");
         jdbc.execute("delete from pets");
         jdbc.execute("delete from users");

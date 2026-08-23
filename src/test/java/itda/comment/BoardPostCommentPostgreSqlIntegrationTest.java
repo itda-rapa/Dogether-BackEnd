@@ -8,13 +8,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import itda.boardpost.domain.BoardPost;
+import itda.boardpost.domain.BoardPostReactionType;
 import itda.boardpost.domain.PostStatus;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.service.BoardPostService;
 import itda.comment.domain.BoardPostComment;
 import itda.comment.dto.CommentCreateRequest;
 import itda.comment.repository.BoardPostCommentRepository;
+import itda.comment.repository.BoardPostCommentReactionRepository;
 import itda.comment.service.BoardPostCommentService;
+import itda.comment.domain.CommentReactionType;
+import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import itda.common.exception.BusinessException;
 import itda.common.security.CurrentUser;
 import itda.user.domain.Role;
@@ -65,9 +69,11 @@ class BoardPostCommentPostgreSqlIntegrationTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardPostCommentRepository comments;
+    @Autowired private BoardPostCommentReactionRepository commentReactions;
     @Autowired private BoardPostRepository posts;
     @Autowired private BoardPostCommentService commentService;
     @Autowired private BoardPostService postService;
+    @Autowired private PetHelpfulReceivedCountQueryService helpfulCounts;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private MockMvc mockMvc;
 
@@ -89,6 +95,40 @@ class BoardPostCommentPostgreSqlIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
         insertComment(postId, author.userId(), author.petId(), "😀".repeat(5000), Instant.now(), null);
         long rootId = insertComment(postId, author.userId(), author.petId(), "root", Instant.now().plusSeconds(1), null);
+        Author reactor = createAuthor("reactor", "4113111500");
+        assertThat(jdbc.update("""
+                insert into board_post_comment_reactions (comment_id, reactor_pet_id, reaction_type)
+                values (?, ?, 'HELPFUL')
+                """, rootId, reactor.petId())).isEqualTo(1);
+        assertThatThrownBy(() -> jdbc.update("""
+                insert into board_post_comment_reactions (comment_id, reactor_pet_id, reaction_type)
+                values (?, ?, 'LIKE')
+                """, rootId, reactor.petId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("""
+                insert into board_post_comment_reactions (comment_id, reactor_pet_id, reaction_type)
+                values (?, ?, 'HELPFUL')
+                """, rootId, reactor.petId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(jdbc.queryForObject("""
+                select indexdef from pg_indexes
+                where schemaname = current_schema()
+                  and indexname = 'ix_board_post_comment_reactions_reactor_pet_comment'
+                """, String.class)).contains("reactor_pet_id, comment_id");
+        assertThat(jdbc.queryForObject("""
+                select indexdef from pg_indexes
+                where schemaname = current_schema()
+                  and indexname = 'ix_board_post_comments_visible_author_pet_id'
+                """, String.class)).contains("author_pet_id, id").contains("deleted_at IS NULL");
+        assertThat(jdbc.queryForList("""
+                select rc.delete_rule
+                from information_schema.referential_constraints rc
+                join information_schema.table_constraints tc
+                  on tc.constraint_catalog = rc.constraint_catalog
+                 and tc.constraint_schema = rc.constraint_schema
+                 and tc.constraint_name = rc.constraint_name
+                where tc.table_schema = current_schema()
+                  and tc.table_name = 'board_post_comment_reactions'
+                order by tc.constraint_name
+                """, String.class)).containsExactly("NO ACTION", "NO ACTION");
         long replyId = insertHierarchyComment(postId, author.userId(), author.petId(), "reply", Instant.now().plusSeconds(2),
                 rootId, rootId, (short) 1);
         assertThatThrownBy(() -> insertHierarchyComment(postId, author.userId(), author.petId(), "bad-root", Instant.now(),
@@ -158,12 +198,29 @@ class BoardPostCommentPostgreSqlIntegrationTest {
                     insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
                     values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED') returning id
                     """, Long.class, boardId, userId, petId);
+            upgradeJdbc.update("""
+                    insert into board_post_reactions (post_id, reactor_pet_id, reaction_type)
+                    values (?, ?, 'LIKE')
+                    """, postId, petId);
             long legacyCommentId = upgradeJdbc.queryForObject("""
                     insert into board_post_comments (post_id, author_user_id, author_pet_id, content)
                     values (?, ?, ?, 'legacy root comment') returning id
                     """, Long.class, postId, userId, petId);
 
             afterV32.migrate();
+
+            assertThat(upgradeJdbc.queryForObject("""
+                    select count(*) from board_post_reactions
+                    where post_id = ? and reactor_pet_id = ? and reaction_type = 'LIKE'
+                    """, Long.class, postId, petId)).isEqualTo(1L);
+            assertThat(upgradeJdbc.update("""
+                    insert into board_post_reactions (post_id, reactor_pet_id, reaction_type)
+                    values (?, ?, 'HELPFUL')
+                    """, postId, petId)).isEqualTo(1);
+            assertThat(upgradeJdbc.queryForObject("""
+                    select count(*) from board_post_reactions
+                    where post_id = ? and reactor_pet_id = ?
+                    """, Long.class, postId, petId)).isEqualTo(2L);
 
             assertThat(upgradeJdbc.queryForObject(
                     "select parent_comment_id is null from board_post_comments where id = ?", Boolean.class, legacyCommentId
@@ -448,8 +505,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
             assertThat(commentSavedWithReadLock.await(10, TimeUnit.SECONDS)).isTrue();
             Future<Throwable> delete = executor.submit(() -> inTransaction(tx, () -> {
                 deleteBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
-                postService.delete(postAuthor.userId(), postId);
                 deleteStarted.countDown();
+                postService.delete(postAuthor.userId(), postId);
                 posts.flush();
             }));
             assertThat(deleteStarted.await(10, TimeUnit.SECONDS)).isTrue();
@@ -613,8 +670,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
             assertThat(replySaved.await(10, TimeUnit.SECONDS)).isTrue();
             Future<Throwable> delete = executor.submit(() -> inTransaction(tx, () -> {
                 deleteBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
-                postService.delete(postAuthor.userId(), postId);
                 deleteStarted.countDown();
+                postService.delete(postAuthor.userId(), postId);
                 posts.flush();
             }));
             assertThat(deleteStarted.await(10, TimeUnit.SECONDS)).isTrue();
@@ -670,6 +727,264 @@ class BoardPostCommentPostgreSqlIntegrationTest {
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
         assertThat(jdbc.queryForObject("select count(*) from board_post_comments where parent_comment_id = ?", Long.class, parentId)).isZero();
+    }
+
+    @Test
+    void samePetConcurrentCommentHelpfulUsesServiceAndObservedUserLockWait() throws Exception {
+        long boardId = createBoard();
+        Author author = createAuthor("author", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        activate(reactor);
+        long postId = insertPost(boardId, author, "PUBLISHED");
+        long commentId = insertComment(postId, author.userId(), author.petId(), "target", Instant.now(), null);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch firstMutated = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        AtomicLong secondBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> first = executor.submit(() -> inTransaction(tx, () -> {
+                commentService.addReaction(reactor.userId(), commentId, CommentReactionType.HELPFUL);
+                firstMutated.countDown();
+                await(allowFirstCommit);
+            }));
+            assertThat(firstMutated.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> second = executor.submit(() -> inTransaction(tx, () -> {
+                secondBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                secondStarted.countDown();
+                commentService.addReaction(reactor.userId(), commentId, CommentReactionType.HELPFUL);
+            }));
+            assertThat(secondStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(secondBackendPid.get());
+            allowFirstCommit.countDown();
+            assertThat(first.get(30, TimeUnit.SECONDS)).isNull();
+            assertThat(second.get(30, TimeUnit.SECONDS)).isNull();
+        } finally {
+            allowFirstCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(commentReactions.countForComment(commentId, "HELPFUL")).isEqualTo(1L);
+    }
+
+    @Test
+    void commentHelpfulFirstThenCommentDeleteWaitsAndRetainsHistoricalReactionRow() throws Exception {
+        long boardId = createBoard();
+        Author author = createAuthor("author", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        activate(author);
+        activate(reactor);
+        long postId = insertPost(boardId, author, "PUBLISHED");
+        long commentId = insertComment(postId, author.userId(), author.petId(), "target", Instant.now(), null);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch reactionSaved = new CountDownLatch(1);
+        CountDownLatch allowReactionCommit = new CountDownLatch(1);
+        CountDownLatch deleteStarted = new CountDownLatch(1);
+        AtomicLong deleteBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> reaction = executor.submit(() -> inTransaction(tx, () -> {
+                commentService.addReaction(reactor.userId(), commentId, CommentReactionType.HELPFUL);
+                reactionSaved.countDown();
+                await(allowReactionCommit);
+            }));
+            assertThat(reactionSaved.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> delete = executor.submit(() -> inTransaction(tx, () -> {
+                deleteBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                deleteStarted.countDown();
+                commentService.delete(author.userId(), commentId);
+            }));
+            assertThat(deleteStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(deleteBackendPid.get());
+            allowReactionCommit.countDown();
+            assertThat(reaction.get(30, TimeUnit.SECONDS)).isNull();
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+        } finally {
+            allowReactionCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("select deleted_at is not null from board_post_comments where id = ?", Boolean.class, commentId)).isTrue();
+        assertThat(jdbc.queryForObject("select count(*) from board_post_comment_reactions where comment_id = ?", Long.class, commentId)).isEqualTo(1L);
+    }
+
+    @Test
+    void helpfulReputationCountsOnlyUndeletedOwnTargetsAndKeepsActiveCommentHistoryAcrossDeletedPostAndAncestor() {
+        long boardId = createBoard();
+        Author receiver = createAuthor("receiver", "4113111500");
+        Author secondReceiver = createAuthor("second", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        long activePost = insertPost(boardId, receiver, "PUBLISHED");
+        long deletedPost = insertPost(boardId, receiver, "PUBLISHED");
+        jdbc.update("update board_posts set status = 'DELETED', deleted_at = now() where id = ?", deletedPost);
+        long activeCommentUnderDeletedPost = insertComment(deletedPost, receiver.userId(), receiver.petId(), "active", Instant.now(), null);
+        long deletedRoot = insertComment(activePost, receiver.userId(), receiver.petId(), "root", Instant.now(), null);
+        jdbc.update("update board_post_comments set deleted_at = now() where id = ?", deletedRoot);
+        long activeChildUnderDeletedRoot = insertHierarchyComment(activePost, receiver.userId(), receiver.petId(), "child", Instant.now(), deletedRoot, deletedRoot, (short) 1);
+        long deletedOwnComment = insertComment(activePost, receiver.userId(), receiver.petId(), "deleted", Instant.now(), Instant.now());
+        long secondPost = insertPost(boardId, secondReceiver, "PUBLISHED");
+        insertPostHelpful(activePost, reactor.petId());
+        insertPostHelpful(deletedPost, reactor.petId());
+        insertCommentHelpful(activeCommentUnderDeletedPost, reactor.petId());
+        insertCommentHelpful(activeChildUnderDeletedRoot, reactor.petId());
+        insertCommentHelpful(deletedOwnComment, reactor.petId());
+        insertPostHelpful(secondPost, reactor.petId());
+        jdbc.update("update pets set status = 'SUSPENDED' where id = ?", reactor.petId());
+        jdbc.update("insert into user_blocks (blocker_user_id, blocked_user_id, created_at) values (?, ?, now())", receiver.userId(), reactor.userId());
+
+        assertThat(helpfulCounts.countForPet(receiver.petId())).isEqualTo(3L);
+        assertThat(helpfulCounts.countForPets(List.of(receiver.petId(), secondReceiver.petId())))
+                .containsEntry(receiver.petId(), 3L)
+                .containsEntry(secondReceiver.petId(), 1L);
+    }
+
+    @Test
+    void deletedReactorPetKeepsExistingHelpfulRowAndReceiverReputation() {
+        long boardId = createBoard();
+        Author receiver = createAuthor("receiver", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        long postId = insertPost(boardId, receiver, "PUBLISHED");
+        insertPostHelpful(postId, reactor.petId());
+
+        jdbc.update("update pets set status = 'DELETED', deleted_at = now() where id = ?", reactor.petId());
+
+        assertThat(jdbc.queryForObject("""
+                select count(*) from board_post_reactions
+                where post_id = ? and reactor_pet_id = ? and reaction_type = 'HELPFUL'
+                """, Long.class, postId, reactor.petId())).isEqualTo(1L);
+        assertThat(helpfulCounts.countForPet(receiver.petId())).isEqualTo(1L);
+    }
+
+    @Test
+    void commentDeleteFirstMakesWaitingHelpfulReevaluateActiveTargetAndCreateNoRow() throws Exception {
+        long boardId = createBoard();
+        Author author = createAuthor("author", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        activate(author);
+        activate(reactor);
+        long postId = insertPost(boardId, author, "PUBLISHED");
+        long commentId = insertComment(postId, author.userId(), author.petId(), "target", Instant.now(), null);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch deleteWriteLocked = new CountDownLatch(1);
+        CountDownLatch allowDeleteCommit = new CountDownLatch(1);
+        CountDownLatch reactionStarted = new CountDownLatch(1);
+        AtomicLong reactionBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> delete = executor.submit(() -> inTransaction(tx, () -> {
+                commentService.delete(author.userId(), commentId);
+                comments.flush();
+                deleteWriteLocked.countDown();
+                await(allowDeleteCommit);
+            }));
+            assertThat(deleteWriteLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> reaction = executor.submit(() -> inTransaction(tx, () -> {
+                reactionBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                reactionStarted.countDown();
+                commentService.addReaction(reactor.userId(), commentId, CommentReactionType.HELPFUL);
+            }));
+            assertThat(reactionStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(reactionBackendPid.get());
+            allowDeleteCommit.countDown();
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+            assertBusiness(reaction.get(30, TimeUnit.SECONDS), "BOARD_POST_COMMENT_NOT_FOUND");
+        } finally {
+            allowDeleteCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("select count(*) from board_post_comment_reactions where comment_id = ?", Long.class, commentId)).isZero();
+    }
+
+    @Test
+    void commentHelpfulFirstThenParentPostDeleteWaitsAndKeepsActiveCommentReputation() throws Exception {
+        long boardId = createBoard();
+        Author author = createAuthor("author", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        activate(author);
+        activate(reactor);
+        long postId = insertPost(boardId, author, "PUBLISHED");
+        long commentId = insertComment(postId, author.userId(), author.petId(), "target", Instant.now(), null);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch reactionSaved = new CountDownLatch(1);
+        CountDownLatch allowReactionCommit = new CountDownLatch(1);
+        CountDownLatch deleteStarted = new CountDownLatch(1);
+        AtomicLong deleteBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> reaction = executor.submit(() -> inTransaction(tx, () -> {
+                commentService.addReaction(reactor.userId(), commentId, CommentReactionType.HELPFUL);
+                reactionSaved.countDown();
+                await(allowReactionCommit);
+            }));
+            assertThat(reactionSaved.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> delete = executor.submit(() -> inTransaction(tx, () -> {
+                deleteBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                deleteStarted.countDown();
+                postService.delete(author.userId(), postId);
+            }));
+            assertThat(deleteStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(deleteBackendPid.get());
+            allowReactionCommit.countDown();
+            assertThat(reaction.get(30, TimeUnit.SECONDS)).isNull();
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+        } finally {
+            allowReactionCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("select count(*) from board_post_comment_reactions where comment_id = ?", Long.class, commentId)).isEqualTo(1L);
+        assertThat(helpfulCounts.countForPet(author.petId())).isEqualTo(1L);
+    }
+
+    @Test
+    void parentPostDeleteFirstMakesWaitingCommentHelpfulFailAndCreateNoRow() throws Exception {
+        long boardId = createBoard();
+        Author author = createAuthor("author", "4113111500");
+        Author reactor = createAuthor("reactor", "4113111500");
+        activate(author);
+        activate(reactor);
+        long postId = insertPost(boardId, author, "PUBLISHED");
+        long commentId = insertComment(postId, author.userId(), author.petId(), "target", Instant.now(), null);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch deleteWriteLocked = new CountDownLatch(1);
+        CountDownLatch allowDeleteCommit = new CountDownLatch(1);
+        CountDownLatch reactionStarted = new CountDownLatch(1);
+        AtomicLong reactionBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> delete = executor.submit(() -> inTransaction(tx, () -> {
+                postService.delete(author.userId(), postId);
+                posts.flush();
+                deleteWriteLocked.countDown();
+                await(allowDeleteCommit);
+            }));
+            assertThat(deleteWriteLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> reaction = executor.submit(() -> inTransaction(tx, () -> {
+                reactionBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                reactionStarted.countDown();
+                commentService.addReaction(reactor.userId(), commentId, CommentReactionType.HELPFUL);
+            }));
+            assertThat(reactionStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(reactionBackendPid.get());
+            allowDeleteCommit.countDown();
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+            assertBusiness(reaction.get(30, TimeUnit.SECONDS), "BOARD_POST_NOT_FOUND");
+        } finally {
+            allowDeleteCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("select count(*) from board_post_comment_reactions where comment_id = ?", Long.class, commentId)).isZero();
+    }
+
+    private void insertPostHelpful(long postId, long reactorPetId) {
+        jdbc.update("insert into board_post_reactions (post_id, reactor_pet_id, reaction_type) values (?, ?, 'HELPFUL')", postId, reactorPetId);
+    }
+
+    private void insertCommentHelpful(long commentId, long reactorPetId) {
+        jdbc.update("insert into board_post_comment_reactions (comment_id, reactor_pet_id, reaction_type) values (?, ?, 'HELPFUL')", commentId, reactorPetId);
     }
 
     private long createBoard() {

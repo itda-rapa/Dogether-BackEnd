@@ -14,10 +14,31 @@ public record BoardPostResponse(
         List<BoardPostImageResponse> images,
         long reactionCount,
         boolean reactedByMe,
+        long helpfulCount,
+        boolean helpfulByMe,
         long version,
         Instant createdAt,
         Instant updatedAt
 ) {
+
+    public BoardPostResponse(
+            Long postId,
+            Long boardId,
+            BoardPostAuthorPetResponse authorPet,
+            String title,
+            String content,
+            List<BoardPostImageResponse> images,
+            long reactionCount,
+            boolean reactedByMe,
+            long version,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                postId, boardId, authorPet, title, content, images,
+                reactionCount, reactedByMe, 0, false, version, createdAt, updatedAt
+        );
+    }
 
     public static BoardPostResponse of(
             BoardPost post,
@@ -34,6 +55,8 @@ public record BoardPostResponse(
                 List.copyOf(images),
                 reaction.reactionCount(),
                 reaction.reactedByMe(),
+                reaction.helpfulCount(),
+                reaction.helpfulByMe(),
                 post.getVersion(),
                 post.getCreatedAt(),
                 post.getUpdatedAt()

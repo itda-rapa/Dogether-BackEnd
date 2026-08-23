@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
@@ -18,6 +20,7 @@ import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import itda.media.service.MediaService;
 import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.User;
@@ -51,12 +54,15 @@ class MyPetQueryServiceTest {
     private MediaService mediaService;
     @Mock
     private PetVerificationBadgeService badgeService;
+    @Mock
+    private PetHelpfulReceivedCountQueryService helpfulReceivedCounts;
 
     private MyPetQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new MyPetQueryService(petRepository, mediaService, badgeService);
+        service = new MyPetQueryService(petRepository, mediaService, badgeService, helpfulReceivedCounts);
+        lenient().when(helpfulReceivedCounts.countForPets(anyCollection())).thenReturn(Map.of());
     }
 
     @Test
@@ -69,14 +75,18 @@ class MyPetQueryServiceTest {
         given(petRepository.findMyPetsOrdered(USER_ID)).willReturn(List.of(verified, unverified));
         given(badgeService.verifiedAtByPetIds(argThat(ids -> Set.copyOf(ids).equals(Set.of(PET_ID, 3L)))) )
                 .willReturn(Map.of(PET_ID, verifiedAt));
+        given(helpfulReceivedCounts.countForPets(argThat(ids -> Set.copyOf(ids).equals(Set.of(PET_ID, 3L)))))
+                .willReturn(Map.of(PET_ID, 7L, 3L, 2L));
 
         List<PetResponse> responses = service.getMyPets(USER_ID);
 
         assertThat(responses).extracting(PetResponse::verified).containsExactly(true, false);
         assertThat(responses.getFirst().verifiedAt()).isEqualTo(verifiedAt);
+        assertThat(responses).extracting(PetResponse::helpfulReceivedCount).containsExactly(7L, 2L);
         then(badgeService).should().verifiedAtByPetIds(argThat(ids -> Set.copyOf(ids).equals(Set.of(PET_ID, 3L))));
         then(badgeService).should(never()).verifiedAt(PET_ID);
         then(badgeService).should(never()).verifiedAt(3L);
+        then(helpfulReceivedCounts).should().countForPets(argThat(ids -> Set.copyOf(ids).equals(Set.of(PET_ID, 3L))));
     }
 
     @Nested
@@ -90,6 +100,7 @@ class MyPetQueryServiceTest {
             owner.selectActivePet(PET_ID);
             Pet pet = pet(owner, List.of("친화적", "활발함"));
             given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(helpfulReceivedCounts.countForPet(PET_ID)).willReturn(9L);
 
             PetResponse response = service.getMyPet(USER_ID, PET_ID);
 
@@ -114,6 +125,7 @@ class MyPetQueryServiceTest {
             assertThat(response.verified()).isFalse();
             assertThat(response.verifiedAt()).isNull();
             assertThat(response.active()).isTrue();
+            assertThat(response.helpfulReceivedCount()).isEqualTo(9L);
             assertThatThrownBy(() -> response.personalityTags().add("차분함"))
                     .isInstanceOf(UnsupportedOperationException.class);
         }
