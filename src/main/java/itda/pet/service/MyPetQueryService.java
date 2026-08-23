@@ -11,6 +11,7 @@ import itda.petverification.PetVerificationBadgeService;
 import java.time.Instant;
 import java.util.Map;
 import java.util.List;
+import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,15 +21,18 @@ public class MyPetQueryService {
     private final PetRepository petRepository;
     private final MediaService mediaService;
     private final PetVerificationBadgeService badgeService;
+    private final PetHelpfulReceivedCountQueryService helpfulReceivedCounts;
 
     public MyPetQueryService(
             PetRepository petRepository,
             MediaService mediaService,
-            PetVerificationBadgeService badgeService
+            PetVerificationBadgeService badgeService,
+            PetHelpfulReceivedCountQueryService helpfulReceivedCounts
     ) {
         this.petRepository = petRepository;
         this.mediaService = mediaService;
         this.badgeService = badgeService;
+        this.helpfulReceivedCounts = helpfulReceivedCounts;
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +52,8 @@ public class MyPetQueryService {
                 pet,
                 pet.getOwner().isActivePet(petId),
                 profileUrlOf(pet),
-                verifiedAt(petId)
+                verifiedAt(petId),
+                helpfulReceivedCount(petId)
         );
     }
 
@@ -72,12 +77,16 @@ public class MyPetQueryService {
         List<Pet> pets = petRepository.findMyPetsOrdered(userId);
         Map<Long, Instant> badges = badgeService.verifiedAtByPetIds(
                 pets.stream().map(Pet::getId).toList());
+        Map<Long, Long> helpfulCounts = helpfulReceivedCounts.countForPets(
+                pets.stream().map(Pet::getId).toList()
+        );
         return pets.stream()
                 .map(pet -> PetResponse.from(
                                 pet,
                                 pet.getOwner().isActivePet(pet.getId()),
                                 profileUrlOf(pet),
-                                badges.get(pet.getId())
+                                badges.get(pet.getId()),
+                                helpfulCounts.getOrDefault(pet.getId(), 0L)
                         )
                 )
                 .toList();
@@ -93,4 +102,8 @@ public class MyPetQueryService {
     }
 
     private Instant verifiedAt(Long petId) { return badgeService.verifiedAt(petId); }
+
+    private long helpfulReceivedCount(Long petId) {
+        return helpfulReceivedCounts.countForPet(petId);
+    }
 }

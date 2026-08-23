@@ -29,8 +29,24 @@ public record PetResponse(
         Instant deletedAt,
         boolean verified,
         Instant verifiedAt,
-        boolean active
+        boolean active,
+        long helpfulReceivedCount
 ) {
+
+    public PetResponse(
+            Long petId, Long ownerUserId, String publicTag, String ownerPublicTag,
+            String nickname, String breedName, PetSex sex, Boolean neutered,
+            LocalDate birthDate, BigDecimal weightKg, PetSizeCode sizeCode, String bio,
+            List<String> personalityTags, String careNote, String profileUrl,
+            PetStatus status, Instant deletedAt, boolean verified, Instant verifiedAt,
+            boolean active
+    ) {
+        this(
+                petId, ownerUserId, publicTag, ownerPublicTag, nickname, breedName, sex, neutered,
+                birthDate, weightKg, sizeCode, bio, personalityTags, careNote, profileUrl, status,
+                deletedAt, verified, verifiedAt, active, 0
+        );
+    }
 
     public PetResponse {
         personalityTags = personalityTags == null
@@ -43,6 +59,16 @@ public record PetResponse(
             boolean active,
             String profileUrl,
             Instant verifiedAt
+    ) {
+        return from(pet, active, profileUrl, verifiedAt, 0);
+    }
+
+    public static PetResponse from(
+            Pet pet,
+            boolean active,
+            String profileUrl,
+            Instant verifiedAt,
+            long helpfulReceivedCount
     ) {
         return new PetResponse(
                 pet.getId(),
@@ -64,7 +90,8 @@ public record PetResponse(
                 pet.getDeletedAt(),
                 verifiedAt != null,
                 verifiedAt,
-                active
+                active,
+                helpfulReceivedCount
         );
     }
 }

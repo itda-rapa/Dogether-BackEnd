@@ -10,7 +10,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.comment.dto.CommentCreateRequest;
 import itda.comment.dto.CommentListResponse;
 import itda.comment.dto.CommentResponse;
+import itda.comment.dto.CommentReactionResponse;
 import itda.comment.dto.CommentUpdateRequest;
+import itda.comment.domain.CommentReactionType;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import org.springframework.http.MediaType;
@@ -77,7 +79,7 @@ public interface BoardPostCommentSwaggerSupporter {
             JsonNode body
     );
 
-    @Operation(summary = "게시글 댓글 목록", description = "공개 범위와 양방향 차단 관계를 적용해 Root thread를 오래된 순으로 cursor 조회합니다. size는 Root thread 수이며 각 thread는 중첩 replies로 반환됩니다.")
+    @Operation(summary = "게시글 댓글 목록", description = "공개 범위와 양방향 차단 관계를 적용해 Root thread를 오래된 순으로 cursor 조회합니다. size는 Root thread 수이며 각 thread는 중첩 replies로 반환됩니다. 활성 노드의 helpfulCount/helpfulByMe는 HELPFUL 상태이고, tombstone 노드에서는 null입니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "댓글 목록 조회 성공",
@@ -85,7 +87,7 @@ public interface BoardPostCommentSwaggerSupporter {
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
-                            {"success":true,"message":"댓글 목록이 조회되었습니다.","data":{"items":[{"commentId":1,"postId":10,"parentCommentId":null,"depth":0,"deleted":false,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"같이 산책해요!","version":0,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:00:00Z","replies":[{"commentId":2,"postId":10,"parentCommentId":1,"depth":1,"deleted":false,"authorPet":{"petId":3,"publicTag":"dog-3","nickname":"보리","profileUrl":null,"verified":false},"content":"동의해요!","version":0,"createdAt":"2026-08-10T00:01:00Z","updatedAt":"2026-08-10T00:01:00Z","replies":[]}]}],"page":{"nextCursor":"MjAyNi0wOC0xMFQwMDowMDowMFp8MQ","hasNext":true}},"error":null}
+                            {"success":true,"message":"댓글 목록이 조회되었습니다.","data":{"items":[{"commentId":1,"postId":10,"parentCommentId":null,"depth":0,"deleted":false,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"content":"같이 산책해요!","version":0,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:00:00Z","helpfulCount":2,"helpfulByMe":true,"replies":[{"commentId":2,"postId":10,"parentCommentId":1,"depth":1,"deleted":false,"authorPet":{"petId":3,"publicTag":"dog-3","nickname":"보리","profileUrl":null,"verified":false},"content":"동의해요!","version":0,"createdAt":"2026-08-10T00:01:00Z","updatedAt":"2026-08-10T00:01:00Z","helpfulCount":0,"helpfulByMe":false,"replies":[]}]}],"page":{"nextCursor":"MjAyNi0wOC0xMFQwMDowMDowMFp8MQ","hasNext":true}},"error":null}
                             """)
             )
     )
@@ -127,5 +129,27 @@ public interface BoardPostCommentSwaggerSupporter {
     ResponseEntity<Void> delete(
             @Parameter(hidden = true) CurrentUser user,
             @Parameter(description = "댓글 ID") Long commentId
+    );
+
+    @Operation(summary = "댓글 HELPFUL 추가", description = "현재 활성 반려견의 HELPFUL 반응을 멱등하게 추가합니다. 요청 본문은 없습니다. Comment Reaction은 HELPFUL만 허용하며 LIKE는 지원하지 않습니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "반응 추가 성공")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 반응 타입 (VALIDATION_FAILED)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "활성 반려견 필요 또는 자기 댓글 반응 금지")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "공개 범위에서 찾을 수 없는 게시글 또는 댓글")
+    ResponseEntity<ApiResponse<CommentReactionResponse>> addReaction(
+            @Parameter(hidden = true) CurrentUser user,
+            @Parameter(description = "댓글 ID") Long commentId,
+            @Parameter(description = "반응 타입 (HELPFUL만 허용)", example = "HELPFUL") CommentReactionType type
+    );
+
+    @Operation(summary = "댓글 HELPFUL 취소", description = "현재 활성 반려견의 HELPFUL 반응을 멱등하게 취소합니다. 요청 본문은 없습니다. 차단된 target 또는 조상은 404로 은닉됩니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "반응 취소 성공")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 반응 타입 (VALIDATION_FAILED)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "활성 반려견 필요 또는 자기 댓글 반응 금지")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "공개 범위에서 찾을 수 없는 게시글 또는 댓글")
+    ResponseEntity<ApiResponse<CommentReactionResponse>> removeReaction(
+            @Parameter(hidden = true) CurrentUser user,
+            @Parameter(description = "댓글 ID") Long commentId,
+            @Parameter(description = "반응 타입 (HELPFUL만 허용)", example = "HELPFUL") CommentReactionType type
     );
 }

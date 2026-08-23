@@ -8,6 +8,7 @@ import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
 import itda.media.service.MediaService;
 import itda.petverification.PetVerificationBadgeService;
+import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,15 +18,18 @@ public class PetUpdateService {
     private final PetRepository petRepository;
     private final MediaService mediaService;
     private final PetVerificationBadgeService badgeService;
+    private final PetHelpfulReceivedCountQueryService helpfulReceivedCounts;
 
     public PetUpdateService(
             PetRepository petRepository,
             MediaService mediaService,
-            PetVerificationBadgeService badgeService
+            PetVerificationBadgeService badgeService,
+            PetHelpfulReceivedCountQueryService helpfulReceivedCounts
     ) {
         this.petRepository = petRepository;
         this.mediaService = mediaService;
         this.badgeService = badgeService;
+        this.helpfulReceivedCounts = helpfulReceivedCounts;
     }
 
     @Transactional
@@ -51,7 +55,8 @@ public class PetUpdateService {
         applyUpdate(pet, command);
 
         return PetResponse.from(pet, pet.getOwner().isActivePet(petId),
-                profileUrlOf(pet), badgeService.verifiedAt(petId));
+                profileUrlOf(pet), badgeService.verifiedAt(petId),
+                helpfulReceivedCounts.countForPet(petId));
     }
 
     private void validateCommand(PetUpdateCommand command) {
