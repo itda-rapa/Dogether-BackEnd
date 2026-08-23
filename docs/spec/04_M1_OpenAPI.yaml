@@ -1927,7 +1927,7 @@ components:
 
     ChatMessageAttachment:
       type: object
-      required: [mediaId, mediaType, url, expiresAt]
+      required: [mediaId, mediaType]
       properties:
         mediaId:
           type: integer
@@ -1941,10 +1941,10 @@ components:
           type: [integer, 'null']
           format: int64
         url:
-          type: string
-          description: 응답 시점에 발급한 Presigned URL. DB에 저장하지 않는다.
+          type: [string, 'null']
+          description: 응답 시점에 발급한 Presigned URL. DB에 저장하지 않는다. 접근 불가 media는 null.
         expiresAt:
-          type: string
+          type: [string, 'null']
           format: date-time
 
     SharedSetlog:
@@ -1977,6 +1977,7 @@ components:
 
     SharedSetlogMedia:
       type: object
+      required: [mediaId, mediaType, url, expiresAt]
       properties:
         mediaId:
           type: integer

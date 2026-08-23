@@ -228,16 +228,14 @@ public class SetlogQueryService {
     }
 
     /**
-     * Chat SETLOG_SHARE 전송용 공개 검증 계약: 발신자(Active Pet 소유 User)가 작성한,
-     * 현재 VISIBLE인 setlog만 공유 가능하다. Chat이 setlog 내부 상태를 직접 해석하지 않도록
-     * 이 메서드가 단일 검증 지점을 제공한다.
+     * Chat SETLOG_SHARE 전송용 공개 검증 계약. 표시 가능(VISIBLE + 재생 가능 Media + 정상 작성자)
+     * setlog만 통과시키며, 그 판정은 {@link SetlogRepository#findInteractableById}가 가진
+     * 단일 조건으로 수행한다. Chat은 setlog 내부 상태를 직접 해석하지 않는다.
      */
     public Setlog requireShareableSetlog(Long setlogId, Long ownerUserId) {
-        Setlog setlog = setlogRepository.findByIdForShare(setlogId)
+        Setlog setlog = setlogRepository
+                .findInteractableById(setlogId, SetlogStatus.VISIBLE, PLAYABLE_MEDIA_STATUSES)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SETLOG_NOT_FOUND));
-        if (setlog.getStatus() != SetlogStatus.VISIBLE) {
-            throw new BusinessException(ErrorCode.SETLOG_NOT_FOUND);
-        }
         if (ownerUserId == null || !ownerUserId.equals(setlog.getAuthorPet().getOwner().getId())) {
             throw new BusinessException(ErrorCode.SETLOG_SHARE_FORBIDDEN);
         }
@@ -245,19 +243,23 @@ public class SetlogQueryService {
     }
 
     /**
-     * 메시지 목록 hydration용 batch 계약. 조회 시점의 현재 접근 가능 요약을 반환하며,
-     * 삭제·재생 불가 setlog는 {@code available=false}로 대체한다.
+     * 메시지 목록 hydration용 batch 계약. 표시 가능 setlog만 현재 요약을 반환하고,
+     * 삭제·재생 불가·작성자 비정상 setlog는 {@code available=false}로 대체한다.
      */
     @Transactional(readOnly = true)
     public Map<Long, ShareableSetlogView> findShareableSetlogViews(Collection<Long> setlogIds) {
         if (setlogIds == null || setlogIds.isEmpty()) {
             return Map.of();
         }
-        List<Setlog> setlogs = setlogRepository.findAllByIdForShare(setlogIds);
+        List<Setlog> setlogs = setlogRepository.findAllByIdForShare(
+                setlogIds, SetlogStatus.VISIBLE, PLAYABLE_MEDIA_STATUSES);
         Map<Long, MediaService.OwnedPresignedDownload> downloads =
                 mediaService.getMediaDownloadsByIds(
                         setlogs.stream().map(setlog -> setlog.getMedia().getId()).toList());
         Map<Long, ShareableSetlogView> result = new LinkedHashMap<>();
+        for (Long setlogId : setlogIds) {
+            result.put(setlogId, ShareableSetlogView.unavailable(setlogId));
+        }
         for (Setlog setlog : setlogs) {
             result.put(setlog.getId(), toShareableView(
                     setlog, downloads.get(setlog.getMedia().getId())));
@@ -269,7 +271,7 @@ public class SetlogQueryService {
             Setlog setlog,
             MediaService.OwnedPresignedDownload download
     ) {
-        if (setlog.getStatus() != SetlogStatus.VISIBLE || download == null) {
+        if (download == null) {
             return ShareableSetlogView.unavailable(setlog.getId());
         }
         return new ShareableSetlogView(

@@ -50,21 +50,58 @@ public class ChatMessageService {
     private final ApplicationEventPublisher eventPublisher;
 
     /**
-     * 사용자 전송 메시지의 공통 진입점. TEXT는 기존 인사 답변 게이트를, IMAGE/VIDEO/SETLOG_SHARE는
-     * 각각 media/setlog 공개 계약 검증을 거쳐 동일한 {@link #insert} 경로로 저장한다.
+     * 사용자 전송 메시지의 공통 진입점. 모든 사용자 타입(TEXT/IMAGE/VIDEO/SETLOG_SHARE)이
+     * 동일한 인사 답변 게이트를 거친 뒤 공통 {@link #insert} 경로로 저장한다.
      * CARD/SYSTEM은 서버 전용이므로 외부 요청에서 거부한다.
      */
     @Transactional
     public ChatMessageResult sendMessage(long roomId, long senderPetId, long ownerUserId,
                                          ChatMessageCreateRequest request) {
         MessageType type = normalizeType(request);
-        return switch (type) {
-            case TEXT -> sendText(roomId, senderPetId, request);
-            case IMAGE -> sendMedia(roomId, senderPetId, ownerUserId, request, AttachmentType.IMAGE);
-            case VIDEO -> sendMedia(roomId, senderPetId, ownerUserId, request, AttachmentType.VIDEO);
-            case SETLOG_SHARE -> sendSetlogShare(roomId, senderPetId, ownerUserId, request);
+        return insertUserMessage(roomId, senderPetId, ownerUserId, request, type);
+    }
+
+    /**
+     * 공통 사용자 메시지 경로. Greeting 답변 게이트를 모든 사용자 타입에 적용한다.
+     * Greeting 발신자는 상대 응답 전 어떤 타입이든 전송할 수 없고, 수신자가 임의 타입으로
+     * 응답하면 Greeting을 RESPONDED로 전이시킨다.
+     */
+    private ChatMessageResult insertUserMessage(long roomId, long senderPetId, Long ownerUserId,
+                                                ChatMessageCreateRequest request, MessageType type) {
+        requireClientMessageId(request);
+
+        Optional<Greeting> greetingToRespond =
+                greetingRepository
+                        .findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                                roomId,
+                                senderPetId,
+                                GreetingStatus.SENT
+                        );
+        if (greetingToRespond.isEmpty()
+                && greetingRepository
+                .existsByRoomIdAndFromPet_IdAndStatus(
+                        roomId,
+                        senderPetId,
+                        GreetingStatus.SENT
+                )) {
+            throw new BusinessException(ErrorCode.GREETING_REPLY_REQUIRED);
+        }
+
+        ChatMessageResult result = switch (type) {
+            case TEXT -> insert(roomId, SenderType.PET, senderPetId,
+                    MessageType.TEXT, request.body(), null, null, request.clientMessageId(),
+                    null, null, null);
+            case IMAGE -> insertMedia(roomId, senderPetId, ownerUserId, request, MessageType.IMAGE);
+            case VIDEO -> insertMedia(roomId, senderPetId, ownerUserId, request, MessageType.VIDEO);
+            case SETLOG_SHARE -> insertSetlogShare(roomId, senderPetId, ownerUserId, request);
             default -> throw new BusinessException(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
         };
+        if (result.created()) {
+            greetingToRespond.ifPresent(greeting ->
+                    greeting.markResponded(Instant.now())
+            );
+        }
+        return result;
     }
 
     /**
@@ -86,37 +123,11 @@ public class ChatMessageService {
     }
 
     /**
-     * Send a user-authored TEXT message. M1 인사 답변 게이트는 TEXT에만 적용된다.
+     * Send a user-authored TEXT message. 모든 사용자 타입과 동일한 인사 답변 게이트를 통과한다.
      */
     @Transactional
     public ChatMessageResult sendText(long roomId, long senderPetId, ChatMessageCreateRequest request) {
-        requireClientMessageId(request);
-        Optional<Greeting> greetingToRespond =
-                greetingRepository
-                        .findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
-                                roomId,
-                                senderPetId,
-                                GreetingStatus.SENT
-                        );
-        if (greetingToRespond.isEmpty()
-                && greetingRepository
-                .existsByRoomIdAndFromPet_IdAndStatus(
-                        roomId,
-                        senderPetId,
-                        GreetingStatus.SENT
-                )) {
-            throw new BusinessException(ErrorCode.GREETING_REPLY_REQUIRED);
-        }
-
-        ChatMessageResult result = insert(roomId, SenderType.PET, senderPetId,
-                MessageType.TEXT, request.body(), null, null, request.clientMessageId(),
-                null, null, null);
-        if (result.created()) {
-            greetingToRespond.ifPresent(greeting ->
-                    greeting.markResponded(Instant.now())
-            );
-        }
-        return result;
+        return insertUserMessage(roomId, senderPetId, null, request, MessageType.TEXT);
     }
 
     /**
@@ -164,19 +175,18 @@ public class ChatMessageService {
                 null, null, null);
     }
 
-    private ChatMessageResult sendMedia(long roomId, long senderPetId, long ownerUserId,
-                                        ChatMessageCreateRequest request, AttachmentType attachmentType) {
-        requireClientMessageId(request);
-        MediaType expected = attachmentType == AttachmentType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO;
-        return insert(roomId, SenderType.PET, senderPetId, request.type(), request.body(),
+    private ChatMessageResult insertMedia(long roomId, long senderPetId, Long ownerUserId,
+                                          ChatMessageCreateRequest request, MessageType type) {
+        AttachmentType attachmentType = type == MessageType.IMAGE ? AttachmentType.IMAGE : AttachmentType.VIDEO;
+        MediaType expected = type == MessageType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO;
+        return insert(roomId, SenderType.PET, senderPetId, type, request.body(),
                 null, null, request.clientMessageId(), request.mediaId(), attachmentType,
                 () -> mediaService.requireOwnedPlayableMedia(request.mediaId(), ownerUserId, expected));
     }
 
-    private ChatMessageResult sendSetlogShare(long roomId, long senderPetId, long ownerUserId,
-                                              ChatMessageCreateRequest request) {
-        requireClientMessageId(request);
-        return insert(roomId, SenderType.PET, senderPetId, request.type(), request.body(),
+    private ChatMessageResult insertSetlogShare(long roomId, long senderPetId, Long ownerUserId,
+                                                ChatMessageCreateRequest request) {
+        return insert(roomId, SenderType.PET, senderPetId, MessageType.SETLOG_SHARE, request.body(),
                 null, request.setlogId(), request.clientMessageId(), null, null,
                 () -> setlogQueryService.requireShareableSetlog(request.setlogId(), ownerUserId));
     }

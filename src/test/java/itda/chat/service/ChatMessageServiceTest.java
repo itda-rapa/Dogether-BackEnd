@@ -323,6 +323,94 @@ class ChatMessageServiceTest {
         );
     }
 
+    // ---------- greeting gate applies to every user type ----------
+
+    @Test
+    void greetingSenderCannotSendImageBeforeReply() {
+        when(greetingRepository.findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                1L, 10L, GreetingStatus.SENT)).thenReturn(Optional.empty());
+        when(greetingRepository.existsByRoomIdAndFromPet_IdAndStatus(
+                1L, 10L, GreetingStatus.SENT)).thenReturn(true);
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("img-g", MessageType.IMAGE, null, 501L, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.GREETING_REPLY_REQUIRED);
+
+        verify(mediaService, never()).requireOwnedPlayableMedia(any(), any(), any());
+    }
+
+    @Test
+    void greetingSenderCannotSendSetlogShareBeforeReply() {
+        when(greetingRepository.findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                1L, 10L, GreetingStatus.SENT)).thenReturn(Optional.empty());
+        when(greetingRepository.existsByRoomIdAndFromPet_IdAndStatus(
+                1L, 10L, GreetingStatus.SENT)).thenReturn(true);
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("set-g", MessageType.SETLOG_SHARE, null, null, 77L)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.GREETING_REPLY_REQUIRED);
+
+        verify(setlogQueryService, never()).requireShareableSetlog(any(), any());
+    }
+
+    @Test
+    void greetingRecipientImageResponseMarksResponded() {
+        Greeting greeting = mock(Greeting.class);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = mediaMsg(3L, 20L, MessageType.IMAGE, 501L, "reply-img");
+        MessageUpsert upsert = upsert(3L, true);
+        itda.media.domain.Media media = mock(itda.media.domain.Media.class);
+
+        when(greetingRepository.findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                1L, 20L, GreetingStatus.SENT)).thenReturn(Optional.of(greeting));
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "reply-img"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 20L)).thenReturn(true);
+        when(mediaService.requireOwnedPlayableMedia(501L, 7L, MediaType.IMAGE)).thenReturn(media);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 20L, "IMAGE", null, null, null, "reply-img"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(3L)).thenReturn(Optional.of(stored));
+
+        ChatMessageResult result = chatMessageService.sendMessage(1L, 20L, 7L,
+                new ChatMessageCreateRequest("reply-img", MessageType.IMAGE, null, 501L, null));
+
+        assertThat(result.created()).isTrue();
+        verify(greeting).markResponded(org.mockito.ArgumentMatchers.any(Instant.class));
+    }
+
+    @Test
+    void greetingRecipientSetlogShareResponseMarksResponded() {
+        Greeting greeting = mock(Greeting.class);
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = setlogShareMsg(3L, 20L, 77L, "reply-set");
+        MessageUpsert upsert = upsert(3L, true);
+        itda.setlog.domain.Setlog setlog = mock(itda.setlog.domain.Setlog.class);
+
+        when(greetingRepository.findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
+                1L, 20L, GreetingStatus.SENT)).thenReturn(Optional.of(greeting));
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "reply-set"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 20L)).thenReturn(true);
+        when(setlogQueryService.requireShareableSetlog(77L, 7L)).thenReturn(setlog);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 20L, "SETLOG_SHARE", null, null, 77L, "reply-set"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(3L)).thenReturn(Optional.of(stored));
+
+        ChatMessageResult result = chatMessageService.sendMessage(1L, 20L, 7L,
+                new ChatMessageCreateRequest("reply-set", MessageType.SETLOG_SHARE, null, null, 77L));
+
+        assertThat(result.created()).isTrue();
+        verify(greeting).markResponded(org.mockito.ArgumentMatchers.any(Instant.class));
+    }
+
     // ---------- server-authored CARD / SYSTEM ----------
 
     @Test

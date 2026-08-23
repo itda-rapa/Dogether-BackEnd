@@ -2,6 +2,7 @@ package itda.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -205,6 +206,58 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
                 .isEqualTo(ErrorCode.SETLOG_NOT_FOUND);
     }
 
+    @Test
+    @DisplayName("VISIBLE이지만 업로드 미완료 Media의 Setlog 공유는 거부된다")
+    void sharingSetlogWithNotReadyMediaIsRejected() {
+        long mediaId = insertMedia(USER_1, "IMAGE", "INIT");
+        long setlogId = insertSetlog(PET_1, mediaId, "VISIBLE");
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("set-r", MessageType.SETLOG_SHARE, null, null, setlogId)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.SETLOG_NOT_FOUND);
+    }
+
+    // ---------- greeting gate ----------
+
+    @Test
+    @DisplayName("Greeting 발신자는 응답 전 IMAGE/VIDEO/SETLOG_SHARE 전송이 거부되고 수신자 응답 후 허용된다")
+    void greetingGateAppliesToTypedMessages() {
+        long greetingMedia = insertMedia(USER_2, "IMAGE", "COMPLETED");
+        long greetingSetlog = insertSetlog(PET_2, greetingMedia, "VISIBLE");
+        insertGreeting(PET_1, PET_2, greetingSetlog, roomId);
+
+        // 발신자(pet 11)는 응답 전 어떤 타입이든 거부된다.
+        long imgMedia = insertMedia(USER_1, "IMAGE", "COMPLETED");
+        assertThatThrownBy(() -> chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("g-img", MessageType.IMAGE, null, imgMedia, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.GREETING_REPLY_REQUIRED);
+
+        long shareSetlog = insertSetlog(PET_1, insertMedia(USER_1, "IMAGE", "COMPLETED"), "VISIBLE");
+        assertThatThrownBy(() -> chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("g-set", MessageType.SETLOG_SHARE, null, null, shareSetlog)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.GREETING_REPLY_REQUIRED);
+
+        // 수신자(pet 22)가 VIDEO로 응답하면 Greeting이 RESPONDED로 전이된다.
+        long vidMedia = insertMedia(USER_2, "VIDEO", "COMPLETED");
+        ChatMessageResult reply = chatMessageService.sendMessage(roomId, PET_2, USER_2,
+                new ChatMessageCreateRequest("g-reply", MessageType.VIDEO, null, vidMedia, null));
+        assertThat(reply.created()).isTrue();
+        assertThat(jdbcTemplate.queryForObject(
+                "select status from greetings where room_id = ?", String.class, roomId))
+                .isEqualTo("RESPONDED");
+
+        // 발신자(pet 11)가 이제 TEXT를 전송할 수 있다.
+        ChatMessageResult after = chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("g-after", MessageType.TEXT, "이제 가능", null, null));
+        assertThat(after.created()).isTrue();
+    }
+
     // ---------- server-only / payload ----------
 
     @Test
@@ -322,6 +375,23 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
                 .andExpect(jsonPath("$.data.items[1].sharedSetlog.available").value(true));
     }
 
+    @Test
+    @DisplayName("Media가 삭제되면 IMAGE 첨부의 url/expiresAt은 null로 내려간다")
+    void deletedMediaAttachmentHydratesWithNullUrl() throws Exception {
+        long mediaId = insertMedia(USER_1, "IMAGE", "COMPLETED");
+        chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("m-del", MessageType.IMAGE, null, mediaId, null));
+        jdbcTemplate.update("update media set deleted_at = now() where id = ?", mediaId);
+
+        mockMvc.perform(get("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].type").value("IMAGE"))
+                .andExpect(jsonPath("$.data.items[0].attachment.mediaId").value((int) mediaId))
+                .andExpect(jsonPath("$.data.items[0].attachment.url").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].attachment.expiresAt").value(nullValue()));
+    }
+
     // ---------- DB constraints ----------
 
     @Test
@@ -410,6 +480,15 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
                         returning id
                         """,
                 Long.class, authorPetId, mediaId, status);
+    }
+
+    private void insertGreeting(long fromPetId, long toPetId, long setlogId, long roomId) {
+        jdbcTemplate.update("""
+                        insert into greetings (from_pet_id, to_pet_id, setlog_id, room_id, expires_at)
+                        values (?, ?, ?, ?, ?)
+                        """,
+                fromPetId, toPetId, setlogId, roomId,
+                java.sql.Timestamp.from(java.time.Instant.now().plusSeconds(3600)));
     }
 
     private CurrentUser principal(long userId) {
