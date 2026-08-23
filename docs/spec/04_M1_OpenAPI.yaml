@@ -1577,7 +1577,7 @@ components:
       enum: [MALE, FEMALE, UNKNOWN, null]
     Pet:
       type: object
-      required: [petId, ownerUserId, publicTag, nickname, status, deletedAt, verified, active]
+      required: [petId, ownerUserId, publicTag, nickname, status, deletedAt, verified, active, helpfulReceivedCount]
       properties:
         petId:
           type: integer
@@ -1636,6 +1636,11 @@ components:
           format: date-time
         active:
           type: boolean
+        helpfulReceivedCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 삭제되지 않은 게시글과 댓글이 받은 HELPFUL 반응의 합계. LIKE, 차단 관계, 반응 Pet의 이후 상태는 포함 판단에 사용하지 않는다.
     PetSearchItem:
       type: object
       required: [petId, publicTag, nickname, verified, relationship]

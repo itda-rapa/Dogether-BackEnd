@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import itda.boardpost.repository.BoardPostReactionRepository;
+import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.domain.BoardPostReactionType;
 import itda.boardpost.service.BoardPostService;
 import itda.pet.service.ActivePetSelectionService;
@@ -49,6 +50,7 @@ class BoardPostReactionPostgreSqlIntegrationTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardPostReactionRepository reactions;
+    @Autowired private BoardPostRepository posts;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private BoardPostService postService;
     @Autowired private ActivePetSelectionService activePetSelectionService;
@@ -61,6 +63,14 @@ class BoardPostReactionPostgreSqlIntegrationTest {
                 insert into board_post_reactions (post_id, reactor_pet_id, reaction_type)
                 values (?, ?, 'CUTE')
                 """, fixture.postId(), fixture.petId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(jdbc.update("""
+                insert into board_post_reactions (post_id, reactor_pet_id, reaction_type)
+                values (?, ?, 'HELPFUL')
+                """, fixture.postId(), fixture.petId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                select count(*) from board_post_reactions
+                where post_id = ? and reactor_pet_id = ? and reaction_type = 'HELPFUL'
+                """, Long.class, fixture.postId(), fixture.petId())).isEqualTo(1L);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_post_reactions (post_id, reactor_pet_id, reaction_type)
                 values (?, ?, 'LIKE')
@@ -80,8 +90,14 @@ class BoardPostReactionPostgreSqlIntegrationTest {
                 where schemaname = current_schema()
                   and indexname = 'ix_board_post_reactions_reactor_pet_post'
                 """, String.class);
+        String authorPetIndex = jdbc.queryForObject("""
+                select indexdef from pg_indexes
+                where schemaname = current_schema()
+                  and indexname = 'ix_board_posts_visible_author_pet_id'
+                """, String.class);
         assertThat(uniqueIndex).contains("post_id, reactor_pet_id, reaction_type");
         assertThat(reactorIndex).contains("reactor_pet_id, post_id");
+        assertThat(authorPetIndex).contains("author_pet_id, id").contains("deleted_at IS NULL");
         assertThat(deleteRule("fk_board_post_reactions_post")).isNotEqualTo("CASCADE");
         assertThat(deleteRule("fk_board_post_reactions_reactor_pet")).isNotEqualTo("CASCADE");
         assertThat(jdbc.queryForObject("""
@@ -197,6 +213,69 @@ class BoardPostReactionPostgreSqlIntegrationTest {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @Test
+    void concurrentSamePetHelpfulPutLeavesExactlyOneReactionRow() throws Exception {
+        Fixture fixture = fixture();
+        TransactionTemplate tx = transactionTemplate();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Integer>> results = List.of(
+                    executor.submit(() -> insertWhenStarted(tx, fixture, ready, start, "HELPFUL")),
+                    executor.submit(() -> insertWhenStarted(tx, fixture, ready, start, "HELPFUL"))
+            );
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(results.stream().map(this::get).toList()).containsExactlyInAnyOrder(1, 0);
+            assertThat(jdbc.queryForObject("""
+                    select count(*) from board_post_reactions
+                    where post_id = ? and reactor_pet_id = ? and reaction_type = 'HELPFUL'
+                    """, Long.class, fixture.postId(), fixture.petId())).isEqualTo(1L);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void samePetHelpfulServiceCommandsSerializeOnTheActorLockAndLeaveOneRow() throws Exception {
+        ReactionActorFixture fixture = reactionActorFixture();
+        TransactionTemplate tx = transactionTemplate();
+        CountDownLatch firstMutated = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        AtomicLong secondBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> first = executor.submit(() -> capture(() -> tx.executeWithoutResult(status -> {
+                postService.addReaction(fixture.reactorUserId(), fixture.postId(), BoardPostReactionType.HELPFUL);
+                firstMutated.countDown();
+                await(allowFirstCommit);
+            })));
+            assertThat(firstMutated.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> second = executor.submit(() -> capture(() -> tx.executeWithoutResult(status -> {
+                secondBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                secondStarted.countDown();
+                postService.addReaction(fixture.reactorUserId(), fixture.postId(), BoardPostReactionType.HELPFUL);
+            })));
+            assertThat(secondStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(secondBackendPid.get());
+            allowFirstCommit.countDown();
+            assertThat(first.get(30, TimeUnit.SECONDS)).isNull();
+            assertThat(second.get(30, TimeUnit.SECONDS)).isNull();
+        } finally {
+            allowFirstCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("""
+                select count(*) from board_post_reactions
+                where post_id = ? and reactor_pet_id = ? and reaction_type = 'HELPFUL'
+                """, Long.class, fixture.postId(), fixture.firstPetId())).isEqualTo(1L);
     }
 
     @Test
@@ -323,6 +402,85 @@ class BoardPostReactionPostgreSqlIntegrationTest {
     }
 
     @Test
+    void helpfulFirstThenPostDeleteWaitsForTheActualPostShareLockAndPreservesHistory() throws Exception {
+        ReactionActorFixture fixture = reactionActorFixture();
+        TransactionTemplate tx = transactionTemplate();
+        CountDownLatch reactionSaved = new CountDownLatch(1);
+        CountDownLatch allowReactionCommit = new CountDownLatch(1);
+        CountDownLatch deleteStarted = new CountDownLatch(1);
+        AtomicLong deleteBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> reaction = executor.submit(() -> capture(() -> tx.executeWithoutResult(status -> {
+                postService.addReaction(fixture.reactorUserId(), fixture.postId(), BoardPostReactionType.HELPFUL);
+                reactionSaved.countDown();
+                await(allowReactionCommit);
+            })));
+            assertThat(reactionSaved.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> delete = executor.submit(() -> capture(() -> tx.executeWithoutResult(status -> {
+                deleteBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                deleteStarted.countDown();
+                postService.delete(fixture.authorUserId(), fixture.postId());
+            })));
+            assertThat(deleteStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(deleteBackendPid.get());
+            allowReactionCommit.countDown();
+            assertThat(reaction.get(30, TimeUnit.SECONDS)).isNull();
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+        } finally {
+            allowReactionCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(postStatus(fixture.postId())).isEqualTo("DELETED");
+        assertThat(jdbc.queryForObject("""
+                select count(*) from board_post_reactions
+                where post_id = ? and reaction_type = 'HELPFUL'
+                """, Long.class, fixture.postId())).isEqualTo(1L);
+    }
+
+    @Test
+    void postDeleteFirstMakesWaitingHelpfulReevaluatePublishedPredicateAndCreateNoRow() throws Exception {
+        ReactionActorFixture fixture = reactionActorFixture();
+        TransactionTemplate tx = transactionTemplate();
+        CountDownLatch deleteWriteLocked = new CountDownLatch(1);
+        CountDownLatch allowDeleteCommit = new CountDownLatch(1);
+        CountDownLatch reactionStarted = new CountDownLatch(1);
+        AtomicLong reactionBackendPid = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Throwable> delete = executor.submit(() -> capture(() -> tx.executeWithoutResult(status -> {
+                postService.delete(fixture.authorUserId(), fixture.postId());
+                posts.flush();
+                deleteWriteLocked.countDown();
+                await(allowDeleteCommit);
+            })));
+            assertThat(deleteWriteLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> reaction = executor.submit(() -> capture(() -> tx.executeWithoutResult(status -> {
+                reactionBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Long.class));
+                reactionStarted.countDown();
+                postService.addReaction(fixture.reactorUserId(), fixture.postId(), BoardPostReactionType.HELPFUL);
+            })));
+            assertThat(reactionStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            awaitDatabaseLockWait(reactionBackendPid.get());
+            allowDeleteCommit.countDown();
+            assertThat(delete.get(30, TimeUnit.SECONDS)).isNull();
+            Throwable outcome = reaction.get(30, TimeUnit.SECONDS);
+            assertThat(outcome).isInstanceOf(itda.common.exception.BusinessException.class);
+            assertThat(((itda.common.exception.BusinessException) outcome).getErrorCode().name())
+                    .isEqualTo("BOARD_POST_NOT_FOUND");
+        } finally {
+            allowDeleteCommit.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(jdbc.queryForObject("""
+                select count(*) from board_post_reactions
+                where post_id = ? and reaction_type = 'HELPFUL'
+                """, Long.class, fixture.postId())).isZero();
+    }
+
+    @Test
     void postDeleteBeforeReactionIsAllowedOutcomeBAndCreatesNoNewReactionRow() {
         ReactionActorFixture fixture = reactionActorFixture();
 
@@ -383,9 +541,19 @@ class BoardPostReactionPostgreSqlIntegrationTest {
             CountDownLatch ready,
             CountDownLatch start
     ) {
+        return insertWhenStarted(tx, fixture, ready, start, "LIKE");
+    }
+
+    private int insertWhenStarted(
+            TransactionTemplate tx,
+            Fixture fixture,
+            CountDownLatch ready,
+            CountDownLatch start,
+            String reactionType
+    ) {
         ready.countDown();
         await(start);
-        return tx.execute(status -> reactions.insertIgnore(fixture.postId(), fixture.petId(), "LIKE"));
+        return tx.execute(status -> reactions.insertIgnore(fixture.postId(), fixture.petId(), reactionType));
     }
 
     private int get(Future<Integer> future) {
@@ -414,6 +582,18 @@ class BoardPostReactionPostgreSqlIntegrationTest {
             Thread.currentThread().interrupt();
             throw new AssertionError(exception);
         }
+    }
+
+    private void awaitDatabaseLockWait(long contenderBackendPid) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Boolean waiting = jdbc.queryForObject("""
+                    select wait_event_type = 'Lock' and cardinality(pg_blocking_pids(pid)) > 0
+                      from pg_stat_activity where pid = ?
+                    """, Boolean.class, contenderBackendPid);
+            if (Boolean.TRUE.equals(waiting)) return;
+        }
+        throw new AssertionError("contender did not block on a PostgreSQL lock");
     }
 
     private String deleteRule(String constraintName) {

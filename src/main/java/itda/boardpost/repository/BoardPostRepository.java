@@ -32,6 +32,17 @@ public interface BoardPostRepository extends JpaRepository<BoardPost, Long> {
             @Param("postId") Long postId
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select post
+            from BoardPost post
+            where post.id = :postId
+              and post.status = itda.boardpost.domain.PostStatus.PUBLISHED
+            """)
+    Optional<BoardPost> findPublishedByIdForUpdate(
+            @Param("postId") Long postId
+    );
+
     @Query(value = """
             SELECT post.* FROM board_posts post
             WHERE post.board_id = :boardId

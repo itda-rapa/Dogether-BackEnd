@@ -233,14 +233,20 @@ public class BoardPostService {
                 post,
                 petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
                 images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
-                new BoardPostReactionSnapshot(reactionCount(postId), false)
+                new BoardPostReactionSnapshot(
+                        reactionCount(postId),
+                        false,
+                        reactions.countForPost(postId, BoardPostReactionType.HELPFUL.name()),
+                        false
+                )
         );
     }
 
     @Transactional
     public void delete(Long userId, Long postId) {
         LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
-        BoardPost post = published(postId);
+        BoardPost post = posts.findPublishedByIdForUpdate(postId)
+                .orElseThrow(this::notFound);
         requireAuthor(actor, post);
         post.delete(Instant.now());
     }
@@ -272,7 +278,8 @@ public class BoardPostService {
             Long postId
     ) {
         LockedActivePetCommandGuard.LockedActor actor = actorGuard.require(userId);
-        BoardPost post = published(postId);
+        BoardPost post = posts.findPublishedByIdForShare(postId)
+                .orElseThrow(this::notFound);
         if ((!post.getAuthorUserId().equals(actor.userId())
                 && !post.getNeighborhoodCode().equals(actor.neighborhoodCode()))
                 || blocks.existsBlockBetween(actor.userId(), post.getAuthorUserId())) {

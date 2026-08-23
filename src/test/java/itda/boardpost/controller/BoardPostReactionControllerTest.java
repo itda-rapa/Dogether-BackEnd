@@ -1,6 +1,7 @@
 package itda.boardpost.controller;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -72,10 +73,30 @@ class BoardPostReactionControllerTest {
     }
 
     @Test
+    void helpfulPutAndDeleteUseTheSameNoBodyEnvelope() throws Exception {
+        given(service.addReaction(1L, 101L, BoardPostReactionType.HELPFUL))
+                .willReturn(new BoardPostReactionResponse(101L, BoardPostReactionType.HELPFUL, true, 2));
+        given(service.removeReaction(1L, 101L, BoardPostReactionType.HELPFUL))
+                .willReturn(new BoardPostReactionResponse(101L, BoardPostReactionType.HELPFUL, false, 1));
+
+        mockMvc.perform(put("/posts/{postId}/reactions/{type}", 101L, "HELPFUL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.type").value("HELPFUL"))
+                .andExpect(jsonPath("$.data.reacted").value(true))
+                .andExpect(jsonPath("$.data.reactionCount").value(2));
+        mockMvc.perform(delete("/posts/{postId}/reactions/{type}", 101L, "HELPFUL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.type").value("HELPFUL"))
+                .andExpect(jsonPath("$.data.reacted").value(false))
+                .andExpect(jsonPath("$.data.reactionCount").value(1));
+    }
+
+    @Test
     void unsupportedReactionTypeIsValidationFailedBeforeServiceInvocation() throws Exception {
         mockMvc.perform(put("/posts/{postId}/reactions/{type}", 101L, "CUTE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+        then(service).shouldHaveNoInteractions();
     }
 
     @Test

@@ -431,6 +431,7 @@ class PetControllerTest {
                     .andExpect(jsonPath("$.data.length()").value(2))
                     .andExpect(jsonPath("$.data[0].petId").value(PET_ID))
                     .andExpect(jsonPath("$.data[0].active").value(true))
+                    .andExpect(jsonPath("$.data[0].helpfulReceivedCount").value(0))
                     .andExpect(jsonPath("$.data[1].petId").value(3L))
                     .andExpect(jsonPath("$.data[1].status")
                             .value("SUSPENDED"))

@@ -8,6 +8,9 @@
 users 1 ─ N oauth_identities
 users 1 ─ N pets
 pets 1 ─ N board_posts / comments / chat_messages
+board_post_comments 1 ─ 0..N board_post_comments (parent)
+board_post_comments 1 ─ 0..N board_post_comments (root)
+board_post_comments 1 ─ N board_post_comment_reactions
 
 chat_messages 1 ─ 0..N chat_message_attachments N ─ 1 media
 chat_messages N ─ 0..1 setlogs
@@ -51,10 +54,17 @@ safety_review_cases 1 ─ N evidence_access_audits
 
 ### `board_post_comments`
 
-- `parent_comment_id BIGINT NULL FK board_post_comments(id)` 추가
-- `depth SMALLINT NOT NULL DEFAULT 0`
-- 권고 제약: `depth IN (0,1)`
-- 부모와 자식은 같은 `post_id`여야 하며 Service에서 검증한다.
+| 컬럼 | 형식 | 제약·의미 |
+|---|---|---|
+| parent_comment_id | BIGINT | nullable, self FK. 대댓글의 직접 부모 ID |
+| root_comment_id | BIGINT | nullable, self FK. 대댓글이 속한 Root ID |
+| depth | SMALLINT | NOT NULL DEFAULT 0 |
+
+- DB CHECK `ck_board_post_comments_hierarchy`: Root는 `parent_comment_id/root_comment_id IS NULL AND depth=0`, 대댓글은 두 ID가 모두 있고 `depth BETWEEN 1 AND 3`이다.
+- self FK는 cascade를 지정하지 않는다. V32 적용 전 행은 추가 컬럼의 기본값에 따라 Root(`null/null/0`)로 보존된다.
+- Root는 자신의 ID를 `root_comment_id`에 저장하지 않는다. 대댓글은 직접 부모 ID와 최상위 Root ID를 각각 저장한다.
+- Service는 부모·조상 경로의 같은 `post_id`, `parent.depth + 1`, Root의 `depth=0` 및 parent/root chain 정합성을 검증한다. DB trigger로 same-post·chain 정합성을 강제하지 않는다.
+- 실제 조회 인덱스: Root cursor용 `(post_id, created_at ASC, id ASC) WHERE parent_comment_id IS NULL`, 대댓글 일괄 조회용 `(root_comment_id, created_at ASC, id ASC) WHERE parent_comment_id IS NOT NULL`.
 
 ### `board_posts`
 
@@ -64,6 +74,20 @@ safety_review_cases 1 ─ N evidence_access_audits
 
 - `reaction_type` 허용값에 `HELPFUL` 추가
 - 기존 `UNIQUE(post_id, reactor_pet_id, reaction_type)` 유지
+- 작성 당시 `board_posts.author_pet_id`가 HELPFUL 수신 Pet이며 별도 receiver 컬럼을 저장하지 않는다.
+
+### `board_post_comment_reactions`
+
+| 컬럼 | 형식 | 제약·의미 |
+|---|---|---|
+| comment_id | BIGINT | FK `board_post_comments`, NOT NULL |
+| reactor_pet_id | BIGINT | FK `pets`, NOT NULL |
+| reaction_type | VARCHAR(20) | `HELPFUL`만 허용 |
+| created_at | TIMESTAMPTZ | NOT NULL |
+
+- `UNIQUE(comment_id, reactor_pet_id, reaction_type)`으로 동일 Pet·댓글·타입 중복을 막는다.
+- FK에 delete cascade를 두지 않는다. target soft delete는 Reaction row를 삭제하지 않고 aggregate에서 target 자신의 `deleted_at`만 제외한다.
+- 댓글 작성 당시 `author_pet_id`가 HELPFUL 수신 Pet이다. Comment aggregate는 부모 댓글·부모 게시글, 차단 관계, reactor Pet의 현재 상태를 조건으로 사용하지 않는다.
 
 ## 4. Chat·Media 변경
 
@@ -216,3 +240,5 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 - Walk points: `(walk_session_id, sequence)`
 
 모든 인덱스는 실제 Query와 `EXPLAIN ANALYZE`로 확인하고 중복 인덱스를 피한다.
+
+HELPFUL 평판 aggregate는 `/pets/me`의 최대 5개 Pet ID를 batch 처리한다. 10,500+ row·background Pet 분산 fixture의 `EXPLAIN ANALYZE`에서 Post/Comment 모두 target table의 author Pet filter가 약 10,000 rows를 제거하는 Seq Scan으로 나타났고, undeleted `(author_pet_id, id)` partial index가 scan 범위·buffer·cost·실행 시간을 유의미하게 줄였다. 따라서 V33에 `ix_board_posts_visible_author_pet_id`와 `ix_board_post_comments_visible_author_pet_id`를 추가한다. 이는 모든 운영 분포를 보장한다는 뜻이 아니라, 이번 현실적 fixture 범위에서는 speculative index가 아니라는 근거에 따른 결정이다.

@@ -128,6 +128,8 @@ public enum ErrorCode {
     BOARD_POST_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "자신이 작성한 게시글에는 반응할 수 없습니다."),
     BOARD_POST_COMMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "댓글을 찾을 수 없습니다."),
     BOARD_POST_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "댓글을 수정하거나 삭제할 권한이 없습니다."),
+    BOARD_POST_COMMENT_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "자신이 작성한 댓글에는 반응할 수 없습니다."),
+    COMMENT_DEPTH_EXCEEDED(HttpStatus.CONFLICT, "댓글은 최대 3단계까지만 작성할 수 있습니다."),
     BOARD_NOT_EMPTY(HttpStatus.CONFLICT, "게시글이 있는 게시판은 삭제할 수 없습니다."),
     BOARD_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 게시판 이름입니다.");
 

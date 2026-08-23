@@ -3,6 +3,8 @@ package itda.comment.controller;
 import itda.comment.dto.CommentListResponse;
 import itda.comment.dto.CommentRequestParser;
 import itda.comment.dto.CommentResponse;
+import itda.comment.dto.CommentReactionResponse;
+import itda.comment.domain.CommentReactionType;
 import itda.comment.service.BoardPostCommentService;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,6 +46,24 @@ public class BoardPostCommentController implements BoardPostCommentSwaggerSuppor
                 ApiResponse.created(
                         service.create(user.id(), postId, parser.parseCreate(body)),
                         "댓글이 등록되었습니다."
+                )
+        );
+    }
+
+    @PostMapping("/comments/{parentCommentId}/replies")
+    public ResponseEntity<ApiResponse<CommentResponse>> createReply(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long parentCommentId,
+            @RequestBody(required = true) JsonNode body
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                ApiResponse.created(
+                        service.createReply(
+                                user.id(),
+                                parentCommentId,
+                                parser.parseCreate(body)
+                        ),
+                        "대댓글이 등록되었습니다."
                 )
         );
     }
@@ -79,5 +100,29 @@ public class BoardPostCommentController implements BoardPostCommentSwaggerSuppor
     ) {
         service.delete(user.id(), commentId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/comments/{commentId}/reactions/{type}")
+    public ResponseEntity<ApiResponse<CommentReactionResponse>> addReaction(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long commentId,
+            @PathVariable CommentReactionType type
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                service.addReaction(user.id(), commentId, type),
+                "댓글 반응 상태가 변경되었습니다."
+        ));
+    }
+
+    @DeleteMapping("/comments/{commentId}/reactions/{type}")
+    public ResponseEntity<ApiResponse<CommentReactionResponse>> removeReaction(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long commentId,
+            @PathVariable CommentReactionType type
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                service.removeReaction(user.id(), commentId, type),
+                "댓글 반응 상태가 변경되었습니다."
+        ));
     }
 }

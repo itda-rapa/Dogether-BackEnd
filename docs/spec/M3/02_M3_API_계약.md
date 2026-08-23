@@ -22,14 +22,26 @@
 | PUT | `/pets/{petId}/profile-image` | 프로필 이미지 교체 |
 | DELETE | `/pets/{petId}/profile-image` | 프로필 이미지 제거 |
 
+기존 `PetResponse` 소비 endpoint는 `helpfulReceivedCount`를 포함한다. 이는 삭제되지 않은 게시글과 댓글이 받은 HELPFUL 합계이며 LIKE는 포함하지 않는다. 타 사용자 public Pet profile endpoint를 새로 만들지 않는다.
+
 ## 3. 게시판
 
 | Method | Path | 설명 |
 |---|---|---|
 | PUT/DELETE | `/posts/{postId}/reactions/HELPFUL` | 도움 표시 멱등 변경 |
-| POST | `/posts/{postId}/comments` | `parentCommentId`로 대댓글 생성 |
-| GET | `/posts/{postId}/comments` | flat cursor 목록과 parent/depth 반환 |
+| PUT/DELETE | `/comments/{commentId}/reactions/HELPFUL` | 댓글·대댓글 도움 표시 멱등 변경; LIKE 미지원 |
+| POST | `/posts/{postId}/comments` | Root 댓글 생성. strict body는 `content`만 허용 |
+| POST | `/comments/{parentCommentId}/replies` | 직접 부모 아래 대댓글 생성. strict body는 `content`만 허용 |
+| GET | `/posts/{postId}/comments` | Root cursor 기반 중첩 댓글 thread 목록 |
 | POST/PATCH | `/boards/{boardId}/posts`, `/posts/{postId}` | `placeId`, mediaIds 지원 |
+
+댓글 mutation 응답 `CommentResponse`는 기존 필드를 유지하면서 `parentCommentId`, `depth`를 추가한다. Root는 `parentCommentId=null`, `depth=0`; 대댓글은 직접 부모 ID와 `depth=1~3`이다. 내부 `rootCommentId`는 외부 API에 노출하지 않는다.
+
+댓글 목록의 `size`는 댓글 행 수가 아니라 Root thread 수이며 기본 20, 최대 100이다. Root와 sibling은 모두 `(createdAt ASC, id ASC)`로 정렬한다. 목록 `items`는 `replies`를 재귀로 포함하는 tree DTO이고, cursor는 마지막 반환 Root의 불변 `(createdAt, id)` 키다. 이 GET 계약은 기존 flat all-row 목록을 대체하는 breaking change다.
+
+대댓글 생성에서 부모가 없거나 soft delete·차단으로 보이지 않으면 `404 BOARD_POST_COMMENT_NOT_FOUND`를 사용한다. 부모가 depth 3이면 `409 COMMENT_DEPTH_EXCEEDED`다. `PARENT_COMMENT_NOT_FOUND`는 도입하지 않는다.
+
+반응 actor는 Active Pet이고 duplicate key는 Pet+target+type이다. self 판단은 User 기준이다. Post/Comment의 지원하지 않는 reaction type은 mutation에 진입하지 않고 `400 VALIDATION_FAILED`다. 차단·공개 범위 실패는 Post `404 BOARD_POST_NOT_FOUND`, Comment target/ancestor `404 BOARD_POST_COMMENT_NOT_FOUND`로 은닉한다. 기존 Post LIKE 계약은 유지한다.
 
 ## 4. Media·Chat·Setlog 공유
 
