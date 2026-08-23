@@ -282,7 +282,7 @@ class BoardPostServiceTest {
         BoardPostService service = service();
         BoardPost post = post(101L, 1L, 2L);
         given(actorGuard.require(1L)).willReturn(new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500"));
-        given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.of(post));
+        given(posts.findPublishedByIdForUpdate(101L)).willReturn(Optional.of(post));
 
         service.delete(1L, 101L);
 

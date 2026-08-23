@@ -17,6 +17,7 @@ import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.User;
 import java.time.Instant;
@@ -45,6 +46,8 @@ class PetProfileImageServiceTest {
     private MediaService mediaService;
     @Mock
     private PetVerificationBadgeService badgeService;
+    @Mock
+    private PetHelpfulReceivedCountQueryService helpfulReceivedCounts;
 
     private PetProfileImageService service;
 
@@ -54,7 +57,8 @@ class PetProfileImageServiceTest {
                 petRepository,
                 mediaRepository,
                 mediaService,
-                badgeService
+                badgeService,
+                helpfulReceivedCounts
         );
     }
 
@@ -96,11 +100,14 @@ class PetProfileImageServiceTest {
         given(mediaService.getPresignedDownloadUrl(MEDIA_ID))
                 .willReturn(new MediaService.PresignedDownloadUrl("https://presigned.example/media/3", Instant.now()));
         given(badgeService.verifiedAt(PET_ID)).willReturn(verifiedAt);
+        given(helpfulReceivedCounts.countForPet(PET_ID)).willReturn(4L);
 
         PetResponse response = service.setInitialProfileImage(USER_ID, PET_ID, MEDIA_ID);
 
         assertThat(response.verified()).isTrue();
         assertThat(response.verifiedAt()).isEqualTo(verifiedAt);
+        assertThat(response.helpfulReceivedCount()).isEqualTo(4L);
+        then(helpfulReceivedCounts).should().countForPet(PET_ID);
         then(badgeService).should().verifiedAt(PET_ID);
     }
 

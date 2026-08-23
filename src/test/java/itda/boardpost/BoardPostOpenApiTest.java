@@ -17,7 +17,7 @@ class BoardPostOpenApiTest {
     @Autowired private MockMvc mockMvc;
 
     @Test
-    void runtimeOpenApiExposesReactionPutDeleteLikeEnumAndMutationResponse() throws Exception {
+    void runtimeOpenApiExposesReactionPutDeleteTypeEnumAndMutationResponse() throws Exception {
         String path = "$.paths['/posts/{postId}/reactions/{type}']";
 
         mockMvc.perform(get("/v3/api-docs"))
@@ -28,13 +28,19 @@ class BoardPostOpenApiTest {
                 .andExpect(jsonPath(path + ".delete.requestBody").doesNotExist())
                 .andExpect(jsonPath(path + ".put.responses['200']").exists())
                 .andExpect(jsonPath(path + ".delete.responses['200']").exists())
+                .andExpect(jsonPath(path + ".put.responses['400']").exists())
+                .andExpect(jsonPath(path + ".delete.responses['400']").exists())
                 .andExpect(jsonPath(path + ".put.parameters[*].name")
                         .value(org.hamcrest.Matchers.hasItem("type")))
                 .andExpect(jsonPath(path + ".put.parameters[?(@.name == 'type')].schema.enum[0]")
                         .value(org.hamcrest.Matchers.hasItem("LIKE")))
+                .andExpect(jsonPath(path + ".put.parameters[?(@.name == 'type')].schema.enum[1]")
+                        .value(org.hamcrest.Matchers.hasItem("HELPFUL")))
                 .andExpect(jsonPath(path + ".delete.parameters[*].name")
                         .value(org.hamcrest.Matchers.hasItem("type")))
                 .andExpect(jsonPath(path + ".delete.parameters[?(@.name == 'type')].schema.enum[0]")
-                        .value(org.hamcrest.Matchers.hasItem("LIKE")));
+                        .value(org.hamcrest.Matchers.hasItem("LIKE")))
+                .andExpect(jsonPath(path + ".delete.parameters[?(@.name == 'type')].schema.enum[1]")
+                        .value(org.hamcrest.Matchers.hasItem("HELPFUL")));
     }
 }

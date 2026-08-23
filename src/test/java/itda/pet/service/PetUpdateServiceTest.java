@@ -16,6 +16,7 @@ import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
 import itda.pet.repository.PetRepository;
+import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import itda.media.service.MediaService;
 import itda.petverification.PetVerificationBadgeService;
 import itda.pet.service.PetUpdateCommand.PatchValue;
@@ -48,12 +49,14 @@ class PetUpdateServiceTest {
     private MediaService mediaService;
     @Mock
     private PetVerificationBadgeService badgeService;
+    @Mock
+    private PetHelpfulReceivedCountQueryService helpfulReceivedCounts;
 
     private PetUpdateService service;
 
     @BeforeEach
     void setUp() {
-        service = new PetUpdateService(petRepository, mediaService, badgeService);
+        service = new PetUpdateService(petRepository, mediaService, badgeService, helpfulReceivedCounts);
     }
 
     @Test
@@ -63,12 +66,15 @@ class PetUpdateServiceTest {
         Instant verifiedAt = Instant.parse("2026-08-12T12:00:00Z");
         given(petRepository.findByIdWithOwner(PET_ID)).willReturn(Optional.of(pet));
         given(badgeService.verifiedAt(PET_ID)).willReturn(verifiedAt);
+        given(helpfulReceivedCounts.countForPet(PET_ID)).willReturn(5L);
 
         PetResponse response = service.update(USER_ID, PET_ID, nickname("변경된 이름"));
 
         assertThat(response.nickname()).isEqualTo("변경된 이름");
         assertThat(response.verified()).isTrue();
         assertThat(response.verifiedAt()).isEqualTo(verifiedAt);
+        assertThat(response.helpfulReceivedCount()).isEqualTo(5L);
+        then(helpfulReceivedCounts).should().countForPet(PET_ID);
         then(badgeService).should().verifiedAt(PET_ID);
     }
 

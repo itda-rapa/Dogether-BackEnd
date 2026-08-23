@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 
 import itda.block.service.BlockRelationshipQueryService;
 import itda.board.repository.BoardRepository;
@@ -57,7 +58,7 @@ class BoardPostReactionServiceTest {
     void putAndDeleteUseIdempotentCommandsAndReturnObservedCount() {
         BoardPost post = post(101L, 2L, 20L, "4113111500");
         given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
-        given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.of(post));
+        given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.of(post));
         given(reactions.countForPost(101L, "LIKE")).willReturn(4L, 3L);
 
         var added = service().addReaction(1L, 101L, BoardPostReactionType.LIKE);
@@ -77,7 +78,7 @@ class BoardPostReactionServiceTest {
     void reactionRejectsSelfPostOnlyAfterPublishedVisibilityIsResolved() {
         BoardPost selfPost = post(101L, 1L, 99L, "4113111500");
         given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
-        given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.of(selfPost));
+        given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.of(selfPost));
 
         assertBusiness(() -> service().addReaction(1L, 101L, BoardPostReactionType.LIKE),
                 ErrorCode.BOARD_POST_SELF_REACTION_FORBIDDEN);
@@ -98,17 +99,17 @@ class BoardPostReactionServiceTest {
     @Test
     void deletedOtherRegionAndBlockedPostsAreHiddenFromReactionMutation() {
         given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
-        given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.empty());
+        given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.empty());
         assertBusiness(() -> service().addReaction(1L, 101L, BoardPostReactionType.LIKE),
                 ErrorCode.BOARD_POST_NOT_FOUND);
 
         BoardPost otherRegion = post(102L, 2L, 20L, "4113111600");
-        given(posts.findByIdAndStatus(102L, PostStatus.PUBLISHED)).willReturn(Optional.of(otherRegion));
+        given(posts.findPublishedByIdForShare(102L)).willReturn(Optional.of(otherRegion));
         assertBusiness(() -> service().addReaction(1L, 102L, BoardPostReactionType.LIKE),
                 ErrorCode.BOARD_POST_NOT_FOUND);
 
         BoardPost blocked = post(103L, 2L, 20L, "4113111500");
-        given(posts.findByIdAndStatus(103L, PostStatus.PUBLISHED)).willReturn(Optional.of(blocked));
+        given(posts.findPublishedByIdForShare(103L)).willReturn(Optional.of(blocked));
         given(blocks.existsBlockBetween(1L, 2L)).willReturn(true);
         assertBusiness(() -> service().addReaction(1L, 103L, BoardPostReactionType.LIKE),
                 ErrorCode.BOARD_POST_NOT_FOUND);
@@ -135,6 +136,8 @@ class BoardPostReactionServiceTest {
 
         assertThat(result.items()).extracting(item -> item.reactionCount()).containsExactly(2L, 0L);
         assertThat(result.items()).extracting(item -> item.reactedByMe()).containsExactly(true, false);
+        assertThat(result.items()).extracting(item -> item.helpfulCount()).containsExactly(0L, 0L);
+        assertThat(result.items()).extracting(item -> item.helpfulByMe()).containsExactly(false, false);
         then(reactionQueries).should().findForPosts(1L, List.of(101L, 102L));
         then(reactionQueries).shouldHaveNoMoreInteractions();
     }
@@ -151,6 +154,8 @@ class BoardPostReactionServiceTest {
 
         assertThat(response.reactionCount()).isZero();
         assertThat(response.reactedByMe()).isFalse();
+        assertThat(response.helpfulCount()).isZero();
+        assertThat(response.helpfulByMe()).isFalse();
         then(reactionQueries).shouldHaveNoInteractions();
     }
 
@@ -160,7 +165,7 @@ class BoardPostReactionServiceTest {
         given(users.findById(1L)).willReturn(Optional.of(user(1L, "4113111500")));
         given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.of(post));
         given(petDisplays.getPetDisplaySummary(10L)).willReturn(summary(10L));
-        given(reactionQueries.findForPost(1L, 101L)).willReturn(new BoardPostReactionSnapshot(5, true));
+        given(reactionQueries.findForPost(1L, 101L)).willReturn(new BoardPostReactionSnapshot(5, true, 2, true));
         given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
         given(reactionQueries.countForPost(101L)).willReturn(5L);
 
@@ -170,8 +175,30 @@ class BoardPostReactionServiceTest {
 
         assertThat(detail.reactionCount()).isEqualTo(5);
         assertThat(detail.reactedByMe()).isTrue();
+        assertThat(detail.helpfulCount()).isEqualTo(2);
+        assertThat(detail.helpfulByMe()).isTrue();
         assertThat(patch.reactionCount()).isEqualTo(5);
         assertThat(patch.reactedByMe()).isFalse();
+        assertThat(patch.helpfulCount()).isZero();
+        assertThat(patch.helpfulByMe()).isFalse();
+    }
+
+    @Test
+    void helpfulUsesTheSamePetActorButKeepsItsCountIndependentFromLike() {
+        BoardPost post = post(101L, 2L, 20L, "4113111500");
+        given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
+        given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.of(post));
+        given(reactions.countForPost(101L, "HELPFUL")).willReturn(2L, 1L);
+
+        var added = service().addReaction(1L, 101L, BoardPostReactionType.HELPFUL);
+        var removed = service().removeReaction(1L, 101L, BoardPostReactionType.HELPFUL);
+
+        assertThat(added.type()).isEqualTo(BoardPostReactionType.HELPFUL);
+        assertThat(added.reactionCount()).isEqualTo(2L);
+        assertThat(removed.reactionCount()).isEqualTo(1L);
+        then(reactions).should().insertIgnore(101L, 10L, "HELPFUL");
+        then(reactions).should().deleteReaction(101L, 10L, "HELPFUL");
+        then(reactions).should(never()).insertIgnore(101L, 10L, "LIKE");
     }
 
     private void assertBusiness(ThrowingAction action, ErrorCode expected) {
