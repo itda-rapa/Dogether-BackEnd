@@ -28,10 +28,11 @@ public record RiskSignalEventV1(
         sourceType = Objects.requireNonNull(sourceType, "sourceType must not be null");
         signalType = Objects.requireNonNull(signalType, "signalType must not be null");
         occurredAt = Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        RiskSignalContractPolicy.validateCombination(sourceType, signalType);
         if (sourceId <= 0 || actorUserId <= 0 || targetUserId <= 0) {
             throw new IllegalArgumentException("sourceId, actorUserId and targetUserId must be positive");
         }
-        metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
+        metadata = RiskSignalContractPolicy.sanitizeMetadata(signalType, metadata);
     }
 
     public static RiskSignalEventV1 from(UUID eventId, RiskSourceEventCommand command) {

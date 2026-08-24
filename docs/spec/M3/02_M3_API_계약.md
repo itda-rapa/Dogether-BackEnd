@@ -80,6 +80,8 @@ Open Chat:
 - 이번 공용 계약의 Producer 진입점: `RiskSourceEventPublisher.enqueue(command)`
 - `enqueue`는 원천 도메인의 DB 트랜잭션 안에서 `risk_signal_outbox`에만 적재한다. Kafka relay/Consumer는 별도 작업이다.
 - 현재 Source/Signal 조합: `USER_BLOCK/USER_BLOCKED`, `GREETING/GREETING_EXPIRED`
+- 다른 Source/Signal 조합은 Command/Event 생성 시 거부한다.
+- metadata는 Signal별 allowlist만 허용한다: `USER_BLOCKED.reasonCode`, `GREETING_EXPIRED.ttlHours`.
 - eventId는 Publisher가 UUID로 생성하고, Outbox는 `event_id`와 `(source_type, source_id, signal_type)`을 모두 멱등키로 사용한다.
 - Producer: Greeting/Block (Friend/Chat/AI 및 DIRECT source는 제품 의미와 원천이 확정된 뒤 추가)
 - Consumer: Safety 운영 계층
