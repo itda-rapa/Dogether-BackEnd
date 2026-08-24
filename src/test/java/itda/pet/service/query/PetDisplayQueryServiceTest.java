@@ -3,6 +3,7 @@ package itda.pet.service.query;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -114,17 +115,20 @@ class PetDisplayQueryServiceTest {
             ReflectionTestUtils.setField(pet, "profileAsset", profileMedia(51L));
             given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
-            given(mediaService.getPresignedDownloadUrl(51L)).willReturn(
-                    new MediaService.PresignedDownloadUrl(
+            given(mediaService.getPresignedDownloadUrls(any())).willReturn(
+                    Map.of(51L, new MediaService.PresignedDownloadUrl(
                             "https://presigned.example/pet/51", Instant.now()
-                    )
+                    ))
             );
 
             PetDisplaySummary result = service.getPetDisplaySummary(PET_ID);
 
             assertThat(result.profileUrl())
                     .isEqualTo("https://presigned.example/pet/51");
-            then(mediaService).should().getPresignedDownloadUrl(51L);
+            then(mediaService).should().getPresignedDownloadUrls(argThat(assets ->
+                    mediaIds(assets).equals(List.of(51L))
+            ));
+            then(mediaService).should(never()).getPresignedDownloadUrl(anyLong());
         }
 
         @Nested
@@ -307,6 +311,56 @@ class PetDisplayQueryServiceTest {
                 then(petRepository).should(never()).findById(anyLong());
                 then(petRepository).should(never()).findByIdForUpdate(anyLong());
             }
+        }
+
+        @Test
+        @DisplayName("It: fetch-joined profile Media를 하나의 collection signing으로 재사용한다")
+        void itBatchSignsLoadedProfileAssetsWithoutSingleMediaLookup() {
+            Pet first = pet(PetStatus.ACTIVE, null);
+            Pet second = pet(
+                    SECOND_PET_ID,
+                    owner(OWNER_ID),
+                    "초코#C9N4",
+                    "초코",
+                    PetStatus.ACTIVE,
+                    null
+            );
+            Media firstAsset = profileMedia(51L);
+            Media secondAsset = profileMedia(52L);
+            ReflectionTestUtils.setField(first, "profileAsset", firstAsset);
+            ReflectionTestUtils.setField(second, "profileAsset", secondAsset);
+            given(petRepository.findAllByIdWithOwnerAndProfileAsset(
+                    org.mockito.ArgumentMatchers.any()
+            )).willReturn(List.of(second, first));
+            given(mediaService.getPresignedDownloadUrls(any()))
+                    .willReturn(Map.of(
+                            51L, new MediaService.PresignedDownloadUrl("url-51", Instant.now()),
+                            52L, new MediaService.PresignedDownloadUrl("url-52", Instant.now())
+                    ));
+
+            Map<Long, PetDisplaySummary> summaries = service.getPetDisplaySummaries(
+                    List.of(PET_ID, SECOND_PET_ID)
+            );
+
+            assertThat(summaries.get(PET_ID).profileUrl()).isEqualTo("url-51");
+            assertThat(summaries.get(SECOND_PET_ID).profileUrl()).isEqualTo("url-52");
+            then(mediaService).should(times(1)).getPresignedDownloadUrls(argThat(assets ->
+                    mediaIds(assets).equals(List.of(52L, 51L))
+            ));
+            then(mediaService).should(never()).getPresignedDownloadUrl(anyLong());
+        }
+
+        @Test
+        @DisplayName("It: profileAsset이 없으면 signer를 호출하지 않는다")
+        void itDoesNotSignWhenNoLoadedPetHasAProfileAsset() {
+            Pet first = pet(PetStatus.ACTIVE, null);
+            given(petRepository.findAllByIdWithOwnerAndProfileAsset(
+                    org.mockito.ArgumentMatchers.any()
+            )).willReturn(List.of(first));
+
+            service.getPetDisplaySummaries(List.of(PET_ID));
+
+            then(mediaService).shouldHaveNoInteractions();
         }
 
         @Nested
@@ -512,6 +566,12 @@ class PetDisplayQueryServiceTest {
         Set<Long> result = new LinkedHashSet<>();
         ids.forEach(result::add);
         return result;
+    }
+
+    private List<Long> mediaIds(Iterable<Media> media) {
+        List<Long> ids = new ArrayList<>();
+        media.forEach(item -> ids.add(item.getId()));
+        return ids;
     }
 
     private void assertErrorCode(

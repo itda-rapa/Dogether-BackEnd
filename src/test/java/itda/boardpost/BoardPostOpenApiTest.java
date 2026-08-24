@@ -43,4 +43,31 @@ class BoardPostOpenApiTest {
                 .andExpect(jsonPath(path + ".delete.parameters[?(@.name == 'type')].schema.enum[1]")
                         .value(org.hamcrest.Matchers.hasItem("HELPFUL")));
     }
+
+    @Test
+    void runtimeOpenApiExposesBoardPatchMediaReplacementAndVersionContract() throws Exception {
+        String operation = "$.paths['/posts/{postId}'].patch";
+        String schema = "$.components.schemas.BoardPostPatchRequest";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(operation + ".requestBody").exists())
+                .andExpect(jsonPath(operation + ".responses['200']").exists())
+                .andExpect(jsonPath(operation + ".responses['400']").exists())
+                .andExpect(jsonPath(operation + ".responses['409']").exists())
+                .andExpect(jsonPath(schema + ".required")
+                        .value(org.hamcrest.Matchers.hasItem("version")))
+                .andExpect(jsonPath(schema + ".properties.version.type").value("integer"))
+                .andExpect(jsonPath(schema + ".properties.version.minimum").value(0))
+                .andExpect(jsonPath(schema + ".properties.mediaIds.type").value("array"))
+                .andExpect(jsonPath(schema + ".properties.mediaIds.maxItems").value(5))
+                .andExpect(jsonPath(schema + ".properties.mediaIds.uniqueItems").value(true))
+                .andExpect(jsonPath(schema + ".properties.mediaIds.items.minimum").value(1))
+                .andExpect(jsonPath(operation + ".requestBody.content['application/json'].example.mediaIds[0]")
+                        .value(10))
+                .andExpect(jsonPath(operation + ".responses['200'].content['application/json'].example.data.images[0].mediaId")
+                        .value(10))
+                .andExpect(jsonPath(operation + ".responses['200'].content['application/json'].example.data.images[1].mediaId")
+                        .value(11));
+    }
 }
