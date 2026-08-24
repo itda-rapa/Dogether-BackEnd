@@ -70,7 +70,7 @@ Consumer를 먼저 배포하고 DB migration 및 topic 준비를 확인한 뒤 �
 
 ## 데이터베이스
 
-사용자 지시에 따라 다른 팀원의 V37과 충돌하지 않도록 `V38__create_risk_signal_events.sql`을 사용한다.
+RiskSignal 저장 스키마는 `V37__create_risk_signal_events.sql`을 사용한다.
 
 - `event_id` UNIQUE
 - `score`, `score_policy_version` snapshot

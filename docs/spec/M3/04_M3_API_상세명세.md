@@ -943,7 +943,9 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 
 - 인증: `ADMIN`, `SUPER_ADMIN`
 - Query: `from=2026-08-14`, `to=2026-08-20`
-- 생략 시 최근 7일, 최대 90일
+- `from`, `to`를 모두 생략하면 KST 오늘을 포함한 최근 7일, 최대 90일
+- 한쪽 날짜만 입력하거나 `from > to`이면 `INVALID_DATE_RANGE`
+- 날짜 범위는 KST `[from 00:00, to 다음 날 00:00)`를 UTC `Instant`로 변환해 집계
 
 응답:
 
@@ -958,7 +960,7 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
       "zoneId": "Asia/Seoul"
     },
     "users": { "total": 10042, "newInPeriod": 214 },
-    "pets": { "total": 14310 },
+    "pets": { "total": 14310, "newInPeriod": 188 },
     "setlogs": { "total": 102301, "newInPeriod": 1322 },
     "boardPosts": { "total": 12004, "newInPeriod": 407 },
     "reports": { "createdInPeriod": 31, "open": 7 },
@@ -966,9 +968,8 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
       "detectedUsers": 12,
       "openCases": 4,
       "signalsByType": {
-        "REPEATED_CONTACT": 9,
-        "AI_ACCOUNT_REQUEST": 2,
-        "AI_EXTORTION": 1
+        "USER_BLOCKED": 9,
+        "GREETING_EXPIRED": 3
       }
     },
     "storageCleanup": {
@@ -982,7 +983,7 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
         "id": 81,
         "status": "OPEN",
         "subjectUserId": 701,
-        "reason": "REPEATED_CONTACT",
+        "reason": "USER_BLOCKED",
         "createdAt": "2026-08-20T08:30:00Z"
       }
     ]
@@ -993,6 +994,18 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 
 오류: `400 INVALID_DATE_RANGE`, `400 DATE_RANGE_TOO_LARGE`, `401 UNAUTHORIZED`, `403 FORBIDDEN`.
 
+집계 기준(D-08):
+
+- User: `role=USER`이면서 탈퇴하지 않은 계정. 정지 계정은 포함한다.
+- Pet: 논리 삭제되지 않은 Pet. 정지 Pet은 포함한다.
+- Setlog: `VISIBLE`이며 Seed가 아닌 콘텐츠.
+- BoardPost: `PUBLISHED`이며 논리 삭제되지 않은 게시글.
+- Report: `createdInPeriod`는 생성 당시 상태와 무관하고, `open`은 조회 시점의 현재 `OPEN` 수다.
+- Safety: `detectedUsers`와 `signalsByType`은 기간 내 `occurredAt`, `openCases`는 현재 `OPEN`, `REVIEWING` 수다. 0건인 Signal type은 생략한다.
+- StorageCleanup: 기간과 무관한 현재 `PENDING`, `RETRY`, `FAILED` backlog다.
+- `recentItems`는 기간과 무관한 Report·SafetyCase 전체 최신 10건이며 `createdAt DESC`, `source ASC`, `id DESC`로 정렬한다.
+- 이메일, 토큰, 신고 원문, Risk metadata, Media URL은 조회하거나 반환하지 않는다.
+
 ---
 
 ## 8. Safety 관리자 API
@@ -1002,8 +1015,9 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 Query:
 
 - `status`: 기본 `OPEN`
-- `signalType`, `subjectUserId`, `from`, `to`
+- `signalType`, `subjectUserId`, `targetUserId`, `from`, `to`
 - `cursor`, `size` 기본 20·최대 100
+- Queue cursor는 Case 평가로 변경되는 `lastDetectedAt`이 아니라 `(createdAt, caseId)`를 인코딩한다.
 
 응답:
 
@@ -1015,14 +1029,19 @@ Query:
     "items": [
       {
         "caseId": 81,
-        "subjectUserId": 701,
-        "subjectPublicTag": "이웃#A120F8",
+        "subject": { "userId": 701, "publicTag": "이웃#A120F8" },
+        "target": { "userId": 820, "publicTag": "이웃#B920D1" },
         "status": "OPEN",
         "totalScore": 90,
         "signalCount": 3,
-        "primarySignalType": "REPEATED_CONTACT",
+        "primarySignalType": "USER_BLOCKED",
+        "evaluationPolicyVersion": 7,
         "firstDetectedAt": "2026-08-15T02:00:00Z",
-        "lastDetectedAt": "2026-08-20T08:30:00Z"
+        "lastDetectedAt": "2026-08-20T08:30:00Z",
+        "evaluatedAt": "2026-08-20T08:30:01Z",
+        "version": 2,
+        "createdAt": "2026-08-20T08:30:01Z",
+        "updatedAt": "2026-08-20T08:30:01Z"
       }
     ],
     "page": {
@@ -1039,30 +1058,38 @@ Query:
 ```json
 {
   "success": true,
-  "message": "안전 검토 상세 조회 성공",
+  "message": "안전 검토 건을 조회했습니다.",
   "data": {
-    "caseId": 81,
-    "subject": {
-      "userId": 701,
-      "publicTag": "이웃#A120F8",
-      "accountStatus": "ACTIVE"
+    "safetyCase": {
+      "caseId": 81,
+      "subject": { "userId": 701, "publicTag": "이웃#A120F8" },
+      "target": { "userId": 820, "publicTag": "이웃#B920D1" },
+      "status": "OPEN",
+      "totalScore": 90,
+      "signalCount": 3,
+      "primarySignalType": "USER_BLOCKED",
+      "evaluationPolicyVersion": 7,
+      "firstDetectedAt": "2026-08-15T02:00:00Z",
+      "lastDetectedAt": "2026-08-20T08:30:00Z",
+      "evaluatedAt": "2026-08-20T08:30:01Z",
+      "version": 2,
+      "createdAt": "2026-08-20T08:30:01Z",
+      "updatedAt": "2026-08-20T08:30:01Z"
     },
-    "status": "OPEN",
-    "totalScore": 90,
-    "signals": [
+    "recentSignals": [
       {
         "signalId": 901,
-        "signalType": "FRIEND_REQUEST_REJECTED",
-        "targetUserId": 820,
+        "eventId": "1a548b88-2fd0-4be9-9418-03e11e9a6c6f",
+        "sourceType": "USER_BLOCK",
+        "sourceId": 4201,
+        "signalType": "USER_BLOCKED",
         "score": 30,
-        "occurredAt": "2026-08-15T02:00:00Z",
-        "sourceType": "FRIEND_REQUEST",
-        "sourceId": "4201"
+        "scorePolicyVersion": 1,
+        "occurredAt": "2026-08-15T02:00:00Z"
       }
     ],
-    "actions": [],
-    "createdAt": "2026-08-20T08:30:00Z",
-    "updatedAt": "2026-08-20T08:30:00Z"
+    "hasMoreSignals": false,
+    "actions": []
   },
   "error": null
 }
@@ -1084,21 +1111,30 @@ Query:
 ```json
 {
   "success": true,
-  "message": "안전 검토가 처리되었습니다.",
+  "message": "안전 검토 건을 처리했습니다.",
   "data": {
     "caseId": 81,
+    "subject": { "userId": 701, "publicTag": "이웃#A120F8" },
+    "target": { "userId": 820, "publicTag": "이웃#B920D1" },
     "status": "WARNING_RECORDED",
-    "actionId": 301,
-    "actionType": "WARNING_RECORDED",
-    "reason": "동일 사용자에게 반복 접촉한 이력이 확인되었습니다.",
-    "processedByAdminId": 3,
-    "processedAt": "2026-08-20T09:10:00Z"
+    "totalScore": 90,
+    "signalCount": 3,
+    "primarySignalType": "USER_BLOCKED",
+    "evaluationPolicyVersion": 7,
+    "firstDetectedAt": "2026-08-15T02:00:00Z",
+    "lastDetectedAt": "2026-08-20T08:30:00Z",
+    "evaluatedAt": "2026-08-20T08:30:01Z",
+    "version": 3,
+    "createdAt": "2026-08-20T08:30:01Z",
+    "updatedAt": "2026-08-20T09:10:00Z"
   },
   "error": null
 }
 ```
 
 허용 action: `DISMISSED`, `WARNING_RECORDED`.
+
+`OPEN`에서 바로 종료하거나 `REVIEWING`을 거쳐 종료할 수 있다. Action 상세 이력은 Case 상세 응답의 `actions`에서 확인한다.
 
 오류: `404 SAFETY_CASE_NOT_FOUND`, `409 SAFETY_CASE_ALREADY_CLOSED`, `400 SAFETY_ACTION_INVALID`.
 
@@ -1117,19 +1153,22 @@ GET /admin/safety/cases/81/evidence?purpose=반복접촉%20사실관계%20확인
 ```json
 {
   "success": true,
-  "message": "검토 Evidence 조회 성공",
+  "message": "안전 검토 증거를 조회했습니다.",
   "data": {
-    "auditId": 9901,
-    "caseId": 81,
     "items": [
       {
-        "resourceType": "CHAT_MESSAGE",
-        "resourceId": 9001,
-        "roomId": 31,
-        "senderPetId": 12,
-        "type": "TEXT",
-        "body": "다시 이야기하고 싶어요.",
-        "createdAt": "2026-08-20T08:20:00Z"
+        "signalId": 901,
+        "signalType": "USER_BLOCKED",
+        "sourceType": "USER_BLOCK",
+        "sourceId": 4201,
+        "occurredAt": "2026-08-20T08:20:00Z",
+        "accessStatus": "AVAILABLE",
+        "source": {
+          "subjectPublicTag": "이웃#A120F8",
+          "targetPublicTag": "이웃#B920D1",
+          "sourceStatus": "ACTIVE",
+          "sourceOccurredAt": "2026-08-20T08:20:00Z"
+        }
       }
     ],
     "page": { "nextCursor": null, "hasNext": false }
@@ -1138,7 +1177,9 @@ GET /admin/safety/cases/81/evidence?purpose=반복접촉%20사실관계%20확인
 }
 ```
 
-조회 성공·실패와 무관하게 권한이 확인된 실제 Evidence 접근 시 감사 이력을 남긴다. 응답에 JWT·이메일·AI prompt를 포함하지 않는다.
+현재 원천 요약을 지원하는 `sourceType`은 `USER_BLOCK`, `GREETING`이다. 지원하지 않거나 삭제된 원천은 `UNSUPPORTED` 또는 `SOURCE_NOT_FOUND`로 반환한다. 채팅 원문과 Media URL은 반환하지 않는다.
+
+조회 성공·실패와 무관하게 권한이 확인된 실제 Evidence 접근 시 감사 이력을 남긴다. 감사에는 목적·resource 식별자·결과만 저장하며 JWT·이메일·AI prompt·원문을 포함하지 않는다.
 
 ---
 

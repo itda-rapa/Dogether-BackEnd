@@ -85,6 +85,7 @@ class RiskSignalConsumerKafkaIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        jdbc.update("delete from safety_case_evaluation_jobs");
         jdbc.update("delete from risk_signal_events");
         Map<String, Object> properties = KafkaTestUtils.consumerProps(
                 broker, "risk-dlt-" + UUID.randomUUID(), false);

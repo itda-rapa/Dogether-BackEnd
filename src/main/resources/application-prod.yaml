@@ -6,12 +6,13 @@ spring:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
   flyway:
-    enabled: ${FLYWAY_ENABLED:false}
+    enabled: ${FLYWAY_ENABLED:true}
     locations:
       - classpath:db/migration
-      - classpath:db/seed
-      - classpath:db/demo
   kafka:
     #    kafka서버의 url
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVER}
