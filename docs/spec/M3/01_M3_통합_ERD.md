@@ -198,6 +198,26 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 
 ## 7. Safety
 
+### `risk_signal_outbox`
+
+원천 도메인의 DB 변경과 같은 트랜잭션에서 적재하는 Kafka 발행 대기 테이블이다. 이번 범위에는 relay/consumer는 포함하지 않는다.
+
+| 컬럼 | 형식 | 설명 |
+|---|---|---|
+| id | BIGINT | PK |
+| event_id | UUID | 이벤트 멱등키 UNIQUE |
+| schema_version | INTEGER | 현재 `1` |
+| source_type/source_id/signal_type | VARCHAR/BIGINT/VARCHAR | `UNIQUE` 논리 멱등키 |
+| actor_user_id/target_user_id | BIGINT | 행위자·대상, Kafka key는 actor_user_id |
+| occurred_at | TIMESTAMPTZ | 원천 이벤트 발생 시각 |
+| payload | JSONB | `RiskSignalEventV1` JSON 전체 |
+| status/attempts/next_retry_at | VARCHAR/INTEGER/TIMESTAMPTZ | 향후 relay 재시도 상태 |
+| claim_token/claimed_at/published_at | UUID/TIMESTAMPTZ | 향후 relay claim·전송 완료 기록 |
+
+- 현재 상태: `PENDING/PROCESSING/SENT/RETRY/FAILED`
+- 논리 멱등키: `(source_type, source_id, signal_type)`
+- 원문·JWT·이메일·정확 위치는 payload에 저장하지 않는다.
+
 ### `risk_signal_events`
 
 | 컬럼 | 형식 | 설명 |
