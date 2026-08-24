@@ -26,6 +26,8 @@ Kafka 전달 성공과 Outbox의 `SENT` 변경은 하나의 원자적 트랜잭�
 
 기본적으로 Relay는 비활성화된다. Topic 및 Consumer 준비와 배포 순서를 확인한 뒤 운영 환경에서 활성화한다.
 
+프로젝트 공용 `itda.common.config.SchedulingConfig`에 `@EnableScheduling`이 등록되어 있다. Relay는 이 공용 설정을 재사용하며, `RISK_SIGNAL_OUTBOX_RELAY_ENABLED=true`일 때만 `RiskSignalOutboxRelayScheduler` Bean과 예약 작업이 등록된다.
+
 | 환경 변수 | 기본값 | 설명 |
 |---|---:|---|
 | `RISK_SIGNAL_OUTBOX_RELAY_ENABLED` | `false` | 스케줄러 활성화 |
@@ -42,6 +44,8 @@ Kafka 전달 성공과 Outbox의 `SENT` 변경은 하나의 원자적 트랜잭�
 `lease`는 `max-block + send-timeout + 5초 상태 변경 여유` 이상이어야 한다. backoff에는 이벤트별 안정적인 jitter가 적용된다. Risk 전용 Producer만 `acks=all`, idempotence, retry 및 timeout 설정을 사용하므로 기존 Chat Producer에는 영향을 주지 않는다.
 
 운영 활성화 전에는 Kafka 관리 측에서 topic 파티션 수, replication factor, retention, Producer/Consumer ACL을 확정해야 한다. 애플리케이션이 topic을 임의 생성하는 것을 운영 provisioning으로 간주하지 않는다.
+
+`KAFKA_BOOTSTRAP_SERVER` 주입만으로 연결 검증이 끝나는 것은 아니다. Kafka가 metadata로 반환하는 advertised listener 주소를 애플리케이션 컨테이너가 해석하고 접속할 수 있어야 한다. DB/Kafka Compose와 Server Compose를 별도로 실행하면 같은 network key도 서로 다른 Docker network로 생성될 수 있으므로, 공유 external network 또는 INTERNAL/EXTERNAL listener 구성은 인프라 배포에서 별도로 확정한다.
 
 ## 관측 지표
 
@@ -68,6 +72,6 @@ Kafka 전달 성공과 Outbox의 `SENT` 변경은 하나의 원자적 트랜잭�
 
     .\gradlew.bat kafkaTest --tests "itda.risk.service.RiskSignalOutboxRelayKafkaIntegrationTest"
 
-PostgreSQL 및 Kafka 통합 테스트는 Docker 또는 Embedded Kafka가 필요하므로 기본 `test` task와 분리했다.
+PostgreSQL 및 Kafka 통합 테스트는 Docker 또는 Embedded Kafka가 필요하므로 기본 `test` task와 분리했다. 이번 PR에서는 CI job을 추가하지 않으며, 병합 전 위 명령을 수동으로 실행하고 결과를 PR에 기록한다.
 
 실제 broker 중지/재시작은 timeout 이후 늦은 성공으로 테스트가 불안정해질 수 있어 자동화하지 않았다. 대신 Spring + PostgreSQL 통합 테스트에서 첫 발행 실패를 결정적으로 주입해 `RETRY → 재선점 → SENT` 전체 상태 전이를 검증하고, Embedded Kafka E2E에서는 실제 topic/key/JSON/SENT를 검증한다.
