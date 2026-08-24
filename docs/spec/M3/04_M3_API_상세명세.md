@@ -432,6 +432,8 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 
 ### `POST /boards/{boardId}/posts`
 
+아래 `placeId` 요청·응답 계약은 기존 M3 Place 제품 계획 계약이다. Issue #124는 Place를 구현하거나 변경하지 않으며, 현재 runtime POST parser는 `title`·`content`·선택 `mediaIds`만, PATCH parser는 이 절의 `title`·`content`·`mediaIds`·`version` 계약만 받는다.
+
 `POST /boards/{boardId}/posts` 요청 예시:
 
 ```json
@@ -505,6 +507,8 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 
 ### `PATCH /posts/{postId}`
 
+기존 M3 Place 제품 계획 요청 예시이며, 아래 `placeId`는 현재 Issue #124 runtime PATCH parser의 허용 필드가 아니다.
+
 ```json
 {
   "title": "야간 진료 병원 후기 수정",
@@ -517,20 +521,32 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 
 성공 응답은 생성과 같은 Post 상세에 증가한 `version`을 포함한다.
 
-PATCH 필드 의미:
+현재 Issue #124 runtime PATCH는 strict JSON이며 `title`, `content`, `mediaIds`, `version` 외 필드는 `400 VALIDATION_FAILED`다. `version`은 필수인 0 이상의 integral long이고, `title`·`content`·`mediaIds` 중 하나 이상이 필요하다. `mediaIds`는 null이 아닌 중복 없는 양의 integral long 배열로 최대 5개다. decimal, overflow, 0 이하 값, null item도 `400 VALIDATION_FAILED`다. 아래 `placeId` 항목은 기존 M3 Place 제품 계획 계약이며 Issue #124 runtime parser에는 포함되지 않는다.
 
-- 필드 생략: 기존 값 유지
+PATCH 필드 의미 (기존 M3 Place 제품 계획 계약과 현재 Issue #124 media 계약을 함께 표기):
+
+- `title`, `content` 생략: 해당 text 유지
+- `placeId` 생략: 기존 Place 연결 유지
 - `placeId: null`: Place 연결 제거
 - `placeId: 91`: Place 교체
-- `mediaIds` 생략: 기존 이미지 유지
-- `mediaIds: []`: 첨부 이미지 전체 제거
-- `mediaIds: [...]`: 전달한 순서의 목록으로 전체 교체
+- `mediaIds` 생략: 기존 이미지 링크를 그대로 유지하고 비교·교체하지 않음
+- `mediaIds: null`: `400 VALIDATION_FAILED`
+- `mediaIds: []`: 기존 링크를 모두 제거
+- `mediaIds: [501, 502]`: 검증된 이미지 링크를 전달 순서(`displayOrder` 0부터)로 전체 교체
+
+stale version 검사는 작성자·게시글 확인 뒤 Media DB 조회와 no-op 판단보다 먼저 수행하며, 불일치면 `409 CONCURRENT_UPDATE_CONFLICT`다. `mediaIds`가 present이면 같은 순서의 현재 목록인지 비교하고 command Media validation을 유지한다. 동일한 title/content와 동일 순서 목록은 no-op으로 link DML과 version 증가가 없다. 같은 집합이어도 순서가 다르면 실제 변경이다.
+
+실제 text 또는 이미지 변경은 BoardPost의 domain-specific attachment touch와 text 변경을 한 aggregate dirty update로 합쳐 `posts.flush()` 한 번으로 parent optimistic claim을 먼저 완료한다. flush 후 응답의 managed version과 DB version은 동일하고 정확히 1 증가한다. 이후 이미지 교체는 기존 `BoardPostMedia`를 delete, flush, 요청 순서로 insert한다. 따라서 `[A,B] -> [B,A]`도 unique 제약 충돌 없이 처리되며 rollback 시 parent와 link 변경은 함께 원복된다.
+
+이미지 command validation은 기존 계약을 유지한다: missing/deleted는 `MEDIA_NOT_FOUND`, 타 소유자는 `MEDIA_NOT_OWNED`, non-image는 `INVALID_MEDIA_TYPE`, 업로드 완료 전 상태는 `MEDIA_NOT_UPLOADED`다. 읽기 hydrate는 별도 경계로, 링크 Media를 batch로 모두 load한 뒤 collection signing한다. missing, soft-deleted 또는 not-downloadable Media가 하나라도 있으면 일부 images를 반환하지 않고 기존 단건 다운로드와 같은 읽기 실패로 요청 전체가 실패한다.
+
+N+1 방지: feed는 페이지 전체 `BoardPostMedia`의 distinct Media ID를 `findAllById` 한 번으로 hydrate하고 collection signing도 한 번만 수행한다. detail과 PATCH의 `mediaIds` omitted 경로도 link 집합 단위로 hydrate한다. create와 `mediaIds` present PATCH는 validation에서 이미 load한 `Media`를 링크 생성·응답 signing에 재사용한다. Board feed 작성자의 PetDisplay batch path는 fetch join된 profile asset을 collection signing해 추가 MediaRepository lookup 없이 URL을 조립한다. 이 작업은 Media entity·repository·service/controller/lifecycle 및 Media Flyway migration을 변경하지 않는다.
 
 게시글 생성·수정·목록·상세 응답에서 기존 `reactionCount`·`reactedByMe`는 LIKE 의미를 유지한다. HELPFUL 상태는 `helpfulCount`·`helpfulByMe`로 별도 제공한다.
 
 기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정 응답에는 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다. 공개 타 사용자 Pet profile endpoint, `PetSearchItemResponse`, `PetDisplaySummary` 확장은 이번 범위가 아니다.
 
-오류: `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`.
+오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
 
 ---
 

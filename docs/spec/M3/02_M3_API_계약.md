@@ -33,7 +33,7 @@
 | POST | `/posts/{postId}/comments` | Root 댓글 생성. strict body는 `content`만 허용 |
 | POST | `/comments/{parentCommentId}/replies` | 직접 부모 아래 대댓글 생성. strict body는 `content`만 허용 |
 | GET | `/posts/{postId}/comments` | Root cursor 기반 중첩 댓글 thread 목록 |
-| POST/PATCH | `/boards/{boardId}/posts`, `/posts/{postId}` | `placeId`, mediaIds 지원 |
+| POST/PATCH | `/boards/{boardId}/posts`, `/posts/{postId}` | M3 Place 제품 계획 계약: `placeId`, mediaIds 지원 |
 
 댓글 mutation 응답 `CommentResponse`는 기존 필드를 유지하면서 `parentCommentId`, `depth`를 추가한다. Root는 `parentCommentId=null`, `depth=0`; 대댓글은 직접 부모 ID와 `depth=1~3`이다. 내부 `rootCommentId`는 외부 API에 노출하지 않는다.
 
@@ -42,6 +42,10 @@
 대댓글 생성에서 부모가 없거나 soft delete·차단으로 보이지 않으면 `404 BOARD_POST_COMMENT_NOT_FOUND`를 사용한다. 부모가 depth 3이면 `409 COMMENT_DEPTH_EXCEEDED`다. `PARENT_COMMENT_NOT_FOUND`는 도입하지 않는다.
 
 반응 actor는 Active Pet이고 duplicate key는 Pet+target+type이다. self 판단은 User 기준이다. Post/Comment의 지원하지 않는 reaction type은 mutation에 진입하지 않고 `400 VALIDATION_FAILED`다. 차단·공개 범위 실패는 Post `404 BOARD_POST_NOT_FOUND`, Comment target/ancestor `404 BOARD_POST_COMMENT_NOT_FOUND`로 은닉한다. 기존 Post LIKE 계약은 유지한다.
+
+`placeId` 표기와 상세 명세는 기존 M3 Place 제품 계획 계약이며 Issue #124가 이를 구현하거나 변경하지 않는다. 현재 Issue #124 runtime PATCH parser는 strict JSON으로 `title`, `content`, `mediaIds`, `version`만 허용한다. `version`은 필수인 0 이상의 정수이고, 나머지 세 필드 중 하나 이상이 필요하다. `mediaIds`는 null이 아닌 양의 정수의 중복 없는 배열(최대 5개)이다. 생략하면 기존 링크를 보존하고, `[]`는 전체 제거하며, 값 배열은 요청 순서대로 전체 교체한다. 같은 title/content와 같은 순서의 이미지 목록은 no-op으로 version을 올리지 않는다. 배열 순서만 달라도 실제 변경이다. stale version은 `409 CONCURRENT_UPDATE_CONFLICT`다.
+
+게시글 이미지 읽기는 Post별 조회를 반복하지 않는다. feed는 페이지 전체 링크의 Media를 한 번 batch hydrate·sign하고, detail 및 PATCH 보존 경로도 link 집합 단위로 hydrate한다. 하나라도 missing, soft-deleted 또는 다운로드 불가면 부분 이미지를 반환하지 않고 기존 단건 다운로드와 같은 읽기 실패로 전체 요청을 실패시킨다. create/PATCH의 command validation은 기존 Media ErrorCode를 유지하며, Media entity·repository·lifecycle·migration은 변경하지 않는다. feed 작성자 Pet profile URL도 fetch-join된 Media를 한 번 collection signing하여 Pet 수에 비례한 Media 조회를 만들지 않는다.
 
 ## 4. Media·Chat·Setlog 공유
 
