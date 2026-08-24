@@ -66,7 +66,7 @@ public class AdminSafetyQueryService {
                 .map(row -> response(row, publicTags))
                 .toList();
         String nextCursor = hasNext && !rows.isEmpty()
-                ? SafetyCursorCodec.encode(rows.getLast().createdAt(), rows.getLast().id())
+                ? SafetyCursorCodec.encode(rows.getLast().lastDetectedAt(), rows.getLast().id())
                 : null;
         return new SafetyCasePageResponse(items, CursorPage.of(nextCursor, hasNext));
     }

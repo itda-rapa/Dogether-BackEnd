@@ -2,6 +2,7 @@ package itda.safety.repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -11,15 +12,28 @@ import org.springframework.stereotype.Repository;
 public class SafetyRiskSignalAggregateJdbcRepository {
     private final JdbcTemplate jdbc;
 
+    public Optional<Instant> findLatestOccurredAt(
+            long subjectUserId, long targetUserId, Instant toInclusive
+    ) {
+        return Optional.ofNullable(jdbc.queryForObject("""
+                select max(occurred_at)
+                  from risk_signal_events
+                 where actor_user_id = ? and target_user_id = ? and occurred_at <= ?
+                """, (rs, rowNumber) -> {
+                    Timestamp value = rs.getTimestamp(1);
+                    return value == null ? null : value.toInstant();
+                }, subjectUserId, targetUserId, Timestamp.from(toInclusive)));
+    }
+
     public Aggregate aggregate(
-            long subjectUserId, long targetUserId, Instant fromInclusive, Instant toExclusive
+            long subjectUserId, long targetUserId, Instant fromExclusive, Instant toInclusive
     ) {
         return jdbc.queryForObject("""
                 with matching as (
                     select id, signal_type, score, occurred_at
                       from risk_signal_events
                      where actor_user_id = ? and target_user_id = ?
-                       and occurred_at >= ? and occurred_at <= ?
+                       and occurred_at > ? and occurred_at <= ?
                 ), primary_signal as (
                     select signal_type
                       from matching
@@ -42,7 +56,8 @@ public class SafetyRiskSignalAggregateJdbcRepository {
                                 ? null : rs.getTimestamp("last_detected_at").toInstant(),
                         rs.getLong("last_evaluated_event_id"),
                         rs.getString("primary_signal_type")),
-                subjectUserId, targetUserId, Timestamp.from(fromInclusive), Timestamp.from(toExclusive));
+                subjectUserId, targetUserId,
+                Timestamp.from(fromExclusive), Timestamp.from(toInclusive));
     }
 
     public record Aggregate(

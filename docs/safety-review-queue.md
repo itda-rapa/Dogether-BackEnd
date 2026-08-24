@@ -9,7 +9,7 @@ RiskSignal을 관리자 검토 대상으로 전환하되 Kafka 소비와 Case �
 1. `RiskSignalIngestionService`가 `eventId`를 기준으로 `risk_signal_events`를 멱등 저장한다.
 2. 새 이벤트인 경우 같은 DB transaction에서 `safety_case_evaluation_jobs`를 한 건 적재한다.
 3. Evaluator Worker가 `FOR UPDATE SKIP LOCKED`로 Job을 claim한다.
-4. `actorUserId`를 검토 대상인 `subjectUserId`, `targetUserId`를 반복 접촉 대상으로 사용해 원천 이벤트 발생 시각 기준의 점수와 건수를 집계한다.
+4. `actorUserId`를 검토 대상인 `subjectUserId`, `targetUserId`를 반복 접촉 대상으로 사용한다. 지연 도착 이벤트도 반영되도록 현재 평가 가능한 최신 원천 이벤트를 anchor로 `(anchor-window, anchor]` 구간의 점수와 건수를 다시 집계한다.
 5. 합계가 임계값 이상이면 열린 Case를 생성하거나 snapshot을 갱신한다.
 6. Case 반영과 Job 완료는 같은 transaction에서 처리한다.
 7. 실패는 지수 backoff로 재시도하며 횟수를 소진하면 `FAILED`로 남긴다. 운영자가 명시적으로 재등록하면 retry budget을 초기화한다.
@@ -60,7 +60,7 @@ Case는 `lastEvaluatedEventId` 워터마크를 저장한다. 발생 시각이 �
 - `GET /admin/safety/cases`
   - 기본 상태 `OPEN`, 기본 size 20, 최대 100
   - 상태·신호 유형·subject·target·기간 필터
-  - 변경되지 않는 `(createdAt DESC, caseId DESC)` keyset cursor
+  - 최신 위험 신호를 우선하는 `(lastDetectedAt DESC, caseId DESC)` keyset cursor
 - `GET /admin/safety/cases/{caseId}`
   - Case snapshot, 공개 사용자 태그, 관련 RiskSignal과 action 이력
   - 최근 RiskSignal은 최대 100건이며 추가 항목은 `hasMoreSignals`로 표시

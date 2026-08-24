@@ -20,9 +20,13 @@ public class SafetyCaseEvaluationTransactionService {
 
     @Transactional
     public Outcome evaluateAndComplete(ClaimedEvaluation claimed, Instant evaluatedAt) {
+        Instant anchor = aggregates.findLatestOccurredAt(
+                        claimed.subjectUserId(), claimed.targetUserId(), evaluatedAt)
+                .filter(latest -> latest.isAfter(claimed.eventOccurredAt()))
+                .orElse(claimed.eventOccurredAt());
         var aggregate = aggregates.aggregate(
                 claimed.subjectUserId(), claimed.targetUserId(),
-                claimed.eventOccurredAt().minus(properties.window()), claimed.eventOccurredAt());
+                anchor.minus(properties.window()), anchor);
         boolean caseOpenedOrUpdated = false;
         if (aggregate.signalCount() > 0 && aggregate.totalScore() >= properties.threshold()) {
             SafetyCaseSnapshot snapshot = new SafetyCaseSnapshot(

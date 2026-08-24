@@ -35,7 +35,7 @@ CREATE UNIQUE INDEX uk_safety_review_cases_open_subject_target
     WHERE status IN ('OPEN', 'REVIEWING');
 
 CREATE INDEX ix_safety_review_cases_queue
-    ON safety_review_cases (status, created_at DESC, id DESC);
+    ON safety_review_cases (status, last_detected_at DESC, id DESC);
 
 CREATE INDEX ix_safety_review_cases_subject
     ON safety_review_cases (subject_user_id, last_detected_at DESC, id DESC);

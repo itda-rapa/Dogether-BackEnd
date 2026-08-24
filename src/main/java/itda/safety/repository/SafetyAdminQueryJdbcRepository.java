@@ -73,12 +73,12 @@ public class SafetyAdminQueryJdbcRepository {
             arguments.add(signalType.name());
         }
         if (cursorAt != null) {
-            sql.append(" and (c.created_at < ? or (c.created_at = ? and c.id < ?))");
+            sql.append(" and (c.last_detected_at < ? or (c.last_detected_at = ? and c.id < ?))");
             arguments.add(cursorAt);
             arguments.add(cursorAt);
             arguments.add(cursorId);
         }
-        sql.append(" order by c.created_at desc, c.id desc limit ?");
+        sql.append(" order by c.last_detected_at desc, c.id desc limit ?");
         arguments.add(limit);
         return jdbc.query(sql.toString(), SafetyAdminQueryJdbcRepository::mapCase,
                 arguments.toArray());

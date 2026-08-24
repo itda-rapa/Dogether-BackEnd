@@ -16,6 +16,7 @@ import itda.safety.repository.SafetyReviewCaseJdbcRepository;
 import itda.safety.repository.SafetyRiskSignalAggregateJdbcRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -91,6 +92,27 @@ class SafetyCaseEvaluationTransactionServiceTest {
                 .isEqualTo(SafetyCaseEvaluationTransactionService.Outcome.BELOW_THRESHOLD);
         verify(aggregates).aggregate(41L, 42L,
                 eventOccurredAt.minus(Duration.ofDays(30)), eventOccurredAt);
+    }
+
+    @Test
+    void lateHistoricalEventReevaluatesLatestAffectedWindow() {
+        Instant lateOccurredAt = NOW.minusSeconds(20);
+        Instant latestOccurredAt = NOW.minusSeconds(10);
+        ClaimedEvaluation claimed = claimed(lateOccurredAt);
+        when(aggregates.findLatestOccurredAt(41L, 42L, NOW))
+                .thenReturn(Optional.of(latestOccurredAt));
+        when(aggregates.aggregate(41L, 42L,
+                latestOccurredAt.minus(Duration.ofDays(30)), latestOccurredAt))
+                .thenReturn(new SafetyRiskSignalAggregateJdbcRepository.Aggregate(
+                        2, 90, lateOccurredAt, latestOccurredAt, 12, "USER_BLOCKED"));
+        when(cases.upsertOpenCase(any(Long.class), any(Long.class), any()))
+                .thenReturn(Optional.of(mock(itda.safety.domain.SafetyReviewCase.class)));
+        when(jobs.complete(claimed)).thenReturn(true);
+
+        assertThat(service.evaluateAndComplete(claimed, NOW))
+                .isEqualTo(SafetyCaseEvaluationTransactionService.Outcome.CASE_UPSERTED);
+        verify(aggregates).aggregate(41L, 42L,
+                latestOccurredAt.minus(Duration.ofDays(30)), latestOccurredAt);
     }
 
     private static SafetyEvaluatorProperties properties() {
