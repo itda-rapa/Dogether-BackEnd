@@ -1,6 +1,7 @@
 package itda.comment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -8,7 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import itda.boardpost.service.BoardPostService;
 import itda.chat.dto.EnsureDirectRoomResult;
+import itda.common.exception.BusinessException;
+import itda.comment.service.BoardPostCommentService;
 import itda.comment.service.BoardCommentDirectRoomService;
 import itda.common.security.CurrentUser;
 import itda.user.domain.Role;
@@ -60,6 +64,8 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardCommentDirectRoomService directRooms;
+    @Autowired private BoardPostService postService;
+    @Autowired private BoardPostCommentService commentService;
     @Autowired private PlatformTransactionManager transactionManager;
 
     private ExecutorService executor;
@@ -67,6 +73,7 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     private long authorPetId;
     private long commenterId;
     private long commenterPetId;
+    private long thirdPartyId;
     private long postId;
     private long commentId;
 
@@ -83,6 +90,7 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
         commenterId = createUser("commenter");
         commenterPetId = createPet(commenterId, "commenter-pet");
         activate(commenterId, commenterPetId);
+        thirdPartyId = createUser("third-party");
         long boardId = jdbc.queryForObject(
                 "insert into boards (name) values (?) returning id",
                 Long.class,
@@ -216,6 +224,40 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     }
 
     @Test
+    void deletedPostIsHiddenFromThirdPartyBeforePairLock() {
+        jdbc.update("update board_posts set status = 'DELETED', deleted_at = current_timestamp where id = ?", postId);
+
+        assertThatThrownBy(() -> directRooms.ensureDirectRoom(thirdPartyId, postId, commentId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode().name())
+                .isEqualTo("BOARD_POST_NOT_FOUND");
+        assertNoDirectRoom();
+    }
+
+    @Test
+    void deletedCommentIsHiddenFromThirdPartyBeforePairLock() {
+        jdbc.update("update board_post_comments set deleted_at = current_timestamp where id = ?", commentId);
+
+        assertThatThrownBy(() -> directRooms.ensureDirectRoom(thirdPartyId, postId, commentId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode().name())
+                .isEqualTo("BOARD_POST_COMMENT_NOT_FOUND");
+        assertNoDirectRoom();
+    }
+
+    @Test
+    void switchingActivePetRejectsDirectWithTheOldAuthorPet() {
+        long replacementPetId = createPet(authorId, "replacement-pet");
+        activate(authorId, replacementPetId);
+
+        assertThatThrownBy(() -> directRooms.ensureDirectRoom(authorId, postId, commentId))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode().name())
+                .isEqualTo("FORBIDDEN");
+        assertNoDirectRoom();
+    }
+
+    @Test
     void concurrentIdenticalRequestsStillCreateOneDirectRoom() throws Exception {
         List<EnsureDirectRoomResult> results = runConcurrently(
                 () -> directRooms.ensureDirectRoom(authorId, postId, commentId)
@@ -237,6 +279,60 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     @Test
     void boardToDirectHoldsTheTargetUserLockUntilItsTransactionEnds() throws Exception {
         assertCompetingRowLockWaits(RowLockTarget.USERS, commenterId);
+    }
+
+    @Test
+    void concurrentDirectAndPostDeleteHaveNoDeadlockWhenDeleteWins() throws Exception {
+        RaceResult result = runDeleteFirstRace(RaceTarget.POST);
+
+        assertNoDeadlock(result);
+        assertBusinessCode(result.directFailure(), "BOARD_POST_NOT_FOUND");
+        assertThat(result.deleteFailure()).isNull();
+        assertThat(jdbc.queryForObject(
+                "select status from board_posts where id = ?", String.class, postId
+        )).isEqualTo("DELETED");
+    }
+
+    @Test
+    void concurrentDirectAndPostDeleteHaveNoDeadlockWhenDirectWins() throws Exception {
+        RaceResult result = runDirectFirstRace(RaceTarget.POST);
+
+        assertNoDeadlock(result);
+        assertThat(result.directFailure()).isNull();
+        assertThat(result.deleteFailure()).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from chat_rooms", Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "select status from board_posts where id = ?", String.class, postId
+        )).isEqualTo("DELETED");
+    }
+
+    @Test
+    void concurrentDirectAndRootCommentDeleteHaveNoDeadlockWhenDeleteWins() throws Exception {
+        RaceResult result = runDeleteFirstRace(RaceTarget.COMMENT);
+
+        assertNoDeadlock(result);
+        assertBusinessCode(result.directFailure(), "BOARD_POST_COMMENT_NOT_FOUND");
+        assertThat(result.deleteFailure()).isNull();
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is not null from board_post_comments where id = ?",
+                Boolean.class,
+                commentId
+        )).isTrue();
+    }
+
+    @Test
+    void concurrentDirectAndRootCommentDeleteHaveNoDeadlockWhenDirectWins() throws Exception {
+        RaceResult result = runDirectFirstRace(RaceTarget.COMMENT);
+
+        assertNoDeadlock(result);
+        assertThat(result.directFailure()).isNull();
+        assertThat(result.deleteFailure()).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from chat_rooms", Long.class)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "select deleted_at is not null from board_post_comments where id = ?",
+                Boolean.class,
+                commentId
+        )).isTrue();
     }
 
     private void assertCompetingRowLockWaits(RowLockTarget target, Long rowId) throws Exception {
@@ -277,6 +373,107 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
                 status -> lockRow(target, rowId)
         );
         assertThat(lockedAfterRelease).isEqualTo(rowId);
+    }
+
+    private RaceResult runDeleteFirstRace(RaceTarget target) throws Exception {
+        CountDownLatch deleteLocksPair = new CountDownLatch(1);
+        CountDownLatch directEntered = new CountDownLatch(1);
+
+        Future<Throwable> delete = executor.submit(() -> captureFailure(() ->
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    lockPairOwnerRow(target);
+                    deleteLocksPair.countDown();
+                    awaitLatch(directEntered);
+                    deleteTarget(target);
+                })
+        ));
+        assertThat(deleteLocksPair.await(10, TimeUnit.SECONDS)).isTrue();
+
+        Future<Throwable> direct = executor.submit(() -> captureFailure(() ->
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    directEntered.countDown();
+                    directRooms.ensureDirectRoom(authorId, postId, commentId);
+                })
+        ));
+
+        return new RaceResult(direct.get(30, TimeUnit.SECONDS), delete.get(30, TimeUnit.SECONDS));
+    }
+
+    private RaceResult runDirectFirstRace(RaceTarget target) throws Exception {
+        CountDownLatch directFinishedBeforeRelease = new CountDownLatch(1);
+        CountDownLatch releaseDirect = new CountDownLatch(1);
+        CountDownLatch deleteEntered = new CountDownLatch(1);
+
+        Future<Throwable> direct = executor.submit(() -> captureFailure(() ->
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    directRooms.ensureDirectRoom(authorId, postId, commentId);
+                    directFinishedBeforeRelease.countDown();
+                    awaitLatch(releaseDirect);
+                })
+        ));
+        assertThat(directFinishedBeforeRelease.await(30, TimeUnit.SECONDS)).isTrue();
+
+        Future<Throwable> delete = executor.submit(() -> captureFailure(() -> {
+            deleteEntered.countDown();
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> deleteTarget(target));
+        }));
+        assertThat(deleteEntered.await(10, TimeUnit.SECONDS)).isTrue();
+        releaseDirect.countDown();
+
+        return new RaceResult(direct.get(30, TimeUnit.SECONDS), delete.get(30, TimeUnit.SECONDS));
+    }
+
+    private void lockPairOwnerRow(RaceTarget target) {
+        long userId = target == RaceTarget.POST ? authorId : commenterId;
+        long petId = target == RaceTarget.POST ? authorPetId : commenterPetId;
+        jdbc.queryForObject("select id from users where id = ? for update", Long.class, userId);
+        jdbc.queryForObject("select id from pets where id = ? for update", Long.class, petId);
+    }
+
+    private void deleteTarget(RaceTarget target) {
+        if (target == RaceTarget.POST) {
+            postService.delete(authorId, postId);
+        } else {
+            commentService.delete(commenterId, commentId);
+        }
+    }
+
+    private Throwable captureFailure(ThrowingOperation operation) {
+        try {
+            operation.run();
+            return null;
+        } catch (Throwable failure) {
+            return failure;
+        }
+    }
+
+    private void assertNoDeadlock(RaceResult result) {
+        assertThat(findSqlState(result.directFailure())).isNotEqualTo("40P01");
+        assertThat(findSqlState(result.deleteFailure())).isNotEqualTo("40P01");
+    }
+
+    private void assertBusinessCode(Throwable failure, String expectedCode) {
+        assertThat(failure).isNotNull();
+        Throwable cause = failure;
+        while (cause != null) {
+            if (cause instanceof BusinessException businessException) {
+                assertThat(businessException.getErrorCode().name()).isEqualTo(expectedCode);
+                return;
+            }
+            cause = cause.getCause();
+        }
+        throw new AssertionError("Expected BusinessException " + expectedCode, failure);
+    }
+
+    private String findSqlState(Throwable failure) {
+        Throwable cause = failure;
+        while (cause != null) {
+            if (cause instanceof SQLException sqlException) {
+                return sqlException.getSQLState();
+            }
+            cause = cause.getCause();
+        }
+        return null;
     }
 
     private Long lockRow(RowLockTarget target, Long rowId) {
@@ -378,5 +575,19 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
         String sql() {
             return sql;
         }
+    }
+
+    private enum RaceTarget {
+        POST,
+        COMMENT
+    }
+
+    private record RaceResult(Throwable directFailure, Throwable deleteFailure) {
+    }
+
+    @FunctionalInterface
+    private interface ThrowingOperation {
+
+        void run() throws Exception;
     }
 }

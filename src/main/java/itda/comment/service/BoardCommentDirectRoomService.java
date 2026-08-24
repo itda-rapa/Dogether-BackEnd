@@ -2,6 +2,7 @@ package itda.comment.service;
 
 import itda.block.service.BlockRelationshipQueryService;
 import itda.boardpost.domain.BoardPost;
+import itda.boardpost.domain.PostStatus;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.chat.domain.RoomOrigin;
 import itda.chat.dto.EnsureDirectRoomResult;
@@ -13,8 +14,6 @@ import itda.common.exception.BusinessException;
 import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.service.InteractionPairLockService;
 import itda.interaction.service.InteractionTargetQueryService;
-import itda.pet.service.query.ActivePetContext;
-import itda.pet.service.query.ActivePetQueryService;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.util.Objects;
@@ -35,7 +34,6 @@ public class BoardCommentDirectRoomService {
     private final BoardPostRepository posts;
     private final BoardPostCommentRepository comments;
     private final UserRepository users;
-    private final ActivePetQueryService activePetQueryService;
     private final InteractionTargetQueryService interactionTargetQueryService;
     private final InteractionPairLockService interactionPairLockService;
     private final BlockRelationshipQueryService blocks;
@@ -45,7 +43,6 @@ public class BoardCommentDirectRoomService {
             BoardPostRepository posts,
             BoardPostCommentRepository comments,
             UserRepository users,
-            ActivePetQueryService activePetQueryService,
             InteractionTargetQueryService interactionTargetQueryService,
             InteractionPairLockService interactionPairLockService,
             BlockRelationshipQueryService blocks,
@@ -54,7 +51,6 @@ public class BoardCommentDirectRoomService {
         this.posts = posts;
         this.comments = comments;
         this.users = users;
-        this.activePetQueryService = activePetQueryService;
         this.interactionTargetQueryService = interactionTargetQueryService;
         this.interactionPairLockService = interactionPairLockService;
         this.blocks = blocks;
@@ -67,25 +63,34 @@ public class BoardCommentDirectRoomService {
             Long postId,
             Long commentId
     ) {
-        ActivePetContext actor = activePetQueryService.requireActivePet(userId);
+        BoardPostRepository.ShareIdentity postIdentity = posts.findShareIdentityById(postId)
+                .orElseThrow(this::postNotFound);
+        BoardPostCommentRepository.ShareIdentity commentIdentity = comments.findShareIdentityById(commentId)
+                .orElseThrow(this::commentNotFound);
+
+        validateInitialIdentity(postIdentity, commentIdentity);
+
+        InteractionPairContext pair = interactionPairLockService.lockInteractionPair(
+                postIdentity.getAuthorPetId(),
+                commentIdentity.getAuthorPetId()
+        );
+        interactionTargetQueryService.requireActiveTargets(
+                pair,
+                postIdentity.getAuthorUserId(),
+                commentIdentity.getAuthorUserId()
+        );
+        requireCallerAuthorWithLockedActivePet(
+                userId,
+                postIdentity,
+                commentIdentity,
+                pair
+        );
+
         BoardPost post = posts.findPublishedByIdForShare(postId)
                 .orElseThrow(this::postNotFound);
         BoardPostComment comment = comments.findActiveByIdForShare(commentId)
                 .orElseThrow(this::commentNotFound);
-
-        if (!Objects.equals(post.getId(), comment.getPostId())) {
-            throw commentNotFound();
-        }
-        if (comment.getDepth() != 0
-                || comment.getParentCommentId() != null
-                || comment.getRootCommentId() != null) {
-            throw commentNotFound();
-        }
-
-        if (!Objects.equals(actor.petId(), post.getAuthorPetId())
-                && !Objects.equals(actor.petId(), comment.getAuthorPetId())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
+        validateAuthoritativeResources(postIdentity, commentIdentity, post, comment);
 
         User viewer = users.findById(userId)
                 .filter(User::isActive)
@@ -95,16 +100,6 @@ public class BoardCommentDirectRoomService {
         if (Objects.equals(post.getAuthorPetId(), comment.getAuthorPetId())) {
             throw new BusinessException(ErrorCode.CHAT_ROOM_SAME_PET_FORBIDDEN);
         }
-
-        InteractionPairContext pair = interactionPairLockService.lockInteractionPair(
-                post.getAuthorPetId(),
-                comment.getAuthorPetId()
-        );
-        interactionTargetQueryService.requireActiveTargets(
-                pair,
-                post.getAuthorUserId(),
-                comment.getAuthorUserId()
-        );
 
         if (Objects.equals(pair.sourceUser().userId(), pair.targetUser().userId())) {
             throw new BusinessException(ErrorCode.SAME_OWNER_INTERACTION_FORBIDDEN);
@@ -121,6 +116,85 @@ public class BoardCommentDirectRoomService {
                 comment.getAuthorPetId(),
                 RoomOrigin.FRIEND
         );
+    }
+
+    private void validateInitialIdentity(
+            BoardPostRepository.ShareIdentity post,
+            BoardPostCommentRepository.ShareIdentity comment
+    ) {
+        if (post.getStatus() != PostStatus.PUBLISHED) {
+            throw postNotFound();
+        }
+        if (comment.getDeletedAt() != null) {
+            throw commentNotFound();
+        }
+        if (!Objects.equals(post.getPostId(), comment.getPostId())) {
+            throw commentNotFound();
+        }
+        if (!Objects.equals(comment.getDepth(), (short) 0)
+                || comment.getParentCommentId() != null
+                || comment.getRootCommentId() != null) {
+            throw commentNotFound();
+        }
+    }
+
+    private void requireCallerAuthorWithLockedActivePet(
+            Long callerUserId,
+            BoardPostRepository.ShareIdentity post,
+            BoardPostCommentRepository.ShareIdentity comment,
+            InteractionPairContext pair
+    ) {
+        boolean isPostAuthor = callerOwnsLockedActivePet(
+                callerUserId,
+                post.getAuthorUserId(),
+                post.getAuthorPetId(),
+                pair.sourceUser(),
+                pair.sourcePet()
+        );
+        boolean isCommentAuthor = callerOwnsLockedActivePet(
+                callerUserId,
+                comment.getAuthorUserId(),
+                comment.getAuthorPetId(),
+                pair.targetUser(),
+                pair.targetPet()
+        );
+        if (!isPostAuthor && !isCommentAuthor) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
+    private boolean callerOwnsLockedActivePet(
+            Long callerUserId,
+            Long expectedAuthorUserId,
+            Long expectedAuthorPetId,
+            itda.interaction.dto.LockedUserContext lockedUser,
+            itda.interaction.dto.LockedPetContext lockedPet
+    ) {
+        return Objects.equals(callerUserId, expectedAuthorUserId)
+                && Objects.equals(lockedUser.userId(), callerUserId)
+                && Objects.equals(lockedUser.activePetId(), expectedAuthorPetId)
+                && Objects.equals(lockedPet.petId(), expectedAuthorPetId);
+    }
+
+    private void validateAuthoritativeResources(
+            BoardPostRepository.ShareIdentity postIdentity,
+            BoardPostCommentRepository.ShareIdentity commentIdentity,
+            BoardPost post,
+            BoardPostComment comment
+    ) {
+        if (!Objects.equals(post.getId(), postIdentity.getPostId())
+                || !Objects.equals(post.getAuthorUserId(), postIdentity.getAuthorUserId())
+                || !Objects.equals(post.getAuthorPetId(), postIdentity.getAuthorPetId())
+                || post.getDeletedAt() != null
+                || !Objects.equals(comment.getId(), commentIdentity.getCommentId())
+                || !Objects.equals(comment.getPostId(), commentIdentity.getPostId())
+                || !Objects.equals(comment.getAuthorUserId(), commentIdentity.getAuthorUserId())
+                || !Objects.equals(comment.getAuthorPetId(), commentIdentity.getAuthorPetId())
+                || !Objects.equals(comment.getParentCommentId(), commentIdentity.getParentCommentId())
+                || !Objects.equals(comment.getRootCommentId(), commentIdentity.getRootCommentId())
+                || !Objects.equals(comment.getDepth(), commentIdentity.getDepth())) {
+            throw commentNotFound();
+        }
     }
 
     private void requirePostVisible(User viewer, BoardPost post) {

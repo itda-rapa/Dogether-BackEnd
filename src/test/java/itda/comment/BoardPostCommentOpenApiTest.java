@@ -26,6 +26,8 @@ class BoardPostCommentOpenApiTest {
                 .andExpect(jsonPath("$.paths['/comments/{parentCommentId}/replies'].post").exists())
                 .andExpect(jsonPath("$.paths['/posts/{postId}/comments'].post.responses['201']").exists())
                 .andExpect(jsonPath("$.paths['/posts/{postId}/comments/{commentId}/direct-room'].post.responses['200']").exists())
+                .andExpect(jsonPath("$.paths['/posts/{postId}/comments/{commentId}/direct-room'].post.responses['400']").exists())
+                .andExpect(jsonPath("$.paths['/posts/{postId}/comments/{commentId}/direct-room'].post.responses['403']").exists())
                 .andExpect(jsonPath("$.paths['/posts/{postId}/comments/{commentId}/direct-room'].post.responses['404']").exists())
                 .andExpect(jsonPath("$.paths['/comments/{parentCommentId}/replies'].post.responses['201']").exists())
                 .andExpect(jsonPath("$.paths['/comments/{parentCommentId}/replies'].post.responses['409']").exists())

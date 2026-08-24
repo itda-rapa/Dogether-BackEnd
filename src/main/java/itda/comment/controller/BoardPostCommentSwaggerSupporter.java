@@ -66,6 +66,14 @@ public interface BoardPostCommentSwaggerSupporter {
             )
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "400",
+            description = "동일 Pet 또는 동일 User 소유 Pet 간 DIRECT 연결 불가"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "현재 Active Pet이 게시글 작성 Pet 또는 Root 댓글 작성 Pet이 아닌 경우"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "404",
             description = "게시글·댓글이 없거나 삭제·차단된 경우 (기존 Board/Chat existence hiding 정책)"
     )
