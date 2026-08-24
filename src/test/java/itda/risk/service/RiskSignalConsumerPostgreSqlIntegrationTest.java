@@ -46,6 +46,7 @@ class RiskSignalConsumerPostgreSqlIntegrationTest {
 
     @BeforeEach
     void clearEvents() {
+        jdbc.update("delete from safety_case_evaluation_jobs");
         jdbc.update("delete from risk_signal_events");
     }
 
