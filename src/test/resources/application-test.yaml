@@ -85,3 +85,14 @@ app:
       max-attempts: 10
       base-backoff: 5s
       max-backoff: 10m
+    consumer:
+      enabled: false
+      group-id: dogether-risk-signal-test-v1
+      concurrency: 1
+      max-poll-records: 100
+      max-attempts: 3
+      retry-backoff: 10ms
+      dlt-topic: risk-signal-topic.DLT
+      dlt-publish-timeout: 5s
+      max-future-skew: 5m
+      max-aggregation-range: 90d
