@@ -234,11 +234,13 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 
 ### `safety_review_cases`
 
-- subject_user_id, target_user_id nullable
+- subject_user_id NOT NULL, target_user_id nullable
 - status `OPEN/REVIEWING/DISMISSED/WARNING_RECORDED`
-- total_score, signal_count, first/last_detected_at
-- version 또는 조건부 update로 동시 처리 방지
-- 동일 subject/target/open 정책에 맞는 partial unique index 검토
+- total_score, signal_count, primary_signal_type, evaluation_policy_version
+- first/last_detected_at, last_evaluated_event_id, evaluated_at
+- version 조건부 update와 subject/target advisory lock으로 평가·관리자 동시 처리 방지
+- `(subject_user_id, target_user_id) NULLS NOT DISTINCT WHERE status IN ('OPEN','REVIEWING')` partial unique index
+- Queue cursor는 갱신되는 `last_detected_at`이 아니라 `(created_at DESC, id DESC)`를 사용
 
 ### `safety_case_actions`
 
@@ -247,8 +249,16 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 
 ### `evidence_access_audits`
 
-- case_id, admin_user_id, evidence_type, resource_id, purpose, accessed_at
+- case_id, admin_user_id, evidence_type, resource_id, purpose
+- access_result, failure_code, accessed_at
 - 대화 원문·Media URL을 저장하지 않음
+- UPDATE/DELETE를 DB trigger로 거부하는 append-only 테이블
+
+### `safety_case_evaluation_jobs`
+
+- risk_signal_event_id UNIQUE, status `PENDING/PROCESSING/COMPLETED/FAILED`
+- attempts, available_at, claimed_at, worker_id, claim_token, last_error_code
+- `FOR UPDATE SKIP LOCKED` claim, lease 회수와 claimToken fencing 적용
 
 ## 8. 인덱스
 
@@ -256,7 +266,7 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 - Chat history: `(room_id, id)` 및 attachment message_id
 - Setlog share hydration: chat_messages.shared_setlog_id
 - Meeting: `(meeting_card_id, participant_pet_id)`
-- Risk Queue: `(status, last_detected_at DESC, id DESC)`
+- Risk Queue: `(status, created_at DESC, id DESC)`
 - Risk subject: `(subject_user_id, occurred_at DESC)`
 - Walk points: `(walk_session_id, sequence)`
 

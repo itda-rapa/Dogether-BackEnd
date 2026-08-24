@@ -3,9 +3,11 @@ package itda.risk.repository;
 import itda.risk.contract.RiskSignalEventV1;
 import itda.risk.policy.RiskScorePolicy.Decision;
 import itda.risk.service.RiskSignalAggregate;
+import itda.risk.service.RiskSignalEvaluationAggregate;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -70,6 +72,55 @@ public class RiskSignalEventJdbcRepository {
                         instantOrNull(resultSet.getTimestamp("first_detected_at")),
                         instantOrNull(resultSet.getTimestamp("last_detected_at"))),
                 actorUserId, targetUserId, Timestamp.from(fromInclusive), Timestamp.from(toExclusive));
+    }
+
+    public Optional<Instant> findLatestOccurredAtForActorAndTarget(
+            long actorUserId, long targetUserId, Instant toInclusive
+    ) {
+        return Optional.ofNullable(jdbc.queryForObject("""
+                select max(occurred_at)
+                  from risk_signal_events
+                 where actor_user_id = ? and target_user_id = ? and occurred_at <= ?
+                """, (resultSet, rowNumber) ->
+                        instantOrNull(resultSet.getTimestamp(1)),
+                actorUserId, targetUserId, Timestamp.from(toInclusive)));
+    }
+
+    public RiskSignalEvaluationAggregate aggregateEvaluationWindowForActorAndTarget(
+            long actorUserId,
+            long targetUserId,
+            Instant fromExclusive,
+            Instant toInclusive
+    ) {
+        return jdbc.queryForObject("""
+                with matching as (
+                    select id, signal_type, score, occurred_at
+                      from risk_signal_events
+                     where actor_user_id = ? and target_user_id = ?
+                       and occurred_at > ? and occurred_at <= ?
+                ), primary_signal as (
+                    select signal_type
+                      from matching
+                     group by signal_type
+                     order by sum(score) desc, count(*) desc, signal_type asc
+                     limit 1
+                )
+                select count(*) as signal_count,
+                       coalesce(sum(score), 0) as total_score,
+                       min(occurred_at) as first_detected_at,
+                       max(occurred_at) as last_detected_at,
+                       max(id) as last_evaluated_event_id,
+                       (select signal_type from primary_signal) as primary_signal_type
+                  from matching
+                """, (resultSet, rowNumber) -> new RiskSignalEvaluationAggregate(
+                        resultSet.getLong("signal_count"),
+                        resultSet.getLong("total_score"),
+                        instantOrNull(resultSet.getTimestamp("first_detected_at")),
+                        instantOrNull(resultSet.getTimestamp("last_detected_at")),
+                        resultSet.getLong("last_evaluated_event_id"),
+                        resultSet.getString("primary_signal_type")),
+                actorUserId, targetUserId,
+                Timestamp.from(fromExclusive), Timestamp.from(toInclusive));
     }
 
     private RiskSignalAggregate aggregate(

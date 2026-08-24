@@ -4,6 +4,7 @@ import itda.risk.config.RiskSignalConsumerProperties;
 import itda.risk.repository.RiskSignalEventJdbcRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +37,36 @@ public class RiskSignalAggregateService {
                 actorUserId, targetUserId, fromInclusive, toExclusive);
     }
 
+    /**
+     * Returns the latest event time for an actor/target pair up to the inclusive upper bound.
+     * Safety uses this to re-evaluate the newest affected rolling window for delayed events.
+     */
+    public Optional<Instant> latestOccurredAtForActorAndTarget(
+            long actorUserId, long targetUserId, Instant toInclusive
+    ) {
+        validatePair(actorUserId, targetUserId);
+        if (toInclusive == null) {
+            throw new IllegalArgumentException("toInclusive must not be null");
+        }
+        return repository.findLatestOccurredAtForActorAndTarget(
+                actorUserId, targetUserId, toInclusive);
+    }
+
+    /**
+     * Returns the evaluation projection for the interval {@code (fromExclusive, toInclusive]}.
+     */
+    public RiskSignalEvaluationAggregate evaluationForActorAndTarget(
+            long actorUserId,
+            long targetUserId,
+            Instant fromExclusive,
+            Instant toInclusive
+    ) {
+        validatePair(actorUserId, targetUserId);
+        validateRange(fromExclusive, toInclusive);
+        return repository.aggregateEvaluationWindowForActorAndTarget(
+                actorUserId, targetUserId, fromExclusive, toInclusive);
+    }
+
     private void validate(long userId, Instant fromInclusive, Instant toExclusive) {
         if (userId <= 0) {
             throw new IllegalArgumentException("userId must be positive");
@@ -45,6 +76,22 @@ public class RiskSignalAggregateService {
         }
         Duration range = Duration.between(fromInclusive, toExclusive);
         if (range.compareTo(properties.maxAggregationRange()) > 0) {
+            throw new IllegalArgumentException("aggregation range exceeds configured maximum");
+        }
+    }
+
+    private void validatePair(long actorUserId, long targetUserId) {
+        if (actorUserId <= 0 || targetUserId <= 0) {
+            throw new IllegalArgumentException("actorUserId and targetUserId must be positive");
+        }
+    }
+
+    private void validateRange(Instant fromExclusive, Instant toInclusive) {
+        if (fromExclusive == null || toInclusive == null || !fromExclusive.isBefore(toInclusive)) {
+            throw new IllegalArgumentException("aggregation range must satisfy from < to");
+        }
+        if (Duration.between(fromExclusive, toInclusive)
+                .compareTo(properties.maxAggregationRange()) > 0) {
             throw new IllegalArgumentException("aggregation range exceeds configured maximum");
         }
     }

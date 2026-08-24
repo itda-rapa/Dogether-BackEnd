@@ -8,12 +8,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import itda.risk.service.RiskSignalAggregateService;
+import itda.risk.service.RiskSignalEvaluationAggregate;
 import itda.safety.domain.SafetyEvaluationJob;
 import itda.safety.domain.SafetyEvaluationJobStatus;
 import itda.safety.repository.SafetyEvaluationJobJdbcRepository;
 import itda.safety.repository.SafetyEvaluationJobJdbcRepository.ClaimedEvaluation;
 import itda.safety.repository.SafetyReviewCaseJdbcRepository;
-import itda.safety.repository.SafetyRiskSignalAggregateJdbcRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -23,8 +24,8 @@ import org.mockito.ArgumentCaptor;
 
 class SafetyCaseEvaluationTransactionServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-24T10:00:00Z");
-    private final SafetyRiskSignalAggregateJdbcRepository aggregates =
-            mock(SafetyRiskSignalAggregateJdbcRepository.class);
+    private final RiskSignalAggregateService aggregates =
+            mock(RiskSignalAggregateService.class);
     private final SafetyReviewCaseJdbcRepository cases = mock(SafetyReviewCaseJdbcRepository.class);
     private final SafetyEvaluationJobJdbcRepository jobs = mock(SafetyEvaluationJobJdbcRepository.class);
     private final SafetyCaseEvaluationTransactionService service =
@@ -33,9 +34,9 @@ class SafetyCaseEvaluationTransactionServiceTest {
     @Test
     void scoreEqualToThresholdUpsertsCaseAndCompletesJob() {
         ClaimedEvaluation claimed = claimed(NOW.minusSeconds(1));
-        when(aggregates.aggregate(41L, 42L,
+        when(aggregates.evaluationForActorAndTarget(41L, 42L,
                 NOW.minusSeconds(1).minus(Duration.ofDays(30)), NOW.minusSeconds(1)))
-                .thenReturn(new SafetyRiskSignalAggregateJdbcRepository.Aggregate(
+                .thenReturn(new RiskSignalEvaluationAggregate(
                         3, 90, NOW.minusSeconds(30), NOW.minusSeconds(1), 11, "USER_BLOCKED"));
         when(cases.upsertOpenCase(any(Long.class), any(Long.class), any()))
                 .thenReturn(java.util.Optional.of(mock(itda.safety.domain.SafetyReviewCase.class)));
@@ -56,21 +57,46 @@ class SafetyCaseEvaluationTransactionServiceTest {
     @Test
     void belowThresholdOnlyCompletesJob() {
         ClaimedEvaluation claimed = claimed(NOW.minusSeconds(1));
-        when(aggregates.aggregate(any(Long.class), any(Long.class), any(), any()))
-                .thenReturn(new SafetyRiskSignalAggregateJdbcRepository.Aggregate(
+        when(aggregates.evaluationForActorAndTarget(
+                any(Long.class), any(Long.class), any(), any()))
+                .thenReturn(new RiskSignalEvaluationAggregate(
                         2, 89, NOW.minusSeconds(30), NOW.minusSeconds(1), 11, "GREETING_EXPIRED"));
         when(jobs.complete(claimed)).thenReturn(true);
 
         assertThat(service.evaluateAndComplete(claimed, NOW))
                 .isEqualTo(SafetyCaseEvaluationTransactionService.Outcome.BELOW_THRESHOLD);
         verify(cases, never()).upsertOpenCase(any(Long.class), any(Long.class), any());
+        verify(cases).refreshOpenCase(any(Long.class), any(Long.class), any());
+    }
+
+    @Test
+    void belowThresholdRefreshesExistingOpenCaseSnapshot() {
+        ClaimedEvaluation claimed = claimed(NOW.minusSeconds(1));
+        when(aggregates.evaluationForActorAndTarget(
+                any(Long.class), any(Long.class), any(), any()))
+                .thenReturn(new RiskSignalEvaluationAggregate(
+                        2, 40, NOW.minusSeconds(30), NOW.minusSeconds(1),
+                        11, "GREETING_EXPIRED"));
+        when(cases.refreshOpenCase(any(Long.class), any(Long.class), any()))
+                .thenReturn(Optional.of(mock(itda.safety.domain.SafetyReviewCase.class)));
+        when(jobs.complete(claimed)).thenReturn(true);
+
+        assertThat(service.evaluateAndComplete(claimed, NOW))
+                .isEqualTo(SafetyCaseEvaluationTransactionService.Outcome.CASE_UPSERTED);
+
+        var snapshot = ArgumentCaptor.forClass(itda.safety.domain.SafetyCaseSnapshot.class);
+        verify(cases).refreshOpenCase(org.mockito.ArgumentMatchers.eq(41L),
+                org.mockito.ArgumentMatchers.eq(42L), snapshot.capture());
+        assertThat(snapshot.getValue().totalScore()).isEqualTo(40);
+        verify(cases, never()).upsertOpenCase(any(Long.class), any(Long.class), any());
     }
 
     @Test
     void fencedCompletionFailsWholeEvaluationTransaction() {
         ClaimedEvaluation claimed = claimed(NOW.minusSeconds(1));
-        when(aggregates.aggregate(any(Long.class), any(Long.class), any(), any()))
-                .thenReturn(new SafetyRiskSignalAggregateJdbcRepository.Aggregate(
+        when(aggregates.evaluationForActorAndTarget(
+                any(Long.class), any(Long.class), any(), any()))
+                .thenReturn(new RiskSignalEvaluationAggregate(
                         1, 90, NOW.minusSeconds(1), NOW.minusSeconds(1), 11, "USER_BLOCKED"));
         when(jobs.complete(claimed)).thenReturn(false);
 
@@ -82,15 +108,15 @@ class SafetyCaseEvaluationTransactionServiceTest {
     void delayedJobUsesEventTimeAsWindowAnchor() {
         Instant eventOccurredAt = NOW.minus(Duration.ofDays(45));
         ClaimedEvaluation claimed = claimed(eventOccurredAt);
-        when(aggregates.aggregate(41L, 42L,
+        when(aggregates.evaluationForActorAndTarget(41L, 42L,
                 eventOccurredAt.minus(Duration.ofDays(30)), eventOccurredAt))
-                .thenReturn(new SafetyRiskSignalAggregateJdbcRepository.Aggregate(
+                .thenReturn(new RiskSignalEvaluationAggregate(
                         1, 30, eventOccurredAt, eventOccurredAt, 11, "USER_BLOCKED"));
         when(jobs.complete(claimed)).thenReturn(true);
 
         assertThat(service.evaluateAndComplete(claimed, NOW))
                 .isEqualTo(SafetyCaseEvaluationTransactionService.Outcome.BELOW_THRESHOLD);
-        verify(aggregates).aggregate(41L, 42L,
+        verify(aggregates).evaluationForActorAndTarget(41L, 42L,
                 eventOccurredAt.minus(Duration.ofDays(30)), eventOccurredAt);
     }
 
@@ -99,11 +125,11 @@ class SafetyCaseEvaluationTransactionServiceTest {
         Instant lateOccurredAt = NOW.minusSeconds(20);
         Instant latestOccurredAt = NOW.minusSeconds(10);
         ClaimedEvaluation claimed = claimed(lateOccurredAt);
-        when(aggregates.findLatestOccurredAt(41L, 42L, NOW))
+        when(aggregates.latestOccurredAtForActorAndTarget(41L, 42L, NOW))
                 .thenReturn(Optional.of(latestOccurredAt));
-        when(aggregates.aggregate(41L, 42L,
+        when(aggregates.evaluationForActorAndTarget(41L, 42L,
                 latestOccurredAt.minus(Duration.ofDays(30)), latestOccurredAt))
-                .thenReturn(new SafetyRiskSignalAggregateJdbcRepository.Aggregate(
+                .thenReturn(new RiskSignalEvaluationAggregate(
                         2, 90, lateOccurredAt, latestOccurredAt, 12, "USER_BLOCKED"));
         when(cases.upsertOpenCase(any(Long.class), any(Long.class), any()))
                 .thenReturn(Optional.of(mock(itda.safety.domain.SafetyReviewCase.class)));
@@ -111,7 +137,7 @@ class SafetyCaseEvaluationTransactionServiceTest {
 
         assertThat(service.evaluateAndComplete(claimed, NOW))
                 .isEqualTo(SafetyCaseEvaluationTransactionService.Outcome.CASE_UPSERTED);
-        verify(aggregates).aggregate(41L, 42L,
+        verify(aggregates).evaluationForActorAndTarget(41L, 42L,
                 latestOccurredAt.minus(Duration.ofDays(30)), latestOccurredAt);
     }
 

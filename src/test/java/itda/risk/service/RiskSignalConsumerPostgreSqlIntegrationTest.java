@@ -67,6 +67,16 @@ class RiskSignalConsumerPostgreSqlIntegrationTest {
         RiskSignalAggregate aggregate = aggregateService.forActorAndTarget(
                 41L, 42L, occurredAt.minusSeconds(1), occurredAt.plusSeconds(1));
         assertThat(aggregate).isEqualTo(new RiskSignalAggregate(1, 30, occurredAt, occurredAt));
+        assertThat(aggregateService.latestOccurredAtForActorAndTarget(41L, 42L, occurredAt))
+                .contains(occurredAt);
+        RiskSignalEvaluationAggregate evaluation = aggregateService.evaluationForActorAndTarget(
+                41L, 42L, occurredAt.minusSeconds(1), occurredAt);
+        assertThat(evaluation.signalCount()).isEqualTo(1);
+        assertThat(evaluation.totalScore()).isEqualTo(30);
+        assertThat(evaluation.firstDetectedAt()).isEqualTo(occurredAt);
+        assertThat(evaluation.lastDetectedAt()).isEqualTo(occurredAt);
+        assertThat(evaluation.lastEvaluatedEventId()).isPositive();
+        assertThat(evaluation.primarySignalType()).isEqualTo("USER_BLOCKED");
         assertThat(jdbc.queryForObject(
                 "select score_policy_version from risk_signal_events where event_id = ?",
                 Integer.class, eventId)).isEqualTo(1);

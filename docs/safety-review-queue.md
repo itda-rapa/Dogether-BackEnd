@@ -9,8 +9,8 @@ RiskSignal을 관리자 검토 대상으로 전환하되 Kafka 소비와 Case �
 1. `RiskSignalIngestionService`가 `eventId`를 기준으로 `risk_signal_events`를 멱등 저장한다.
 2. 새 이벤트인 경우 같은 DB transaction에서 `safety_case_evaluation_jobs`를 한 건 적재한다.
 3. Evaluator Worker가 `FOR UPDATE SKIP LOCKED`로 Job을 claim한다.
-4. `actorUserId`를 검토 대상인 `subjectUserId`, `targetUserId`를 반복 접촉 대상으로 사용한다. 지연 도착 이벤트도 반영되도록 현재 평가 가능한 최신 원천 이벤트를 anchor로 `(anchor-window, anchor]` 구간의 점수와 건수를 다시 집계한다.
-5. 합계가 임계값 이상이면 열린 Case를 생성하거나 snapshot을 갱신한다.
+4. `actorUserId`를 검토 대상인 `subjectUserId`, `targetUserId`를 반복 접촉 대상으로 사용한다. 지연 도착 이벤트도 반영되도록 Risk 도메인의 `RiskSignalAggregateService` 공개 계약으로 현재 평가 가능한 최신 원천 이벤트를 anchor로 찾고 `(anchor-window, anchor]` 구간을 집계한다.
+5. 합계가 임계값 이상이면 열린 Case를 생성한다. 이미 `OPEN/REVIEWING` Case가 있으면 합계가 임계값 아래로 내려가도 rolling window의 최신 snapshot으로 갱신하며, 종료된 Case는 자동 재개하지 않는다.
 6. Case 반영과 Job 완료는 같은 transaction에서 처리한다.
 7. 실패는 지수 backoff로 재시도하며 횟수를 소진하면 `FAILED`로 남긴다. 운영자가 명시적으로 재등록하면 retry budget을 초기화한다.
 
@@ -68,6 +68,7 @@ Case는 `lastEvaluatedEventId` 워터마크를 저장한다. 발생 시각이 �
   - 최근 RiskSignal은 최대 100건이며 추가 항목은 `hasMoreSignals`로 표시
 - `POST /admin/safety/cases/{caseId}/actions`
   - `DISMISSED`, `WARNING_RECORDED`만 허용
+  - `OPEN`에서 바로 종료하거나 `REVIEWING`을 거쳐 종료 가능
 - `GET /admin/safety/cases/{caseId}/evidence`
   - 공백이 아닌 `purpose` 필수, 최대 500자
   - `(occurredAt DESC, signalId DESC)` keyset cursor
@@ -83,7 +84,7 @@ RiskSignal과 SafetyCase에는 대화 원문이나 Media URL을 복제하지 않
 
 ## 배포 순서
 
-1. 선행 RiskSignal migration과 V39 적용
+1. Flyway를 활성화하고 선행 migration(V37, V38) 다음에 V39 적용. 운영 프로필은 `db/migration`만 실행하며 Flyway 기본 활성화와 Hibernate `validate`를 사용한다. 개발 seed/demo repeatable migration은 운영에서 실행하지 않는다.
 2. 애플리케이션 배포 후 Evaluator 비활성 상태에서 API·Job 적재 확인
 3. 팀이 임계값·기간·정책 버전 확정
 4. 필수 환경변수 설정 후 Evaluator 활성화

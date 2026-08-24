@@ -99,6 +99,53 @@ public class SafetyReviewCaseJdbcRepository {
                 .stream().findFirst();
     }
 
+    /**
+     * Refreshes an existing OPEN/REVIEWING case without creating or reopening a case.
+     * This keeps the rolling-window snapshot current even after its score falls below threshold.
+     */
+    @Transactional
+    public Optional<SafetyReviewCase> refreshOpenCase(
+            long subjectUserId, Long targetUserId, SafetyCaseSnapshot snapshot
+    ) {
+        if (subjectUserId <= 0 || targetUserId != null && targetUserId <= 0) {
+            throw new IllegalArgumentException("Safety case user id is invalid");
+        }
+        return jdbc.query("""
+                with pair_lock as (
+                    select pg_advisory_xact_lock(hashtextextended(
+                        concat(cast(? as text), ':', coalesce(cast(? as text), 'null')), 0))
+                ), updated as (
+                    update safety_review_cases current_case
+                       set total_score = ?,
+                           signal_count = ?,
+                           primary_signal_type = ?,
+                           evaluation_policy_version = ?,
+                           first_detected_at = ?,
+                           last_detected_at = ?,
+                           last_evaluated_event_id = ?,
+                           evaluated_at = ?,
+                           version = version + 1,
+                           updated_at = current_timestamp
+                      from pair_lock
+                     where current_case.subject_user_id = ?
+                       and current_case.target_user_id is not distinct from ?
+                       and current_case.status in ('OPEN', 'REVIEWING')
+                       and ? >= current_case.evaluated_at
+                       and ? >= current_case.last_evaluated_event_id
+                    returning current_case.*
+                )
+                select * from updated
+                """, ROW_MAPPER,
+                subjectUserId, targetUserId,
+                snapshot.totalScore(), snapshot.signalCount(), snapshot.primarySignalType(),
+                snapshot.evaluationPolicyVersion(), Timestamp.from(snapshot.firstDetectedAt()),
+                Timestamp.from(snapshot.lastDetectedAt()), snapshot.lastEvaluatedEventId(),
+                Timestamp.from(snapshot.evaluatedAt()),
+                subjectUserId, targetUserId, Timestamp.from(snapshot.evaluatedAt()),
+                snapshot.lastEvaluatedEventId())
+                .stream().findFirst();
+    }
+
     public Optional<SafetyReviewCase> transition(
             long caseId,
             long expectedVersion,

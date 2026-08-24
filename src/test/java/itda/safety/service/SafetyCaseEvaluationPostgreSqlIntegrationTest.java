@@ -89,6 +89,32 @@ class SafetyCaseEvaluationPostgreSqlIntegrationTest {
     }
 
     @Test
+    void openCaseSnapshotRefreshesWhenRollingScoreFallsBelowThreshold() {
+        Instant anchor = Instant.now().minusSeconds(3);
+        ingestion.ingest(event(UUID.randomUUID(), 511, anchor.minus(Duration.ofDays(31))));
+        assertThat(worker.runOnce().cases()).isZero();
+
+        ingestion.ingest(event(UUID.randomUUID(), 512, anchor.minus(Duration.ofDays(29))));
+        assertThat(worker.runOnce().cases()).isEqualTo(1);
+        long caseId = jdbc.queryForObject(
+                "select id from safety_review_cases", Long.class);
+        assertThat(jdbc.queryForObject(
+                "select total_score from safety_review_cases", Long.class)).isEqualTo(60L);
+
+        ingestion.ingest(greetingEvent(UUID.randomUUID(), 513, anchor));
+        assertThat(worker.runOnce().cases()).isEqualTo(1);
+
+        assertThat(jdbc.queryForMap("""
+                select id, total_score, signal_count, primary_signal_type
+                  from safety_review_cases
+                """))
+                .containsEntry("id", caseId)
+                .containsEntry("total_score", 40L)
+                .containsEntry("signal_count", 2L)
+                .containsEntry("primary_signal_type", "USER_BLOCKED");
+    }
+
+    @Test
     void reconcileBackfillsExistingEventWithoutDuplicateJobs() {
         ingestion.ingest(event(UUID.randomUUID(), 601, Instant.now().minusSeconds(1)));
         jdbc.update("delete from safety_case_evaluation_jobs");
@@ -171,5 +197,14 @@ class SafetyCaseEvaluationPostgreSqlIntegrationTest {
                 1, eventId, RiskSourceType.USER_BLOCK, sourceId,
                 RiskSignalType.USER_BLOCKED, 41, 42, occurredAt,
                 Map.of("reasonCode", "USER_REQUEST"));
+    }
+
+    private static RiskSignalEventV1 greetingEvent(
+            UUID eventId, long sourceId, Instant occurredAt
+    ) {
+        return new RiskSignalEventV1(
+                1, eventId, RiskSourceType.GREETING, sourceId,
+                RiskSignalType.GREETING_EXPIRED, 41, 42, occurredAt,
+                Map.of("ttlHours", "24"));
     }
 }
