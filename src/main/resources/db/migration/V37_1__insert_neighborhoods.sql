@@ -1,3 +1,4 @@
+
 INSERT INTO neighborhoods (
     code,
     sido_name,
