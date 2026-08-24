@@ -1091,25 +1091,34 @@ Topic: `risk-signal-topic`, key=`actorUserId`.
 {
   "schemaVersion": 1,
   "eventId": "1a548b88-2fd0-4be9-9418-03e11e9a6c6f",
-  "sourceType": "FRIEND_REQUEST",
-  "sourceId": "4201",
-  "signalType": "FRIEND_REQUEST_REJECTED",
+  "sourceType": "USER_BLOCK",
+  "sourceId": 4201,
+  "signalType": "USER_BLOCKED",
   "actorUserId": 701,
   "targetUserId": 820,
   "occurredAt": "2026-08-20T08:00:00Z",
-  "scoreHint": null,
   "metadata": {
-    "requestCount": 3
+    "reasonCode": "USER_REQUEST"
   }
 }
 ```
 
-금지 필드: message body, JWT, email, exact location, OAuth code.
+Producer 계약:
+
+- Source/Signal 조합: `USER_BLOCK/USER_BLOCKED`, `GREETING/GREETING_EXPIRED`
+- 위 두 조합을 교차하거나 정의되지 않은 조합은 Command/Event 생성 시 거부한다.
+- `sourceId`, `actorUserId`, `targetUserId`는 양의 정수이며 `sourceId`는 JSON number다.
+- `eventId`는 Publisher가 UUID로 생성한다. Outbox는 `eventId`와 `(sourceType, sourceId, signalType)`을 모두 멱등키로 사용한다.
+- `RiskSourceEventPublisher.enqueue`는 원천 DB 트랜잭션 안에서 Outbox만 적재한다. Kafka publish 실패 재시도는 후속 relay가 처리한다.
+- metadata allowlist:
+  - `USER_BLOCKED`: 선택적 `reasonCode`, 대문자 영문·숫자·underscore 코드, 최대 64자
+  - `GREETING_EXPIRED`: 선택적 `ttlHours`, 문자열로 표현한 1~168 정수
+- allowlist 외 metadata key와 위 형식을 벗어난 value는 거부한다. message body, JWT, email, exact location, OAuth code 같은 원문 값은 허용하지 않는다.
 
 Consumer 규칙:
 
 - eventId 중복은 ack 후 무시
-- score는 서버 정책이 정본이며 `scoreHint`를 그대로 신뢰하지 않음
+- score는 서버 정책이 정본이며 event에 score를 넣지 않음
 - Case 생성 실패는 event 저장과 분리해 재처리 가능
 - 원문이 필요한 경우 resource ID만 사용해 관리자 Evidence API에서 조회
 
