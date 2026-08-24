@@ -17,6 +17,9 @@ public enum ErrorCode {
             HttpStatus.CONFLICT,
             "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."
     ),
+    SAFETY_CASE_NOT_FOUND(HttpStatus.NOT_FOUND, "안전 검토 건을 찾을 수 없습니다."),
+    SAFETY_CASE_ALREADY_CLOSED(HttpStatus.CONFLICT, "이미 종료된 안전 검토 건입니다."),
+    SAFETY_ACTION_INVALID(HttpStatus.BAD_REQUEST, "처리할 수 없는 안전 검토 조치입니다."),
     CHAT_MESSAGE_SEND_FAILED(HttpStatus.BAD_REQUEST, "채팅메시지 전송에 실패했습니다."),
 
     USER_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 이메일입니다."),
