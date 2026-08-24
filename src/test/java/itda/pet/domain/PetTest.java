@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import itda.user.domain.User;
+import itda.media.domain.Media;
+import itda.media.domain.MediaType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -166,6 +168,28 @@ class PetTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: 프로필 Media 연결 변경")
+    class DescribeProfileAssetChange {
+
+        @Test
+        @DisplayName("It: 다른 Media만 교체하고 동일한 persisted ID는 no-op으로 보존한다")
+        void replacesOnlyWhenPersistedMediaIdChanges() {
+            Pet pet = mutablePet();
+            Media original = media(11L);
+            Media sameIdDifferentObject = media(11L);
+            Media replacement = media(12L);
+
+            assertThat(pet.replaceProfileAsset(original)).isTrue();
+            assertThat(pet.replaceProfileAsset(sameIdDifferentObject)).isFalse();
+            assertThat(pet.getProfileAsset()).isSameAs(original);
+            assertThat(pet.replaceProfileAsset(replacement)).isTrue();
+            assertThat(pet.getProfileAsset()).isSameAs(replacement);
+            assertThat(pet.removeProfileAsset()).isTrue();
+            assertThat(pet.removeProfileAsset()).isFalse();
+        }
+    }
+
     private Pet mutablePet() {
         return Pet.register(
                 owner(1L),
@@ -193,5 +217,11 @@ class PetTest {
         );
         ReflectionTestUtils.setField(owner, "id", id);
         return owner;
+    }
+
+    private Media media(Long id) {
+        Media media = new Media(MediaType.IMAGE, "users/1/pet.jpg", 1L, 1L);
+        ReflectionTestUtils.setField(media, "id", id);
+        return media;
     }
 }

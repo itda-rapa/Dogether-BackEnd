@@ -14,6 +14,7 @@ import itda.pet.repository.PetRepository;
 import itda.petverification.PetVerificationBadgeService;
 import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,13 +69,65 @@ public class PetProfileImageService {
         validateMedia(media, authenticatedUserId);
 
         pet.setInitialProfileAsset(media);
+        petRepository.flush();
         return PetResponse.from(
                 pet,
                 pet.getOwner().isActivePet(petId),
-                mediaService.getPresignedDownloadUrl(mediaId).url(),
+                profileUrlOf(media),
                 badgeService.verifiedAt(petId),
                 helpfulReceivedCounts.countForPet(petId)
         );
+    }
+
+    @Transactional
+    public PetResponse replaceProfileImage(
+            Long authenticatedUserId,
+            Long petId,
+            Long mediaId,
+            long expectedVersion
+    ) {
+        Pet pet = petRepository.findByIdWithOwnerAndProfileAsset(petId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PET_NOT_FOUND)
+                );
+        validatePet(pet, authenticatedUserId);
+        validateExpectedVersion(pet, expectedVersion);
+        validateMediaId(mediaId);
+
+        Media media = mediaRepository.findByIdAndDeletedAtIsNull(mediaId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.MEDIA_NOT_FOUND)
+                );
+        validateMedia(media, authenticatedUserId);
+
+        if (pet.replaceProfileAsset(media)) {
+            petRepository.flush();
+        }
+        return PetResponse.from(
+                pet,
+                pet.getOwner().isActivePet(petId),
+                profileUrlOf(media),
+                badgeService.verifiedAt(petId),
+                helpfulReceivedCounts.countForPet(petId)
+        );
+    }
+
+    @Transactional
+    public void deleteProfileImage(
+            Long authenticatedUserId,
+            Long petId,
+            long expectedVersion
+    ) {
+        Pet pet = petRepository.findByIdWithOwnerAndProfileAsset(petId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PET_NOT_FOUND)
+                );
+        validatePet(pet, authenticatedUserId);
+        validateExpectedVersion(pet, expectedVersion);
+
+        if (pet.removeProfileAsset()) {
+            petRepository.flush();
+        }
     }
 
     private void validatePet(Pet pet, Long authenticatedUserId) {
@@ -97,5 +150,23 @@ public class PetProfileImageService {
         if (!USABLE_MEDIA_STATUSES.contains(media.getStatus())) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
         }
+    }
+
+    private void validateExpectedVersion(Pet pet, long expectedVersion) {
+        if (pet.getVersion() != expectedVersion) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+    }
+
+    private void validateMediaId(Long mediaId) {
+        if (mediaId == null || mediaId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+    }
+
+    private String profileUrlOf(Media media) {
+        return mediaService.getPresignedDownloadUrls(List.of(media))
+                .get(media.getId())
+                .url();
     }
 }

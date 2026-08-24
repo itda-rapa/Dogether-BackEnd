@@ -65,9 +65,11 @@ class PetResponseTest {
                 null,
                 PetStatus.ACTIVE,
                 null,
+                7L,
                 false,
                 null,
-                false
+                false,
+                0L
         );
     }
 }

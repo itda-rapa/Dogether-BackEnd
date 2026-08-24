@@ -27,6 +27,7 @@ public record PetResponse(
         String profileUrl,
         PetStatus status,
         Instant deletedAt,
+        long version,
         boolean verified,
         Instant verifiedAt,
         boolean active,
@@ -44,7 +45,7 @@ public record PetResponse(
         this(
                 petId, ownerUserId, publicTag, ownerPublicTag, nickname, breedName, sex, neutered,
                 birthDate, weightKg, sizeCode, bio, personalityTags, careNote, profileUrl, status,
-                deletedAt, verified, verifiedAt, active, 0
+                deletedAt, 0, verified, verifiedAt, active, 0
         );
     }
 
@@ -88,6 +89,7 @@ public record PetResponse(
                 profileUrl,
                 pet.getStatus(),
                 pet.getDeletedAt(),
+                pet.getVersion(),
                 verifiedAt != null,
                 verifiedAt,
                 active,
