@@ -19,6 +19,10 @@ import itda.meetingcard.service.MeetingCardBlockCleanupService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.risk.contract.RiskSignalType;
+import itda.risk.contract.RiskSourceEventCommand;
+import itda.risk.contract.RiskSourceEventPublisher;
+import itda.risk.contract.RiskSourceType;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
@@ -42,6 +46,7 @@ public class BlockService {
     private final InteractionPairLockService interactionPairLockService;
     private final FriendBlockCleanupService friendBlockCleanupService;
     private final MeetingCardBlockCleanupService meetingCardBlockCleanupService;
+    private final RiskSourceEventPublisher riskSourceEventPublisher;
 
     public BlockService(
             UserBlockRepository userBlockRepository,
@@ -49,7 +54,8 @@ public class BlockService {
             ActivePetQueryService activePetQueryService,
             InteractionPairLockService interactionPairLockService,
             FriendBlockCleanupService friendBlockCleanupService,
-            MeetingCardBlockCleanupService meetingCardBlockCleanupService
+            MeetingCardBlockCleanupService meetingCardBlockCleanupService,
+            RiskSourceEventPublisher riskSourceEventPublisher
     ) {
         this.userBlockRepository = userBlockRepository;
         this.userRepository = userRepository;
@@ -57,6 +63,7 @@ public class BlockService {
         this.interactionPairLockService = interactionPairLockService;
         this.friendBlockCleanupService = friendBlockCleanupService;
         this.meetingCardBlockCleanupService = meetingCardBlockCleanupService;
+        this.riskSourceEventPublisher = riskSourceEventPublisher;
     }
 
     /**
@@ -92,6 +99,17 @@ public class BlockService {
         UserBlock stored = userBlockRepository
                 .findByBlockerUserIdAndBlockedUserId(pair.sourceUser().userId(), targetOwnerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR));
+        if (inserted == 1) {
+            riskSourceEventPublisher.enqueue(new RiskSourceEventCommand(
+                    RiskSourceType.USER_BLOCK,
+                    stored.getId(),
+                    RiskSignalType.USER_BLOCKED,
+                    stored.getBlockedUserId(),
+                    stored.getBlockerUserId(),
+                    stored.getCreatedAt(),
+                    Map.of()
+            ));
+        }
         BlockResponse response = toBlockResponse(stored, pair.targetUser().publicTag());
 
         friendBlockCleanupService.cleanupBetweenUsers(

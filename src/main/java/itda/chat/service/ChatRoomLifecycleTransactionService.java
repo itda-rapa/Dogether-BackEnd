@@ -15,6 +15,10 @@ import itda.meetingcard.repository.CardDraftRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
 import itda.report.repository.ReportRepository;
+import itda.risk.contract.RiskSignalType;
+import itda.risk.contract.RiskSourceEventCommand;
+import itda.risk.contract.RiskSourceEventPublisher;
+import itda.risk.contract.RiskSourceType;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,6 +38,7 @@ public class ChatRoomLifecycleTransactionService {
     private final ReportRepository reportRepository;
     private final FriendshipRepository friendshipRepository;
     private final InteractionPairLockService interactionPairLockService;
+    private final RiskSourceEventPublisher riskSourceEventPublisher;
 
     @Transactional
     public ExpiredGreetingOutcome expireGreetingAndCleanup(
@@ -62,7 +67,7 @@ public class ChatRoomLifecycleTransactionService {
             return new ExpiredGreetingOutcome(false, false);
         }
 
-        greeting.expire();
+        expireAndPublishRiskEvent(greeting);
 
         if (room == null) {
             return new ExpiredGreetingOutcome(true, false);
@@ -88,7 +93,7 @@ public class ChatRoomLifecycleTransactionService {
 
         sentGreetings.stream()
                 .filter(candidate -> candidate != greeting)
-                .forEach(Greeting::expire);
+                .forEach(this::expireAndPublishRiskEvent);
         chatMessageRepository.deleteByRoomId(room.getId());
         meetingParticipantRepository.deleteByRoomId(room.getId());
         meetingCardRepository.deleteByRoomId(room.getId());
@@ -97,6 +102,23 @@ public class ChatRoomLifecycleTransactionService {
         chatRoomRepository.delete(room);
         chatRoomRepository.flush();
         return new ExpiredGreetingOutcome(true, true);
+    }
+
+    private void expireAndPublishRiskEvent(Greeting greeting) {
+        if (greeting.getStatus() != GreetingStatus.SENT) {
+            return;
+        }
+
+        greeting.expire();
+        riskSourceEventPublisher.enqueue(new RiskSourceEventCommand(
+                RiskSourceType.GREETING,
+                greeting.getId(),
+                RiskSignalType.GREETING_EXPIRED,
+                greeting.getFromPet().getOwner().getId(),
+                greeting.getToPet().getOwner().getId(),
+                greeting.getExpiresAt(),
+                java.util.Map.of()
+        ));
     }
 
     @Transactional

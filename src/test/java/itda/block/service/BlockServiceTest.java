@@ -22,12 +22,17 @@ import itda.meetingcard.service.MeetingCardBlockCleanupService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.risk.contract.RiskSignalType;
+import itda.risk.contract.RiskSourceEventCommand;
+import itda.risk.contract.RiskSourceEventPublisher;
+import itda.risk.contract.RiskSourceType;
 import itda.user.domain.AccountStatus;
 import itda.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -54,6 +59,8 @@ class BlockServiceTest {
     private FriendBlockCleanupService friendBlockCleanupService;
     @Mock
     private MeetingCardBlockCleanupService meetingCardBlockCleanupService;
+    @Mock
+    private RiskSourceEventPublisher riskSourceEventPublisher;
 
     @InjectMocks
     private BlockService blockService;
@@ -70,6 +77,19 @@ class BlockServiceTest {
         assertThat(result.block().blockedUserId()).isEqualTo(TARGET_USER_ID);
         assertThat(result.block().blockedUserPublicTag()).isEqualTo("target#0002");
         assertThat(result.block().createdAt()).isEqualTo(CREATED_AT);
+
+        ArgumentCaptor<RiskSourceEventCommand> eventCaptor =
+                ArgumentCaptor.forClass(RiskSourceEventCommand.class);
+        verify(riskSourceEventPublisher).enqueue(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isEqualTo(new RiskSourceEventCommand(
+                RiskSourceType.USER_BLOCK,
+                100L,
+                RiskSignalType.USER_BLOCKED,
+                TARGET_USER_ID,
+                USER_ID,
+                CREATED_AT,
+                java.util.Map.of()
+        ));
 
         InOrder order = inOrder(
                 interactionPairLockService,
@@ -97,6 +117,7 @@ class BlockServiceTest {
                 blockService.block(USER_ID, new BlockCreateRequest(TARGET_PET_ID));
 
         assertThat(result.created()).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(riskSourceEventPublisher);
         verify(interactionPairLockService)
                 .lockInteractionPair(SOURCE_PET_ID, TARGET_PET_ID);
         verify(friendBlockCleanupService).cleanupBetweenUsers(USER_ID, TARGET_USER_ID);
@@ -289,6 +310,7 @@ class BlockServiceTest {
         UserBlock block = mock(UserBlock.class);
         when(block.getId()).thenReturn(100L);
         when(block.getBlockedUserId()).thenReturn(TARGET_USER_ID);
+        org.mockito.Mockito.lenient().when(block.getBlockerUserId()).thenReturn(USER_ID);
         when(block.getCreatedAt()).thenReturn(CREATED_AT);
         when(userBlockRepository.insertOnConflict(
                 USER_ID, TARGET_USER_ID, SOURCE_PET_ID, TARGET_PET_ID))
