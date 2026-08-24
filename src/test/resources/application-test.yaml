@@ -96,3 +96,12 @@ app:
       dlt-publish-timeout: 5s
       max-future-skew: 5m
       max-aggregation-range: 90d
+  safety:
+    evaluator:
+      enabled: false
+      batch-size: 50
+      delay-ms: 5000
+      lease: 1m
+      max-attempts: 10
+      base-backoff: 5s
+      max-backoff: 10m

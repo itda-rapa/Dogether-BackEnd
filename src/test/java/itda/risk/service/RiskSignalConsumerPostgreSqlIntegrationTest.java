@@ -46,6 +46,7 @@ class RiskSignalConsumerPostgreSqlIntegrationTest {
 
     @BeforeEach
     void clearEvents() {
+        jdbc.update("delete from safety_case_evaluation_jobs");
         jdbc.update("delete from risk_signal_events");
     }
 
@@ -66,13 +67,23 @@ class RiskSignalConsumerPostgreSqlIntegrationTest {
         RiskSignalAggregate aggregate = aggregateService.forActorAndTarget(
                 41L, 42L, occurredAt.minusSeconds(1), occurredAt.plusSeconds(1));
         assertThat(aggregate).isEqualTo(new RiskSignalAggregate(1, 30, occurredAt, occurredAt));
+        assertThat(aggregateService.latestOccurredAtForActorAndTarget(41L, 42L, occurredAt))
+                .contains(occurredAt);
+        RiskSignalEvaluationAggregate evaluation = aggregateService.evaluationForActorAndTarget(
+                41L, 42L, occurredAt.minusSeconds(1), occurredAt);
+        assertThat(evaluation.signalCount()).isEqualTo(1);
+        assertThat(evaluation.totalScore()).isEqualTo(30);
+        assertThat(evaluation.firstDetectedAt()).isEqualTo(occurredAt);
+        assertThat(evaluation.lastDetectedAt()).isEqualTo(occurredAt);
+        assertThat(evaluation.lastEvaluatedEventId()).isPositive();
+        assertThat(evaluation.primarySignalType()).isEqualTo("USER_BLOCKED");
         assertThat(jdbc.queryForObject(
                 "select score_policy_version from risk_signal_events where event_id = ?",
                 Integer.class, eventId)).isEqualTo(1);
     }
 
     @Test
-    void v38AddsRequiredUniqueConstraintAndIndexes() {
+    void v37AddsRequiredUniqueConstraintAndIndexes() {
         assertThat(jdbc.queryForList("""
                 select indexname from pg_indexes
                  where schemaname = current_schema()
