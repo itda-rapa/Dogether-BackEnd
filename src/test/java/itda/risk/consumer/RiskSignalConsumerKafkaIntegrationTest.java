@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -16,13 +17,16 @@ import itda.risk.repository.RiskSignalEventJdbcRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +40,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
+import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.kafka.test.utils.KafkaTestUtils;
@@ -72,6 +78,7 @@ class RiskSignalConsumerKafkaIntegrationTest {
     @Autowired private EmbeddedKafkaBroker broker;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private KafkaListenerEndpointRegistry listenerRegistry;
     @MockitoSpyBean private RiskSignalEventJdbcRepository eventRepository;
 
     private Consumer<String, String> dltConsumer;
@@ -91,6 +98,10 @@ class RiskSignalConsumerKafkaIntegrationTest {
     void tearDown() {
         dltConsumer.close();
         reset(eventRepository);
+        MessageListenerContainer container = riskListenerContainer();
+        if (!container.isRunning()) {
+            container.start();
+        }
     }
 
     @Test
@@ -162,6 +173,43 @@ class RiskSignalConsumerKafkaIntegrationTest {
         verify(eventRepository, atLeast(3)).insertIfAbsent(any(), any());
     }
 
+    @Test
+    void databaseFailureLeavesOffsetUncommittedAndRestartReconsumesOnce() throws Exception {
+        MessageListenerContainer container = riskListenerContainer();
+        RiskSignalEventV1 event = event(UUID.randomUUID());
+        String payload = objectMapper.writeValueAsString(event.payload());
+        doAnswer(invocation -> {
+            container.stop();
+            throw new TransientDataAccessResourceException("stop before offset commit");
+        }).when(eventRepository).insertIfAbsent(any(), any());
+
+        RecordMetadata source = kafkaTemplate.send(
+                RiskTopic.RISK_SIGNAL_TOPIC, "41", payload)
+                .get(5, TimeUnit.SECONDS).getRecordMetadata();
+
+        await(() -> !container.isRunning());
+        assertThat(countByEventId(event.eventId())).isZero();
+        assertThat(committedOffset(source)).satisfies(offset ->
+                assertThat(offset == null || offset.offset() <= source.offset()).isTrue());
+
+        reset(eventRepository);
+        container.start();
+        await(() -> countByEventId(event.eventId()) == 1L);
+
+        container.stop();
+        await(() -> !container.isRunning());
+        OffsetAndMetadata committed = committedOffset(source);
+        assertThat(committed).isNotNull();
+        assertThat(committed.offset()).isGreaterThan(source.offset());
+
+        RiskSignalEventV1 marker = event(UUID.randomUUID());
+        container.start();
+        kafkaTemplate.send(RiskTopic.RISK_SIGNAL_TOPIC, "41",
+                objectMapper.writeValueAsString(marker.payload())).get(5, TimeUnit.SECONDS);
+        await(() -> countByEventId(marker.eventId()) == 1L);
+        assertThat(countByEventId(event.eventId())).isOne();
+    }
+
     private ConsumerRecord<String, String> awaitDlt(long sourceOffset) {
         long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
         while (System.nanoTime() < deadline) {
@@ -179,6 +227,24 @@ class RiskSignalConsumerKafkaIntegrationTest {
         var header = record.headers().lastHeader(name);
         return header == null ? null : new String(
                 header.value(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private MessageListenerContainer riskListenerContainer() {
+        return listenerRegistry.getListenerContainers().stream()
+                .filter(container -> "risk-consumer-integration".equals(
+                        container.getContainerProperties().getGroupId()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Risk listener container was not found"));
+    }
+
+    private OffsetAndMetadata committedOffset(RecordMetadata source) {
+        Map<String, Object> properties = KafkaTestUtils.consumerProps(
+                broker, "risk-consumer-integration", false);
+        try (Consumer<String, String> consumer = new DefaultKafkaConsumerFactory<>(
+                properties, new StringDeserializer(), new StringDeserializer()).createConsumer()) {
+            TopicPartition partition = new TopicPartition(source.topic(), source.partition());
+            return consumer.committed(Set.of(partition), Duration.ofSeconds(5)).get(partition);
+        }
     }
 
     private long countByEventId(UUID eventId) {
