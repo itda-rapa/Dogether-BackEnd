@@ -36,6 +36,10 @@ springdoc:
 
 
 app:
+  kakao:
+    local:
+      base-url: ${https://dapi.kakao.com}
+      rest-api-key: ${KAKAO_REST_API_KEY}
   meeting-card:
     ai:
       base-url: ${AI_BASE_URL:http://127.0.0.1:8000}

@@ -127,7 +127,10 @@ public enum ErrorCode {
     BOARD_POST_COMMENT_SELF_REACTION_FORBIDDEN(HttpStatus.FORBIDDEN, "자신이 작성한 댓글에는 반응할 수 없습니다."),
     COMMENT_DEPTH_EXCEEDED(HttpStatus.CONFLICT, "댓글은 최대 3단계까지만 작성할 수 있습니다."),
     BOARD_NOT_EMPTY(HttpStatus.CONFLICT, "게시글이 있는 게시판은 삭제할 수 없습니다."),
-    BOARD_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 게시판 이름입니다.");
+    BOARD_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 게시판 이름입니다."),
+
+    // KAKAO
+    KAKAO_REGION_NO_RESPONSE(HttpStatus.NOT_FOUND,"카카오 지역 조회 응답이 없습니다.");
 
     private final HttpStatus status;
     private final String description;
