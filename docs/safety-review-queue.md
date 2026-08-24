@@ -84,7 +84,7 @@ RiskSignal과 SafetyCase에는 대화 원문이나 Media URL을 복제하지 않
 
 ## 배포 순서
 
-1. Flyway를 활성화하고 선행 migration(V37, V38) 다음에 V39 적용. 운영 프로필은 `db/migration`만 실행하며 Flyway 기본 활성화와 Hibernate `validate`를 사용한다. 개발 seed/demo repeatable migration은 운영에서 실행하지 않는다.
+1. Flyway를 활성화하고 RiskSignal 저장 V37 다음에 Safety Queue V38을 적용. 운영 프로필은 `db/migration`만 실행하며 Flyway 기본 활성화와 Hibernate `validate`를 사용한다. 개발 seed/demo repeatable migration은 운영에서 실행하지 않는다.
 2. 애플리케이션 배포 후 Evaluator 비활성 상태에서 API·Job 적재 확인
 3. 팀이 임계값·기간·정책 버전 확정
 4. 필수 환경변수 설정 후 Evaluator 활성화

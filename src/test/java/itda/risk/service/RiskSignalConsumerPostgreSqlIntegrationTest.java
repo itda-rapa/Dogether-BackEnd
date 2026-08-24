@@ -83,7 +83,7 @@ class RiskSignalConsumerPostgreSqlIntegrationTest {
     }
 
     @Test
-    void v38AddsRequiredUniqueConstraintAndIndexes() {
+    void v37AddsRequiredUniqueConstraintAndIndexes() {
         assertThat(jdbc.queryForList("""
                 select indexname from pg_indexes
                  where schemaname = current_schema()

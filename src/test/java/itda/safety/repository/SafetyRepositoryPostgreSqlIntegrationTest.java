@@ -275,7 +275,7 @@ class SafetyRepositoryPostgreSqlIntegrationTest {
     }
 
     @Test
-    void v39HasOpenCaseUniquenessQueueIndexesAndEvaluationJobConstraint() {
+    void v38HasOpenCaseUniquenessQueueIndexesAndEvaluationJobConstraint() {
         assertThat(jdbc.queryForList("""
                 select indexname from pg_indexes
                  where schemaname = current_schema()
