@@ -19,6 +19,13 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.common.security.CurrentUser;
 import itda.user.domain.Role;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -352,6 +359,30 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("방 목록 lastMessage는 typed 상세를 hydrate하지 않고 type 기반 요약만 반환한다")
+    void roomListLastMessageDoesNotHydrateTypedDetails() throws Exception {
+        long imageMedia = insertMedia(USER_1, "IMAGE", "COMPLETED");
+        chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("room-img", MessageType.IMAGE, null, imageMedia, null));
+
+        mockMvc.perform(get("/chat/rooms").with(user(principal(USER_1))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].lastMessage.type").value("IMAGE"))
+                .andExpect(jsonPath("$.data.items[0].lastMessage.attachment").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].lastMessage.sharedSetlog").value(nullValue()));
+
+        long setlogId = insertSetlog(PET_1, insertMedia(USER_1, "VIDEO", "COMPLETED"), "VISIBLE");
+        chatMessageService.sendMessage(roomId, PET_1, USER_1,
+                new ChatMessageCreateRequest("room-set", MessageType.SETLOG_SHARE, null, null, setlogId));
+
+        mockMvc.perform(get("/chat/rooms").with(user(principal(USER_1))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].lastMessage.type").value("SETLOG_SHARE"))
+                .andExpect(jsonPath("$.data.items[0].lastMessage.attachment").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].lastMessage.sharedSetlog").value(nullValue()));
+    }
+
+    @Test
     @DisplayName("메시지 목록은 IMAGE 첨부와 SETLOG_SHARE 요약을 hydrate한다")
     void messageListHydratesTypedMessages() throws Exception {
         long imageMedia = insertMedia(USER_1, "IMAGE", "COMPLETED");
@@ -427,10 +458,72 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
 
         assertThatThrownBy(() -> chatMessageService.sendMessage(roomId, PET_1, USER_1,
                 new ChatMessageCreateRequest("img-b", MessageType.IMAGE, null, mediaId, null)))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("uk_chat_attachment_media");
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
 
         // 첨부 insert 실패 시 같은 트랜잭션의 메시지 insert도 rollback된다(부분 저장 없음).
+        assertThat(countOf("chat_messages")).isEqualTo(1);
+        assertThat(countOf("chat_message_attachments")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("동일 Media 동시 전송은 한 건만 저장되고 나머지는 409다")
+    void concurrentMediaSendsStoreOneAndRejectTheOther() throws Exception {
+        long mediaId = insertMedia(USER_1, "IMAGE", "COMPLETED");
+        long otherUserId = 3L;
+        long otherPetId = 33L;
+        insertUser(otherUserId);
+        insertPet(otherPetId, otherUserId);
+        jdbcTemplate.update("update users set active_pet_id = ? where id = ?", otherPetId, otherUserId);
+        long otherRoomId = chatRoomService
+                .ensureDirectRoom(PET_1, otherPetId, RoomOrigin.FRIEND)
+                .roomId();
+        assertThat(otherRoomId).isNotEqualTo(roomId);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Future<ChatMessageResult>> futures = new ArrayList<>();
+        List<Long> attemptedRoomIds = List.of(roomId, otherRoomId);
+        try {
+            for (int index = 0; index < attemptedRoomIds.size(); index++) {
+                long attemptedRoomId = attemptedRoomIds.get(index);
+                String clientMessageId = "img-concurrent-" + (index == 0 ? "a" : "b");
+                futures.add(executor.submit(() -> {
+                    barrier.await();
+                    return chatMessageService.sendMessage(attemptedRoomId, PET_1, USER_1,
+                            new ChatMessageCreateRequest(
+                                    clientMessageId, MessageType.IMAGE, null, mediaId, null));
+                }));
+            }
+
+            int created = 0;
+            int rejected = 0;
+            long failedRoomId = -1L;
+            for (int index = 0; index < futures.size(); index++) {
+                Future<ChatMessageResult> future = futures.get(index);
+                try {
+                    assertThat(future.get().created()).isTrue();
+                    created++;
+                } catch (ExecutionException exception) {
+                    assertThat(exception.getCause())
+                            .isInstanceOf(BusinessException.class)
+                            .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                            .isEqualTo(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+                    failedRoomId = attemptedRoomIds.get(index);
+                    rejected++;
+                }
+            }
+            assertThat(created).isEqualTo(1);
+            assertThat(rejected).isEqualTo(1);
+            assertThat(failedRoomId).isPositive();
+            assertThat(jdbcTemplate.queryForObject(
+                    "select last_message_at is null from chat_rooms where id = ?",
+                    Boolean.class, failedRoomId)).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
+
         assertThat(countOf("chat_messages")).isEqualTo(1);
         assertThat(countOf("chat_message_attachments")).isEqualTo(1);
     }

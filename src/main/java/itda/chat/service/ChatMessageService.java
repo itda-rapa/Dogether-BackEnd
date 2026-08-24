@@ -28,8 +28,10 @@ import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 @Service
 @RequiredArgsConstructor
@@ -226,6 +228,10 @@ public class ChatMessageService {
             resourceValidation.run();
         }
 
+        if (mediaId != null && attachmentRepository.existsByMediaId(mediaId)) {
+            throw new BusinessException(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+        }
+
         MessageUpsert upsert = chatMessageRepository.insertMessageOnConflictWithReturning(
                 roomId, senderType.name(), senderPetId, type.name(), body, meetingCardId, sharedSetlogId, clientMessageId);
 
@@ -241,7 +247,15 @@ public class ChatMessageService {
         }
         if (created) {
             if (mediaId != null) {
-                attachmentRepository.save(ChatMessageAttachment.attach(message, mediaId, attachmentType));
+                try {
+                    attachmentRepository.saveAndFlush(
+                            ChatMessageAttachment.attach(message, mediaId, attachmentType));
+                } catch (DataIntegrityViolationException exception) {
+                    if (isMediaAttachmentUniqueViolation(exception)) {
+                        throw new BusinessException(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+                    }
+                    throw exception;
+                }
             }
             chatRoomRepository.activateAndTouchLastMessageAt(roomId);
             eventPublisher.publishEvent(new ChatMessageCommittedEvent(
@@ -250,6 +264,17 @@ public class ChatMessageService {
             ));
         }
         return new ChatMessageResult(message, created);
+    }
+
+    private boolean isMediaAttachmentUniqueViolation(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof ConstraintViolationException violation) {
+                return "uk_chat_attachment_media".equals(violation.getConstraintName());
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private String senderPetNickname(Long senderPetId) {

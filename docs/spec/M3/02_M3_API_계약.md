@@ -52,6 +52,15 @@
 | POST | `/chat/rooms/{roomId}/messages` | typed message 전송 |
 | GET | `/chat/rooms/{roomId}/messages` | attachment/Setlog hydrate 이력 |
 
+Chat typed message 공통 규칙:
+
+- 사용자 전송 타입(`TEXT`, `IMAGE`, `VIDEO`, `SETLOG_SHARE`)은 모두 `clientMessageId`가 필요하다.
+- `IMAGE`/`VIDEO`는 `body=null`만 허용하며 caption은 지원하지 않는다. 상세 메시지 조회에서만 attachment를 hydrate한다.
+- 하나의 업로드 Media는 한 Chat 메시지에만 첨부할 수 있다. 같은 Media를 다른 `clientMessageId`로 전송하면 `409 CHAT_MEDIA_ALREADY_ATTACHED`다.
+- 같은 `clientMessageId`와 같은 payload의 재시도는 기존 메시지를 반환하며, 이때 Media 재사용 정책을 적용해 거부하지 않는다.
+
+`GET /chat/rooms`의 `lastMessage`는 room-list용 요약이다. `type`과 기본 메시지 필드만 반환하며 `IMAGE`/`VIDEO`의 `attachment`와 `SETLOG_SHARE`의 `sharedSetlog` 상세 hydration은 제공하지 않는다. 클라이언트는 `type`만으로 사진·동영상·셋로그 공유 텍스트 미리보기를 결정한다. 상세는 `GET /chat/rooms/{roomId}/messages`에서 조회한다.
+
 DIRECT WebSocket:
 
 - Publish: `/app/chat/direct/rooms/{roomId}/messages`

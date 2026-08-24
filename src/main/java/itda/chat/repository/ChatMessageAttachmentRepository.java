@@ -12,6 +12,8 @@ public interface ChatMessageAttachmentRepository extends JpaRepository<ChatMessa
 
     Optional<ChatMessageAttachment> findByMessageId(Long messageId);
 
+    boolean existsByMediaId(Long mediaId);
+
     @Query("select a from ChatMessageAttachment a where a.message.id in :messageIds")
     List<ChatMessageAttachment> findAllByMessageIdIn(@Param("messageIds") Collection<Long> messageIds);
 }

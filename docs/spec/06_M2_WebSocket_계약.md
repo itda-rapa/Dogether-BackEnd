@@ -264,7 +264,7 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 
 SEND에서 나올 수 있는 오류 집합은 REST `POST /chat/rooms/{roomId}/messages`와 같다 — `VALIDATION_FAILED`(400), `ACTIVE_PET_REQUIRED`(403), `CHAT_ROOM_NOT_FOUND`(404), `GREETING_REPLY_REQUIRED`·`CHAT_DUPLICATE_MESSAGE`(409), 그리고 인증 축의 `UNAUTHORIZED`(401). 이 목록은 코드 기준이다.
 
-여기에 **`CHAT_CLIENT_MESSAGE_ID_REQUIRED`(400)** 가 하나 더 있다. REST는 `@Valid @RequestBody`가 먼저 걸러 `VALIDATION_FAILED`가 나가므로 이 코드가 표면에 드러나지 않지만, `ChatMessageService.sendText`가 `clientMessageId`가 비면 직접 던진다. **WebSocket 컨트롤러에 payload 검증을 붙이지 않으면 REST와 다른 코드가 나간다.** 붙여서 `VALIDATION_FAILED`로 맞춘다. `04_M1_OpenAPI.yaml`의 대표 오류 서술에는 `ACTIVE_PET_REQUIRED`가 빠져 있다.
+여기에 **`CHAT_CLIENT_MESSAGE_ID_REQUIRED`(400)** 가 하나 더 있다. 사용자 전송 타입인 `TEXT`·`IMAGE`·`VIDEO`·`SETLOG_SHARE` 모두 `clientMessageId`가 필요하며, 서비스가 누락을 직접 거부한다. REST의 `@Valid @RequestBody`에서 누락되면 `VALIDATION_FAILED`가 먼저 나갈 수 있지만, 서비스·WebSocket 계약의 오류 문구는 "사용자 전송 메시지는 clientMessageId가 필요합니다."로 동일하다. `04_M1_OpenAPI.yaml`의 대표 오류 서술에는 `ACTIVE_PET_REQUIRED`가 빠져 있다.
 
 > **`04_M1_OpenAPI.yaml`의 대표 오류 목록에 `BLOCKED_USER`(403)가 적혀 있으나 채팅 전송 경로는 이 코드를 던지지 않는다.** 저장소 전체에서 `BLOCKED_USER`는 friend·greeting·setlog에서만 발생하고, 채팅에서 차단은 `ChatQueryService.requireParticipant`가 `404 CHAT_ROOM_NOT_FOUND`로 숨긴다. **WebSocket에 `BLOCKED_USER`를 넣으면 차단 사실이 노출된다.** OpenAPI 쪽이 틀렸으며 별도로 정정해야 한다.
 

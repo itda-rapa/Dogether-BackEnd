@@ -865,6 +865,9 @@ paths:
       description: |
         현재 Active Pet이 Participant인 방을 lastMessageAt 내림차순으로 반환한다.
         차단 관계 방은 숨기되 증거 보존을 위해 삭제하지 않는다.
+        lastMessage는 room-list용 요약으로 type과 기본 메시지 필드만 제공한다.
+        IMAGE/VIDEO의 attachment와 SETLOG_SHARE의 sharedSetlog 상세 hydration은 제공하지 않는다.
+        클라이언트는 type만으로 사진·동영상·셋로그 공유 텍스트 미리보기를 결정한다.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -939,13 +942,16 @@ paths:
           $ref: '#/components/responses/NotFound'
     post:
       tags: [Chat]
-      summary: TEXT 메시지 전송
+      summary: typed 메시지 전송
       operationId: sendChatMessage
       description: |
         clientMessageId로 재시도 멱등성을 보장한다.
         ARCHIVED 방은 정상 메시지 저장 시 ACTIVE로 복구한다.
-        대표 오류는 VALIDATION_FAILED(400), ACTIVE_PET_REQUIRED(403),
-        CHAT_ROOM_NOT_FOUND(404), GREETING_REPLY_REQUIRED·CHAT_DUPLICATE_MESSAGE(409)다.
+        사용자 전송 타입(TEXT/IMAGE/VIDEO/SETLOG_SHARE)은 모두 clientMessageId가 필요하다.
+        IMAGE/VIDEO의 body는 반드시 null이며 caption은 지원하지 않는다.
+        대표 오류는 VALIDATION_FAILED·CHAT_CLIENT_MESSAGE_ID_REQUIRED(400),
+        ACTIVE_PET_REQUIRED(403), CHAT_ROOM_NOT_FOUND(404),
+        GREETING_REPLY_REQUIRED·CHAT_DUPLICATE_MESSAGE·CHAT_MEDIA_ALREADY_ATTACHED(409)다.
       parameters:
         - $ref: '#/components/parameters/RoomId'
       requestBody:
@@ -1854,6 +1860,10 @@ components:
             M1 구현은 항상 null을 반환한다. enum 값은 예약이며 클라이언트는
             이 필드로 전송 가능 여부를 판단하지 않는다.
         lastMessage:
+          description: >-
+            room-list용 요약. type과 기본 메시지 필드만 제공하며 IMAGE/VIDEO의 attachment와
+            SETLOG_SHARE의 sharedSetlog는 null이다. 클라이언트는 type만으로 텍스트 미리보기를
+            결정하고, 상세 hydration은 메시지 목록 API에서 제공한다.
           oneOf:
             - $ref: '#/components/schemas/ChatMessage'
             - type: 'null'
@@ -1880,7 +1890,7 @@ components:
         body:
           type: [string, 'null']
           maxLength: 2000
-          description: TEXT에서만 필수. IMAGE/VIDEO/SETLOG_SHARE는 null.
+          description: TEXT에서만 필수. IMAGE/VIDEO는 반드시 null이며 caption은 지원하지 않는다. SETLOG_SHARE도 null.
         mediaId:
           type: [integer, 'null']
           format: int64

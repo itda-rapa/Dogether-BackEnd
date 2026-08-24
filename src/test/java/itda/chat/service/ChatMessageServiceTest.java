@@ -37,6 +37,7 @@ import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
 import itda.setlog.service.SetlogQueryService;
 import java.time.Instant;
+import java.sql.SQLException;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.hibernate.exception.ConstraintViolationException;
 
 @ExtendWith(MockitoExtension.class)
 class ChatMessageServiceTest {
@@ -104,6 +107,21 @@ class ChatMessageServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(ErrorCode.CHAT_CLIENT_MESSAGE_ID_REQUIRED);
+    }
+
+    @Test
+    void everyUserMessageTypeRequiresClientMessageId() {
+        for (ChatMessageCreateRequest request : new ChatMessageCreateRequest[]{
+                new ChatMessageCreateRequest(null, MessageType.TEXT, "hello", null, null),
+                new ChatMessageCreateRequest(null, MessageType.IMAGE, null, 501L, null),
+                new ChatMessageCreateRequest(null, MessageType.VIDEO, null, 502L, null),
+                new ChatMessageCreateRequest(null, MessageType.SETLOG_SHARE, null, null, 77L)
+        }) {
+            assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L, request))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                    .isEqualTo(ErrorCode.CHAT_CLIENT_MESSAGE_ID_REQUIRED);
+        }
     }
 
     @Test
@@ -552,6 +570,7 @@ class ChatMessageServiceTest {
         when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
         when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
         when(mediaService.requireOwnedPlayableMedia(501L, 7L, MediaType.IMAGE)).thenReturn(media);
+        when(attachmentRepository.existsByMediaId(501L)).thenReturn(false);
         when(chatMessageRepository.insertMessageOnConflictWithReturning(
                 1L, "PET", 10L, "IMAGE", null, null, null, "idem-img"))
                 .thenReturn(upsert);
@@ -562,8 +581,55 @@ class ChatMessageServiceTest {
 
         assertThat(result.created()).isTrue();
         verify(mediaService).requireOwnedPlayableMedia(501L, 7L, MediaType.IMAGE);
-        verify(attachmentRepository).save(any(ChatMessageAttachment.class));
+        verify(attachmentRepository).saveAndFlush(any(ChatMessageAttachment.class));
         verify(chatRoomRepository).activateAndTouchLastMessageAt(1L);
+    }
+
+    @Test
+    void alreadyAttachedMediaIsRejectedBeforeMessageInsert() {
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "img-used"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(mock(ChatRoom.class)));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
+        when(attachmentRepository.existsByMediaId(501L)).thenReturn(true);
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("img-used", MessageType.IMAGE, null, 501L, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+        verify(chatMessageRepository, never()).insertMessageOnConflictWithReturning(
+                anyLong(), anyString(), any(), anyString(), any(), any(), any(), anyString());
+    }
+
+    @Test
+    void mediaUniqueConstraintViolationIsMappedToChatConflict() {
+        ChatRoom room = mock(ChatRoom.class);
+        ChatMessage stored = mediaMsg(2L, 10L, MessageType.IMAGE, 501L, "img-race");
+        MessageUpsert upsert = upsert(2L, true);
+        DataIntegrityViolationException violation = new DataIntegrityViolationException(
+                "duplicate media attachment",
+                new ConstraintViolationException(
+                        "duplicate media attachment", new SQLException(), "uk_chat_attachment_media"));
+
+        when(chatMessageRepository.findByRoomIdAndClientMessageId(1L, "img-race"))
+                .thenReturn(Optional.empty());
+        when(chatRoomRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(room));
+        when(participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(1L, 10L)).thenReturn(true);
+        when(mediaService.requireOwnedPlayableMedia(501L, 7L, MediaType.IMAGE)).thenReturn(mock());
+        when(attachmentRepository.existsByMediaId(501L)).thenReturn(false);
+        when(chatMessageRepository.insertMessageOnConflictWithReturning(
+                1L, "PET", 10L, "IMAGE", null, null, null, "img-race"))
+                .thenReturn(upsert);
+        when(chatMessageRepository.findById(2L)).thenReturn(Optional.of(stored));
+        when(attachmentRepository.saveAndFlush(any(ChatMessageAttachment.class))).thenThrow(violation);
+
+        assertThatThrownBy(() -> chatMessageService.sendMessage(1L, 10L, 7L,
+                new ChatMessageCreateRequest("img-race", MessageType.IMAGE, null, 501L, null)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+        verify(chatRoomRepository, never()).activateAndTouchLastMessageAt(1L);
     }
 
     @Test
