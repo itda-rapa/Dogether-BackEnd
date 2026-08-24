@@ -55,14 +55,17 @@ public interface ChatMessageSwaggerSupporter {
             @Parameter(description = "조회 개수") Integer limit
     );
 
-    @Operation(summary = "메시지 전송", description = "채팅방에 메시지를 전송하는 API")
+    @Operation(summary = "메시지 전송", description = "채팅방에 메시지를 전송하는 API. type으로 TEXT/IMAGE/VIDEO/SETLOG_SHARE를 구분한다.")
     @RequestBody(content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = ChatMessageCreateRequest.class),
             examples = @ExampleObject("""
                     {
                         "clientMessageId":"client-message-001",
-                        "body":"안녕하세요"
+                        "type":"TEXT",
+                        "body":"안녕하세요",
+                        "mediaId":null,
+                        "setlogId":null
                     }
                     """)
     ))
@@ -77,11 +80,17 @@ public interface ChatMessageSwaggerSupporter {
                                 "message":"메시지 전송 성공",
                                 "data":{
                                     "messageId":1,
+                                    "roomId":10,
+                                    "senderType":"PET",
                                     "senderPetId":10,
                                     "senderPetNickname":"도기",
                                     "type":"TEXT",
                                     "body":"안녕하세요",
-                                    "sentAt":"2026-08-05T00:00:00Z"
+                                    "attachment":null,
+                                    "sharedSetlog":null,
+                                    "meetingCardId":null,
+                                    "clientMessageId":"client-message-001",
+                                    "createdAt":"2026-08-05T00:00:00Z"
                                 },
                                 "error":null
                             }

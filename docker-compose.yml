@@ -28,7 +28,7 @@ services:
     stop_grace_period: 30s
 
   postgres:
-    image: postgres:16-alpine
+    image: pgrouting/pgrouting:16-3.5-4.0
     container_name: dogether-postgres
     environment:
       POSTGRES_DB: dogether

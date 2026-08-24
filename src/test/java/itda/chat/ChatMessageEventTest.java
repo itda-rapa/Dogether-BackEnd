@@ -13,7 +13,7 @@ class ChatMessageEventTest {
     void cardEventCarriesMeetingCardId() {
         ChatMessageResponse response = new ChatMessageResponse(
                 1L, 2L, "PET", 3L, "몽이", "CARD", null,
-                77L, "meeting-card:77:created", Instant.parse("2026-08-13T00:00:00Z"));
+                null, null, 77L, "meeting-card:77:created", Instant.parse("2026-08-13T00:00:00Z"));
 
         assertThat(ChatMessageEvent.from(response).meetingCardId()).isEqualTo(77L);
     }

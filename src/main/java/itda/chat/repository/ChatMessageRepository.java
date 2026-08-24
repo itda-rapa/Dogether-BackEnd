@@ -41,9 +41,9 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     @Transactional
     @Query(value = """
             INSERT INTO chat_messages (room_id, sender_type, sender_pet_id, type, \
-            body, meeting_card_id, client_message_id)
+            body, meeting_card_id, shared_setlog_id, client_message_id)
             VALUES (:roomId, CAST(:senderType AS VARCHAR), :senderPetId, CAST(:msgType AS VARCHAR), \
-            :body, :meetingCardId, :clientMessageId)
+            :body, :meetingCardId, :sharedSetlogId, :clientMessageId)
             ON CONFLICT (room_id, client_message_id)
             DO UPDATE SET client_message_id = chat_messages.client_message_id
             RETURNING id, (xmax = 0) AS created
@@ -54,6 +54,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
                                                        @Param("msgType") String msgType,
                                                        @Param("body") String body,
                                                        @Param("meetingCardId") Long meetingCardId,
+                                                       @Param("sharedSetlogId") Long sharedSetlogId,
                                                        @Param("clientMessageId") String clientMessageId);
 
     /**

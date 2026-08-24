@@ -94,8 +94,19 @@ tasks.withType(Test).configureEach {
 
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'postgres', 'rustfs', 'redis'
+        excludeTags 'postgres', 'rustfs', 'redis', 'kafka'
     }
+}
+
+tasks.register('kafkaTest', Test) {
+    description = 'Runs Risk relay Kafka integration tests.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'kafka'
+    }
+    shouldRunAfter tasks.named('test')
 }
 
 tasks.register('postgresTest', Test) {
