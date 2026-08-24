@@ -926,9 +926,8 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
       "detectedUsers": 12,
       "openCases": 4,
       "signalsByType": {
-        "REPEATED_CONTACT": 9,
-        "AI_ACCOUNT_REQUEST": 2,
-        "AI_EXTORTION": 1
+        "USER_BLOCKED": 9,
+        "GREETING_EXPIRED": 3
       }
     },
     "storageCleanup": {
@@ -942,7 +941,7 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
         "id": 81,
         "status": "OPEN",
         "subjectUserId": 701,
-        "reason": "REPEATED_CONTACT",
+        "reason": "USER_BLOCKED",
         "createdAt": "2026-08-20T08:30:00Z"
       }
     ]
@@ -981,7 +980,7 @@ Query:
         "status": "OPEN",
         "totalScore": 90,
         "signalCount": 3,
-        "primarySignalType": "REPEATED_CONTACT",
+        "primarySignalType": "USER_BLOCKED",
         "evaluationPolicyVersion": 7,
         "firstDetectedAt": "2026-08-15T02:00:00Z",
         "lastDetectedAt": "2026-08-20T08:30:00Z",
@@ -1014,7 +1013,7 @@ Query:
       "status": "OPEN",
       "totalScore": 90,
       "signalCount": 3,
-      "primarySignalType": "FRIEND_REQUEST_REJECTED",
+      "primarySignalType": "USER_BLOCKED",
       "evaluationPolicyVersion": 7,
       "firstDetectedAt": "2026-08-15T02:00:00Z",
       "lastDetectedAt": "2026-08-20T08:30:00Z",
@@ -1027,9 +1026,9 @@ Query:
       {
         "signalId": 901,
         "eventId": "1a548b88-2fd0-4be9-9418-03e11e9a6c6f",
-        "sourceType": "FRIEND_REQUEST",
+        "sourceType": "USER_BLOCK",
         "sourceId": 4201,
-        "signalType": "FRIEND_REQUEST_REJECTED",
+        "signalType": "USER_BLOCKED",
         "score": 30,
         "scorePolicyVersion": 1,
         "occurredAt": "2026-08-15T02:00:00Z"
@@ -1066,7 +1065,7 @@ Query:
     "status": "WARNING_RECORDED",
     "totalScore": 90,
     "signalCount": 3,
-    "primarySignalType": "REPEATED_CONTACT",
+    "primarySignalType": "USER_BLOCKED",
     "evaluationPolicyVersion": 7,
     "firstDetectedAt": "2026-08-15T02:00:00Z",
     "lastDetectedAt": "2026-08-20T08:30:00Z",
