@@ -26,7 +26,7 @@ class ChatMessageRealtimeListenerTest {
                 publisher
         );
         ChatMessageResponse message = new ChatMessageResponse(
-                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, "client-1", null
+                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, null, null, "client-1", null
         );
 
         listener.onMessageCommitted(new ChatMessageCommittedEvent(RoomType.GROUP, message));
@@ -48,7 +48,7 @@ class ChatMessageRealtimeListenerTest {
                 publisher
         );
         ChatMessageResponse message = new ChatMessageResponse(
-                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, "client-1", null
+                456L, 123L, "PET", 11L, "Mong", "TEXT", "hello", null, null, null, "client-1", null
         );
 
         listener.onMessageCommitted(new ChatMessageCommittedEvent(RoomType.DIRECT, message));

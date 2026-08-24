@@ -18,11 +18,13 @@ import itda.setlog.domain.SetlogReaction;
 import itda.setlog.domain.SetlogStatus;
 import itda.setlog.dto.SetlogAuthorPetResponse;
 import itda.setlog.dto.SetlogResponse;
+import itda.setlog.dto.ShareableSetlogView;
 import itda.setlog.repository.SetlogReactionRepository;
 import itda.setlog.repository.SetlogRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.util.Comparator;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -222,6 +224,67 @@ public class SetlogQueryService {
                 myReactions.getOrDefault(setlog.getId(), List.of()),
                 canInteract,
                 setlog.getCreatedAt()
+        );
+    }
+
+    /**
+     * Chat SETLOG_SHARE 전송용 공개 검증 계약. 표시 가능(VISIBLE + 재생 가능 Media + 정상 작성자)
+     * setlog만 통과시키며, 그 판정은 {@link SetlogRepository#findInteractableById}가 가진
+     * 단일 조건으로 수행한다. Chat은 setlog 내부 상태를 직접 해석하지 않는다.
+     */
+    public Setlog requireShareableSetlog(Long setlogId, Long ownerUserId) {
+        Setlog setlog = setlogRepository
+                .findInteractableById(setlogId, SetlogStatus.VISIBLE, PLAYABLE_MEDIA_STATUSES)
+                .orElseThrow(() -> new BusinessException(ErrorCode.SETLOG_NOT_FOUND));
+        if (ownerUserId == null || !ownerUserId.equals(setlog.getAuthorPet().getOwner().getId())) {
+            throw new BusinessException(ErrorCode.SETLOG_SHARE_FORBIDDEN);
+        }
+        return setlog;
+    }
+
+    /**
+     * 메시지 목록 hydration용 batch 계약. 표시 가능 setlog만 현재 요약을 반환하고,
+     * 삭제·재생 불가·작성자 비정상 setlog는 {@code available=false}로 대체한다.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, ShareableSetlogView> findShareableSetlogViews(Collection<Long> setlogIds) {
+        if (setlogIds == null || setlogIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Setlog> setlogs = setlogRepository.findAllByIdForShare(
+                setlogIds, SetlogStatus.VISIBLE, PLAYABLE_MEDIA_STATUSES);
+        Map<Long, MediaService.OwnedPresignedDownload> downloads =
+                mediaService.getMediaDownloadsByIds(
+                        setlogs.stream().map(setlog -> setlog.getMedia().getId()).toList());
+        Map<Long, ShareableSetlogView> result = new LinkedHashMap<>();
+        for (Long setlogId : setlogIds) {
+            result.put(setlogId, ShareableSetlogView.unavailable(setlogId));
+        }
+        for (Setlog setlog : setlogs) {
+            result.put(setlog.getId(), toShareableView(
+                    setlog, downloads.get(setlog.getMedia().getId())));
+        }
+        return Map.copyOf(result);
+    }
+
+    private ShareableSetlogView toShareableView(
+            Setlog setlog,
+            MediaService.OwnedPresignedDownload download
+    ) {
+        if (download == null) {
+            return ShareableSetlogView.unavailable(setlog.getId());
+        }
+        return new ShareableSetlogView(
+                setlog.getId(),
+                true,
+                setlog.getAuthorPet().getId(),
+                setlog.getAuthorPet().getNickname(),
+                setlog.getCaption(),
+                download.media().getId(),
+                download.media().getMediaType().name(),
+                download.download().url(),
+                download.download().expiresAt(),
+                setlog.getCuteCount() + setlog.getLikeCount()
         );
     }
 }

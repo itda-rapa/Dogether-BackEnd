@@ -647,6 +647,7 @@ Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 
 - 인증: 방 참여 User의 Active Pet
 - 신규 생성: `201`
 - 같은 `clientMessageId`: 기존 메시지와 `200`
+- 사용자 전송 타입(`TEXT`, `IMAGE`, `VIDEO`, `SETLOG_SHARE`)은 모두 `clientMessageId`가 필요하다. 누락하면 `400 CHAT_CLIENT_MESSAGE_ID_REQUIRED`다.
 
 TEXT 요청:
 
@@ -769,7 +770,7 @@ SETLOG_SHARE 응답:
 | type | body | mediaId | setlogId |
 |---|---|---|---|
 | TEXT | 필수 | 금지 | 금지 |
-| IMAGE/VIDEO | 금지 또는 결정된 caption | 필수 | 금지 |
+| IMAGE/VIDEO | 반드시 `null` (caption 미지원) | 필수 | 금지 |
 | SETLOG_SHARE | 금지 | 금지 | 필수 |
 | CARD/SYSTEM | Client 전송 금지 | 금지 | 금지 |
 
@@ -778,7 +779,9 @@ SETLOG_SHARE 응답:
 - `404 CHAT_ROOM_NOT_FOUND`
 - `403 CHAT_SENDER_NOT_PARTICIPANT`
 - `403 BLOCKED_USER`
+- `400 CHAT_CLIENT_MESSAGE_ID_REQUIRED`는 모든 사용자 전송 타입의 `clientMessageId` 누락에 사용
 - `409 CHAT_DUPLICATE_MESSAGE`는 같은 ID·다른 payload일 때만 사용
+- `409 CHAT_MEDIA_ALREADY_ATTACHED`는 다른 `clientMessageId`로 이미 첨부된 Media를 재사용할 때 사용. 같은 ID·같은 payload의 멱등 재시도는 기존 메시지를 반환한다.
 - `400 CHAT_MESSAGE_TYPE_INVALID`
 - `400 CHAT_MESSAGE_PAYLOAD_INVALID`
 - `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_NOT_READY`
@@ -1125,7 +1128,9 @@ Producer 계약:
 - 위 두 조합을 교차하거나 정의되지 않은 조합은 Command/Event 생성 시 거부한다.
 - `sourceId`, `actorUserId`, `targetUserId`는 양의 정수이며 `sourceId`는 JSON number다.
 - `eventId`는 Publisher가 UUID로 생성한다. Outbox는 `eventId`와 `(sourceType, sourceId, signalType)`을 모두 멱등키로 사용한다.
-- `RiskSourceEventPublisher.enqueue`는 원천 DB 트랜잭션 안에서 Outbox만 적재한다. Kafka publish 실패 재시도는 후속 relay가 처리한다.
+- `RiskSourceEventPublisher.enqueue`는 원천 DB 트랜잭션 안에서 Outbox를 적재한다. Relay는 due/stale 이벤트를 한 건씩 선점해 기존 JSON을 발행하고 Kafka ack를 기다린다.
+- 상태는 `PENDING → PROCESSING → SENT/RETRY/FAILED`이며 lease 만료 `PROCESSING`은 새 `claimToken`으로 재선점한다. 상태 변경은 `id + PROCESSING + claimToken`으로 fencing한다.
+- 전달은 at-least-once다. Kafka ack 후 `SENT` 갱신 실패나 timeout 뒤 늦은 broker 성공으로 중복될 수 있으므로 Consumer는 `eventId` 멱등 처리가 필수다.
 - metadata allowlist:
   - `USER_BLOCKED`: 선택적 `reasonCode`, 대문자 영문·숫자·underscore 코드, 최대 64자
   - `GREETING_EXPIRED`: 선택적 `ttlHours`, 문자열로 표현한 1~168 정수

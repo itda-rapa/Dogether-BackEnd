@@ -82,6 +82,17 @@ app:
     upload-settle-grace: ${STORAGE_CLEANUP_UPLOAD_SETTLE_GRACE:30m}
     base-backoff: ${STORAGE_CLEANUP_BASE_BACKOFF:30s}
     max-backoff: ${STORAGE_CLEANUP_MAX_BACKOFF:6h}
+  risk:
+    outbox-relay:
+      enabled: ${RISK_SIGNAL_OUTBOX_RELAY_ENABLED:false}
+      delay-ms: ${RISK_SIGNAL_OUTBOX_RELAY_DELAY_MS:1000}
+      batch-size: ${RISK_SIGNAL_OUTBOX_RELAY_BATCH_SIZE:50}
+      lease: ${RISK_SIGNAL_OUTBOX_RELAY_LEASE:1m}
+      send-timeout: ${RISK_SIGNAL_OUTBOX_RELAY_SEND_TIMEOUT:10s}
+      max-block: ${RISK_SIGNAL_OUTBOX_RELAY_MAX_BLOCK:5s}
+      max-attempts: ${RISK_SIGNAL_OUTBOX_RELAY_MAX_ATTEMPTS:10}
+      base-backoff: ${RISK_SIGNAL_OUTBOX_RELAY_BASE_BACKOFF:5s}
+      max-backoff: ${RISK_SIGNAL_OUTBOX_RELAY_MAX_BACKOFF:10m}
   bootstrap-admin:
     enabled: ${INITIAL_ADMIN_ENABLED:false}
     email: ${INITIAL_ADMIN_EMAIL:}

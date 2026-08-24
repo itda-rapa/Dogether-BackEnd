@@ -991,7 +991,7 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
                             "/chat/rooms/{roomId}/messages", roomId)
                     .with(user(new CurrentUser(1L, "a@example.com", Role.USER)))
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"clientMessageId\":\"rest-ws-1\",\"body\":\"rest\"}"))
+                    .content("{\"clientMessageId\":\"rest-ws-1\",\"type\":\"TEXT\",\"body\":\"rest\"}"))
                     .andExpect(MockMvcResultMatchers.status().isCreated())
                     .andReturn().getResponse().getContentAsString();
             long messageId = ((Number) JsonPath.read(response, "$.data.messageId")).longValue();
@@ -1021,6 +1021,33 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
                 .andExpect(MockMvcResultMatchers.jsonPath("$.data.items.length()").value(1))
                 .andExpect(MockMvcResultMatchers.jsonPath("$.data.items[0].messageId")
                         .value((int) missedId));
+    }
+
+    @Test
+    void legacyTextWithoutTypeIsAcceptedOverWebSocket() throws Exception {
+        long roomId = createFixture();
+        WebSocketStompClient client = newClient();
+        StompSession session = connect(client, issueToken(1L));
+        ArrayBlockingQueue<Map<String, Object>> frames = new ArrayBlockingQueue<>(4);
+        try {
+            subscribeMessages(session, frames, "1", 1);
+
+            StompHeaders headers = new StompHeaders();
+            headers.setDestination("/app/chat/direct/rooms/" + roomId + "/messages");
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            session.send(headers, new ChatMessageCreateRequest("legacy-ws-1", null, "안녕", null, null));
+
+            List<Map<String, Object>> received = collectUntil(frames, Set.of("CHAT_SEND_ACK"), 10);
+            Map<String, Object> ack = findFrame(received, "CHAT_SEND_ACK");
+            assertThat(ack).isNotNull();
+            assertThat(ack.get("clientMessageId")).isEqualTo("legacy-ws-1");
+            assertThat(jdbcTemplate.queryForObject(
+                    "select type from chat_messages where room_id = ? and client_message_id = ?",
+                    String.class, roomId, "legacy-ws-1")).isEqualTo("TEXT");
+        } finally {
+            disconnectIfConnected(session);
+            client.stop();
+        }
     }
 
     @Test

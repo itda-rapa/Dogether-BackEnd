@@ -94,7 +94,7 @@ safety_review_cases 1 ─ N evidence_access_audits
 ### `chat_messages`
 
 - `type` 허용값: `TEXT`, `CARD`, `IMAGE`, `VIDEO`, `SETLOG_SHARE`, `SYSTEM`
-- `body`는 TEXT만 필수, 다른 타입은 nullable
+- `body`는 TEXT만 필수, 다른 타입은 nullable. IMAGE/VIDEO는 반드시 `NULL`이며 caption을 저장하지 않는다.
 - `shared_setlog_id BIGINT NULL FK setlogs(id)` 추가
 - 타입별 허용 필드는 DB CHECK 또는 Service+통합 테스트로 보장
 
@@ -112,7 +112,7 @@ safety_review_cases 1 ─ N evidence_access_audits
 제약:
 
 - `UNIQUE(message_id, display_order)`
-- `UNIQUE(media_id)` 권고: 한 업로드를 여러 메시지에 재사용하지 않음
+- `UNIQUE(media_id)` 정책/제약: 한 업로드 Media는 단 한 Chat 메시지에만 첨부할 수 있으며 재사용하지 않음
 - M3 기본 완료선은 메시지당 1개, 스키마는 다중 첨부 확장 가능
 
 Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증 metadata를 저장할 수 있으나 JWT·URL은 저장하지 않는다.
@@ -200,7 +200,7 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 
 ### `risk_signal_outbox`
 
-원천 도메인의 DB 변경과 같은 트랜잭션에서 적재하는 Kafka 발행 대기 테이블이다. 이번 범위에는 relay/consumer는 포함하지 않는다.
+원천 도메인의 DB 변경과 같은 트랜잭션에서 적재하고, Outbox Relay가 Kafka로 전달하는 발행 대기 테이블이다. Consumer 저장·집계는 별도 범위다.
 
 | 컬럼 | 형식 | 설명 |
 |---|---|---|
@@ -211,10 +211,11 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 | actor_user_id/target_user_id | BIGINT | 행위자·대상, Kafka key는 actor_user_id |
 | occurred_at | TIMESTAMPTZ | 원천 이벤트 발생 시각 |
 | payload | JSONB | `RiskSignalEventV1` JSON 전체 |
-| status/attempts/next_retry_at | VARCHAR/INTEGER/TIMESTAMPTZ | 향후 relay 재시도 상태 |
-| claim_token/claimed_at/published_at | UUID/TIMESTAMPTZ | 향후 relay claim·전송 완료 기록 |
+| status/attempts/next_retry_at | VARCHAR/INTEGER/TIMESTAMPTZ | relay 상태·시도 횟수·다음 재시도 시각 |
+| claim_token/claimed_at/published_at | UUID/TIMESTAMPTZ | relay claim fencing·lease·전송 완료 기록 |
 
 - 현재 상태: `PENDING/PROCESSING/SENT/RETRY/FAILED`
+- Relay 보장: at-least-once, Consumer는 `event_id`로 멱등 처리
 - 논리 멱등키: `(source_type, source_id, signal_type)`
 - 원문·JWT·이메일·정확 위치는 payload에 저장하지 않는다.
 

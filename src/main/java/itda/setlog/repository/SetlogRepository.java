@@ -7,6 +7,7 @@ import itda.setlog.domain.SetlogStatus;
 import itda.user.domain.AccountStatus;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +20,30 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
 
     @Query("select setlog.authorPet.id from Setlog setlog where setlog.id = :setlogId")
     Optional<Long> findAuthorPetIdById(@Param("setlogId") Long setlogId);
+
+    /**
+     * Chat SETLOG_SHARE hydration용 batch 조회. 표시 가능(VISIBLE + 재생 가능 Media + 정상 작성자)
+     * setlog만 반환하므로, 누락된 id는 "접근 불가"로 처리하면 된다.
+     */
+    @Query("""
+            select setlog
+              from Setlog setlog
+              join fetch setlog.authorPet authorPet
+              join fetch authorPet.owner
+              join fetch setlog.media media
+             where setlog.id in :setlogIds
+               and setlog.status = :status
+               and media.status in :mediaStatuses
+               and media.deletedAt is null
+               and authorPet.status = itda.pet.domain.PetStatus.ACTIVE
+               and authorPet.deletedAt is null
+               and authorPet.owner.accountStatus = itda.user.domain.AccountStatus.ACTIVE
+            """)
+    List<Setlog> findAllByIdForShare(
+            @Param("setlogIds") Collection<Long> setlogIds,
+            @Param("status") SetlogStatus status,
+            @Param("mediaStatuses") List<MediaStatus> mediaStatuses
+    );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
