@@ -2,17 +2,27 @@ package itda.boardpost;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 import itda.boardpost.domain.BoardPost;
 import itda.boardpost.dto.BoardPostCreateRequest;
 import itda.boardpost.dto.BoardPostResponse;
 import itda.boardpost.dto.BoardPostUpdateRequest;
+import itda.boardpost.domain.BoardPostMedia;
+import itda.boardpost.repository.BoardPostMediaRepository;
 import itda.boardpost.repository.BoardPostRepository;
 import itda.boardpost.service.BoardPostService;
 import itda.board.repository.BoardRepository;
 import itda.board.service.BoardDeletionService;
 import itda.common.exception.BusinessException;
+import itda.media.repository.MediaRepository;
 import itda.pet.service.ActivePetSelectionService;
+import itda.pet.service.query.PetDisplayQueryService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +41,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
@@ -43,7 +54,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.flyway.locations=classpath:db/migration,classpath:db/seed"
+        "spring.flyway.locations=classpath:db/migration,classpath:db/seed",
+        "spring.jpa.properties.hibernate.generate_statistics=true"
 })
 class BoardPostPostgreSqlIntegrationTest {
 
@@ -53,11 +65,15 @@ class BoardPostPostgreSqlIntegrationTest {
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardPostRepository posts;
+    @Autowired private BoardPostMediaRepository postMedia;
     @Autowired private BoardRepository boards;
     @Autowired private BoardPostService postService;
     @Autowired private BoardDeletionService boardDeletionService;
     @Autowired private ActivePetSelectionService activePetSelectionService;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private PetDisplayQueryService petDisplays;
+    @Autowired private jakarta.persistence.EntityManagerFactory entityManagerFactory;
+    @MockitoSpyBean private MediaRepository mediaRepository;
 
     @Test
     void flywayCreatesBoardPostConstraintsAndRequiredIndexes() {
@@ -267,6 +283,268 @@ class BoardPostPostgreSqlIntegrationTest {
         }, bothRead, allowFlush);
         assertThat(outcomes).containsExactlyInAnyOrder(true, false);
         assertThat(posts.findById(created.getId()).orElseThrow().getVersion()).isEqualTo(1L);
+    }
+
+    /**
+     * Proves that the production attachment-domain operation dirties the parent before any child
+     * mutation and therefore claims the normal optimistic @Version row.
+     */
+    @Test
+    void attachmentTouchFlushesAParentVersionBeforeChildWorkAndMakesOneConcurrentWinner() throws Exception {
+        long postId = persistedPost("attachment-touch-race");
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        CountDownLatch bothRead = new CountDownLatch(2);
+        CountDownLatch allowFlush = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<VersionProbe>> futures = new ArrayList<>();
+            for (int index = 0; index < 2; index++) {
+                futures.add(executor.submit(() -> touchAndFlush(
+                        tx, postId, bothRead, allowFlush
+                )));
+            }
+            assertThat(bothRead.await(10, TimeUnit.SECONDS)).isTrue();
+            allowFlush.countDown();
+
+            List<VersionProbe> outcomes = new ArrayList<>();
+            for (Future<VersionProbe> future : futures) {
+                outcomes.add(future.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(outcomes).filteredOn(VersionProbe::committed).singleElement()
+                    .satisfies(probe -> {
+                        assertThat(probe.managedVersion()).isEqualTo(1L);
+                        assertThat(probe.databaseVersionAfterFlush()).isEqualTo(1L);
+                        assertThat(probe.responseVersion()).isEqualTo(1L);
+                    });
+            assertThat(outcomes).filteredOn(VersionProbe::optimisticConflict).hasSize(1);
+        } finally {
+            allowFlush.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(databaseVersion(postId)).isEqualTo(1L);
+    }
+
+    @Test
+    void oneParentFlushProducesExactlyOneVersionIncrementForTextTouchAndCombinedChanges() {
+        long textOnly = persistedPost("text-only");
+        VersionProbe textProbe = mutateAndFlush(textOnly, post ->
+                post.change("changed", post.getContent())
+        );
+        assertSingleIncrement(textProbe, textOnly);
+
+        long touchedOnly = persistedPost("attachment-only");
+        VersionProbe touchedProbe = mutateAndFlush(touchedOnly, BoardPost::markAttachmentsChanged);
+        assertSingleIncrement(touchedProbe, touchedOnly);
+
+        long combined = persistedPost("text-and-attachment");
+        VersionProbe combinedProbe = mutateAndFlush(combined, post -> {
+            post.change("changed", post.getContent());
+            post.markAttachmentsChanged();
+        });
+        assertSingleIncrement(combinedProbe, combined);
+    }
+
+    @Test
+    void noOpWithoutParentTouchLeavesVersionUnchanged() {
+        long postId = persistedPost("no-op");
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        VersionProbe probe = tx.execute(status -> {
+            BoardPost post = posts.findById(postId).orElseThrow();
+            assertThat(post.change(post.getTitle(), post.getContent())).isFalse();
+            posts.flush();
+            long version = post.getVersion();
+            return VersionProbe.committed(
+                    version,
+                    databaseVersion(postId),
+                    version
+            );
+        });
+        assertThat(probe).isNotNull();
+        assertThat(probe.managedVersion()).isZero();
+        assertThat(probe.databaseVersionAfterFlush()).isZero();
+        assertThat(probe.responseVersion()).isZero();
+        assertThat(databaseVersion(postId)).isZero();
+    }
+
+    @Test
+    void mediaPatchPreservesSameOrderButReplacesReorderedLinksWithoutUniqueConstraintCollision() {
+        long boardId = createBoard();
+        Author author = createAuthor("media-patch", "4113111500");
+        jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
+        BoardPost post = posts.saveAndFlush(BoardPost.publish(
+                boardId, author.userId(), author.petId(), "4113111500", "title", "content"
+        ));
+        long first = createUploadedImage(author.userId());
+        long second = createUploadedImage(author.userId());
+        postMedia.saveAllAndFlush(List.of(
+                BoardPostMedia.attach(post.getId(), first, 0),
+                BoardPostMedia.attach(post.getId(), second, 1)
+        ));
+
+        BoardPostResponse noOp = postService.update(author.userId(), post.getId(),
+                new BoardPostUpdateRequest(false, null, false, null, true, List.of(first, second), 0L));
+        assertThat(noOp.version()).isZero();
+        assertThat(databaseVersion(post.getId())).isZero();
+        assertThat(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId()))
+                .extracting(BoardPostMedia::getMediaId).containsExactly(first, second);
+
+        BoardPostResponse reordered = postService.update(author.userId(), post.getId(),
+                new BoardPostUpdateRequest(false, null, false, null, true, List.of(second, first), 0L));
+        assertThat(reordered.version()).isEqualTo(1L);
+        assertThat(databaseVersion(post.getId())).isEqualTo(1L);
+        List<BoardPostMedia> saved = postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId());
+        assertThat(saved).extracting(BoardPostMedia::getMediaId).containsExactly(second, first);
+        assertThat(saved).extracting(BoardPostMedia::getDisplayOrder).containsExactly(0, 1);
+
+        BoardPostResponse removed = postService.update(author.userId(), post.getId(),
+                new BoardPostUpdateRequest(false, null, false, null, true, List.of(), 1L));
+        assertThat(removed.version()).isEqualTo(2L);
+        assertThat(databaseVersion(post.getId())).isEqualTo(2L);
+        assertThat(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())).isEmpty();
+    }
+
+    @Test
+    void concurrentSameVersionMediaPatchThroughTheActorGuardHasOneSuccessAndOneConflict() throws Exception {
+        long boardId = createBoard();
+        Author author = createAuthor("guarded-media-race", "4113111500");
+        jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
+        BoardPost post = posts.saveAndFlush(BoardPost.publish(
+                boardId, author.userId(), author.petId(), "4113111500", "title", "content"
+        ));
+        long original = createUploadedImage(author.userId());
+        long firstReplacement = createUploadedImage(author.userId());
+        long secondReplacement = createUploadedImage(author.userId());
+        postMedia.saveAndFlush(BoardPostMedia.attach(post.getId(), original, 0));
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Throwable>> futures = new ArrayList<>();
+            for (long requested : List.of(firstReplacement, secondReplacement)) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    await(start);
+                    try {
+                        postService.update(author.userId(), post.getId(), new BoardPostUpdateRequest(
+                                false, null, false, null, true, List.of(requested), 0L
+                        ));
+                        return null;
+                    } catch (Throwable error) {
+                        return error;
+                    }
+                }));
+            }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            List<Throwable> outcomes = new ArrayList<>();
+            for (Future<Throwable> future : futures) {
+                outcomes.add(future.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(outcomes).filteredOn(java.util.Objects::isNull).singleElement();
+            assertBusinessError(
+                    outcomes.stream().filter(java.util.Objects::nonNull).findFirst().orElseThrow(),
+                    "CONCURRENT_UPDATE_CONFLICT"
+            );
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(databaseVersion(post.getId())).isEqualTo(1L);
+        assertThat(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId()))
+                .extracting(BoardPostMedia::getMediaId)
+                .containsAnyOf(firstReplacement, secondReplacement)
+                .doesNotContain(original);
+    }
+
+    @Test
+    void rollbackAfterMediaReplacementRestoresTheParentVersionAndOriginalLinksAtomically() {
+        long boardId = createBoard();
+        Author author = createAuthor("media-rollback", "4113111500");
+        jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
+        BoardPost post = posts.saveAndFlush(BoardPost.publish(
+                boardId, author.userId(), author.petId(), "4113111500", "original", "content"
+        ));
+        long original = createUploadedImage(author.userId());
+        long replacement = createUploadedImage(author.userId());
+        postMedia.saveAndFlush(BoardPostMedia.attach(post.getId(), original, 0));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            BoardPostResponse response = postService.update(author.userId(), post.getId(),
+                    new BoardPostUpdateRequest(true, "changed", false, null, true, List.of(replacement), 0L));
+            assertThat(response.version()).isEqualTo(1L);
+            assertThat(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId()))
+                    .extracting(BoardPostMedia::getMediaId).containsExactly(replacement);
+            status.setRollbackOnly();
+        });
+
+        assertThat(databaseVersion(post.getId())).isZero();
+        assertThat(jdbc.queryForObject("select title from board_posts where id = ?", String.class, post.getId()))
+                .isEqualTo("original");
+        assertThat(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId()))
+                .extracting(BoardPostMedia::getMediaId).containsExactly(original);
+    }
+
+    @Test
+    void boardFeedHydratesAllImagesWithOneBatchMediaLookupAndAConstantStatementCount() {
+        long onePostBoard = createBoard();
+        long manyPostBoard = createBoard();
+        long viewer = createUser("n-plus-one-viewer", "4113111500");
+        Author author = createAuthor("n-plus-one-author", "4113111500");
+        Instant now = Instant.parse("2026-08-24T00:00:00Z");
+        long onePost = insertPost(onePostBoard, author, "4113111500", "one", "PUBLISHED", now, null);
+        long firstMany = insertPost(manyPostBoard, author, "4113111500", "first", "PUBLISHED", now, null);
+        long secondMany = insertPost(manyPostBoard, author, "4113111500", "second", "PUBLISHED", now.plusSeconds(1), null);
+        long firstMedia = createUploadedImage(author.userId());
+        long secondMedia = createUploadedImage(author.userId());
+        long thirdMedia = createUploadedImage(author.userId());
+        jdbc.update("insert into board_post_media (post_id, media_id, display_order) values (?, ?, 0)", onePost, firstMedia);
+        jdbc.update("insert into board_post_media (post_id, media_id, display_order) values (?, ?, 0)", firstMany, secondMedia);
+        jdbc.update("insert into board_post_media (post_id, media_id, display_order) values (?, ?, 0)", secondMany, thirdMedia);
+
+        org.hibernate.stat.Statistics stats = statistics();
+        clearInvocations(mediaRepository);
+        stats.clear();
+        postService.feed(viewer, onePostBoard, null, 100);
+        long onePostStatements = stats.getPrepareStatementCount();
+
+        clearInvocations(mediaRepository);
+        stats.clear();
+        var feed = postService.feed(viewer, manyPostBoard, null, 100);
+        long manyPostStatements = stats.getPrepareStatementCount();
+
+        assertThat(feed.items()).hasSize(2);
+        then(mediaRepository).should(times(1)).findAllById(any());
+        then(mediaRepository).should(never()).findById(anyLong());
+        assertThat(manyPostStatements).isEqualTo(onePostStatements);
+    }
+
+    @Test
+    void petDisplayBatchSignsFetchJoinedProfileAssetsWithoutAnyMediaRepositoryLookup() {
+        long owner = createUser("profile-batch-owner", "4113111500");
+        long firstPet = jdbc.queryForObject("""
+                insert into pets (owner_user_id, public_tag, nickname, status)
+                values (?, ?, 'first', 'ACTIVE') returning id
+                """, Long.class, owner, publicTag("first", 4));
+        long secondPet = jdbc.queryForObject("""
+                insert into pets (owner_user_id, public_tag, nickname, status)
+                values (?, ?, 'second', 'ACTIVE') returning id
+                """, Long.class, owner, publicTag("second", 4));
+        long firstAsset = createUploadedImage(owner);
+        long secondAsset = createUploadedImage(owner);
+        jdbc.update("update pets set profile_asset_id = ? where id = ?", firstAsset, firstPet);
+        jdbc.update("update pets set profile_asset_id = ? where id = ?", secondAsset, secondPet);
+
+        clearInvocations(mediaRepository);
+        statistics().clear();
+        var result = petDisplays.getPetDisplaySummaries(List.of(firstPet, secondPet));
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(firstPet).profileUrl()).isNotBlank();
+        assertThat(result.get(secondPet).profileUrl()).isNotBlank();
+        then(mediaRepository).shouldHaveNoInteractions();
     }
 
     @Test
@@ -563,6 +841,85 @@ class BoardPostPostgreSqlIntegrationTest {
         return jdbc.queryForObject("insert into boards (name) values (?) returning id", Long.class, unique("board"));
     }
 
+    private long persistedPost(String title) {
+        long boardId = createBoard();
+        Author author = createAuthor(title, "4113111500");
+        return posts.saveAndFlush(BoardPost.publish(
+                boardId, author.userId(), author.petId(), "4113111500", title, "content"
+        )).getId();
+    }
+
+    private long createUploadedImage(long userId) {
+        return jdbc.queryForObject("""
+                insert into media (media_type, path, status, user_id, file_size)
+                values ('IMAGE', ?, 'UPLOADED', ?, 1024)
+                returning id
+                """, Long.class, "board-post/" + UUID.randomUUID(), userId);
+    }
+
+    private VersionProbe touchAndFlush(
+            TransactionTemplate tx,
+            long postId,
+            CountDownLatch bothRead,
+            CountDownLatch allowFlush
+    ) {
+        try {
+            return tx.execute(status -> {
+                BoardPost post = posts.findById(postId).orElseThrow();
+                bothRead.countDown();
+                await(allowFlush);
+                post.markAttachmentsChanged();
+                posts.flush();
+                long managedVersion = post.getVersion();
+                long databaseVersionAfterFlush = databaseVersion(postId);
+                // The update response is assembled from this managed entity after the flush.
+                long responseVersion = post.getVersion();
+                return VersionProbe.committed(
+                        managedVersion, databaseVersionAfterFlush, responseVersion
+                );
+            });
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            return VersionProbe.conflicted();
+        }
+    }
+
+    private VersionProbe mutateAndFlush(
+            long postId,
+            java.util.function.Consumer<BoardPost> mutation
+    ) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        return tx.execute(status -> {
+            BoardPost post = posts.findById(postId).orElseThrow();
+            mutation.accept(post);
+            posts.flush();
+            long managedVersion = post.getVersion();
+            long databaseVersionAfterFlush = databaseVersion(postId);
+            long responseVersion = post.getVersion();
+            return VersionProbe.committed(
+                    managedVersion, databaseVersionAfterFlush, responseVersion
+            );
+        });
+    }
+
+    private long databaseVersion(long postId) {
+        return jdbc.queryForObject(
+                "select version from board_posts where id = ?", Long.class, postId
+        );
+    }
+
+    private org.hibernate.stat.Statistics statistics() {
+        return entityManagerFactory.unwrap(org.hibernate.SessionFactory.class).getStatistics();
+    }
+
+    private void assertSingleIncrement(VersionProbe probe, long postId) {
+        assertThat(probe).isNotNull();
+        assertThat(probe.committed()).isTrue();
+        assertThat(probe.managedVersion()).isEqualTo(1L);
+        assertThat(probe.databaseVersionAfterFlush()).isEqualTo(1L);
+        assertThat(probe.responseVersion()).isEqualTo(1L);
+        assertThat(databaseVersion(postId)).isEqualTo(1L);
+    }
+
     private Author createAuthor(String nickname, String neighborhood) {
         long userId = createUser(nickname, neighborhood);
         long petId = jdbc.queryForObject("""
@@ -618,6 +975,33 @@ class BoardPostPostgreSqlIntegrationTest {
     }
 
     private record Author(long userId, long petId) {}
+
+    private record VersionProbe(
+            boolean committed,
+            boolean optimisticConflict,
+            long managedVersion,
+            long databaseVersionAfterFlush,
+            long responseVersion
+    ) {
+
+        private static VersionProbe committed(
+                long managedVersion,
+                long databaseVersionAfterFlush,
+                long responseVersion
+        ) {
+            return new VersionProbe(
+                    true,
+                    false,
+                    managedVersion,
+                    databaseVersionAfterFlush,
+                    responseVersion
+            );
+        }
+
+        private static VersionProbe conflicted() {
+            return new VersionProbe(false, true, -1L, -1L, -1L);
+        }
+    }
 
     @FunctionalInterface
     private interface IndexedAction { boolean apply(int index) throws Exception; }

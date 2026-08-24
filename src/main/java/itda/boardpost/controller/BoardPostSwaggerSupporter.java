@@ -50,16 +50,18 @@ public interface BoardPostSwaggerSupporter {
                     """)))
     ResponseEntity<ApiResponse<BoardPostResponse>> detail(@Parameter(hidden = true) CurrentUser user, @Parameter(description = "게시글 ID") Long postId);
 
-    @Operation(summary = "게시글 수정", description = "version은 필수이며 title 또는 content 중 하나 이상을 포함해야 합니다. 허용 필드는 title, content, version입니다.")
+    @Operation(summary = "게시글 수정", description = "strict JSON입니다. version은 필수이고 0 이상의 정수이며, title·content·mediaIds 중 하나 이상을 포함해야 합니다. mediaIds 생략은 기존 이미지 유지, []는 전체 제거, 값 배열은 순서대로 전체 교체이고 null은 허용하지 않습니다. 실제 변경이 없으면 version은 유지되며, 서버 version이 다르면 409입니다.")
     @RequestBody(required = true, content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = BoardPostPatchRequest.class),
             examples = @ExampleObject("""
-                    {"title":"수정된 제목","version":0}
+                    {"title":"수정된 제목","mediaIds":[10,11],"version":0}
                     """)))
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "게시글 수정 성공", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             examples = @ExampleObject("""
-                    {"success":true,"message":"게시글이 수정되었습니다.","data":{"postId":1,"boardId":1,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"title":"수정된 제목","content":"오늘 저녁 같이 산책해요.","images":[],"reactionCount":4,"reactedByMe":false,"helpfulCount":0,"helpfulByMe":false,"version":1,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:01:00Z"},"error":null}
+                    {"success":true,"message":"게시글이 수정되었습니다.","data":{"postId":1,"boardId":1,"authorPet":{"petId":2,"publicTag":"dog-2","nickname":"두부","profileUrl":null,"verified":false},"title":"수정된 제목","content":"오늘 저녁 같이 산책해요.","images":[{"mediaId":10,"url":"https://...","displayOrder":0},{"mediaId":11,"url":"https://...","displayOrder":1}],"reactionCount":4,"reactedByMe":false,"helpfulCount":0,"helpfulByMe":false,"version":1,"createdAt":"2026-08-10T00:00:00Z","updatedAt":"2026-08-10T00:01:00Z"},"error":null}
                     """)))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "strict body 또는 version/mediaIds 검증 실패 (VALIDATION_FAILED)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "요청 version이 현재 게시글 version과 다름 (CONCURRENT_UPDATE_CONFLICT)")
     ResponseEntity<ApiResponse<BoardPostResponse>> update(@Parameter(hidden = true) CurrentUser user, @Parameter(description = "게시글 ID") Long postId, JsonNode body);
 
     @Operation(summary = "게시글 반응 추가", description = "현재 활성 반려견의 LIKE 또는 HELPFUL 반응을 멱등하게 추가합니다. 요청 본문은 없습니다. 동일 Pet·게시글·타입은 하나이며, 자기 User의 게시글 및 비공개·차단 게시글은 반응할 수 없습니다. BoardPostResponse의 reactionCount/reactedByMe는 LIKE 전용이고 helpfulCount/helpfulByMe는 HELPFUL 전용입니다. 이 BoardPostReactionResponse의 reactionCount는 요청한 type(LIKE 또는 HELPFUL)의 현재 count입니다.")

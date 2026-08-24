@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -115,7 +116,7 @@ public class BoardPostService {
         return BoardPostResponse.of(
                 post,
                 petDisplays.getPetDisplaySummary(actor.petId()),
-                images(links),
+                images(links, downloadUrlsForLoadedMedia(attachments)),
                 BoardPostReactionSnapshot.none()
         );
     }
@@ -158,6 +159,10 @@ public class BoardPostService {
         Map<Long, List<BoardPostMedia>> attachments = attachmentsByPostId(
                 page.stream().map(BoardPost::getId).toList()
         );
+        Map<Long, MediaService.PresignedDownloadUrl> attachmentDownloads =
+                downloadUrlsForLinks(attachments.values().stream()
+                        .flatMap(Collection::stream)
+                        .toList());
         Map<Long, BoardPostReactionSnapshot> reactionStates = reactionStates(
                 userId,
                 page.stream().map(BoardPost::getId).toList()
@@ -166,7 +171,7 @@ public class BoardPostService {
                 .map(post -> BoardPostResponse.of(
                         post,
                         pets.get(post.getAuthorPetId()),
-                        images(attachments.getOrDefault(post.getId(), List.of())),
+                        images(attachments.getOrDefault(post.getId(), List.of()), attachmentDownloads),
                         Objects.requireNonNull(
                                 reactionStates.get(post.getId()),
                                 "reaction snapshot must exist for every feed post"
@@ -198,10 +203,11 @@ public class BoardPostService {
                 || blocks.existsBlockBetween(userId, post.getAuthorUserId())) {
             throw notFound();
         }
+        List<BoardPostMedia> attachments = postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId());
         return BoardPostResponse.of(
                 post,
                 petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
-                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
+                images(attachments, downloadUrlsForLinks(attachments)),
                 reactionState(userId, postId)
         );
     }
@@ -226,13 +232,43 @@ public class BoardPostService {
         }
         String title = request.titlePresent() ? request.title() : post.getTitle();
         String content = request.contentPresent() ? request.content() : post.getContent();
-        if (post.change(title, content)) {
+        List<BoardPostMedia> existingLinks = request.mediaIdsPresent()
+                ? postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())
+                : List.of();
+        List<Media> attachments = request.mediaIdsPresent()
+                ? validAttachments(request.mediaIds(), actor.userId())
+                : List.of();
+        boolean attachmentsChanged = request.mediaIdsPresent()
+                && !sameOrderedMediaIds(existingLinks, attachments);
+        boolean textChanged = post.change(title, content);
+        if (attachmentsChanged) {
+            post.markAttachmentsChanged();
+        }
+        if (textChanged || attachmentsChanged) {
             posts.flush();
+        }
+        List<BoardPostMedia> responseLinks;
+        Map<Long, MediaService.PresignedDownloadUrl> attachmentDownloads;
+        if (request.mediaIdsPresent()) {
+            if (attachmentsChanged) {
+                postMedia.deleteAll(existingLinks);
+                postMedia.flush();
+                responseLinks = links(post.getId(), attachments);
+                if (!responseLinks.isEmpty()) {
+                    postMedia.saveAll(responseLinks);
+                }
+            } else {
+                responseLinks = existingLinks;
+            }
+            attachmentDownloads = downloadUrlsForLoadedMedia(attachments);
+        } else {
+            responseLinks = postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId());
+            attachmentDownloads = downloadUrlsForLinks(responseLinks);
         }
         return BoardPostResponse.of(
                 post,
                 petDisplays.getPetDisplaySummary(post.getAuthorPetId()),
-                images(postMedia.findByPostIdOrderByDisplayOrderAsc(post.getId())),
+                images(responseLinks, attachmentDownloads),
                 new BoardPostReactionSnapshot(
                         reactionCount(postId),
                         false,
@@ -423,11 +459,72 @@ public class BoardPostService {
         return byPostId;
     }
 
-    private List<BoardPostImageResponse> images(List<BoardPostMedia> links) {
+    private boolean sameOrderedMediaIds(
+            List<BoardPostMedia> links,
+            List<Media> attachments
+    ) {
+        if (links.size() != attachments.size()) {
+            return false;
+        }
+        for (int index = 0; index < links.size(); index++) {
+            if (!Objects.equals(links.get(index).getMediaId(), attachments.get(index).getId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<BoardPostMedia> links(Long postId, List<Media> attachments) {
+        List<BoardPostMedia> links = new ArrayList<>(attachments.size());
+        for (int index = 0; index < attachments.size(); index++) {
+            links.add(BoardPostMedia.attach(postId, attachments.get(index).getId(), index));
+        }
+        return links;
+    }
+
+    private Map<Long, MediaService.PresignedDownloadUrl> downloadUrlsForLinks(
+            Collection<BoardPostMedia> links
+    ) {
+        if (links.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> mediaIds = new LinkedHashSet<>();
+        for (BoardPostMedia link : links) {
+            mediaIds.add(link.getMediaId());
+        }
+        List<Long> orderedMediaIds = new ArrayList<>(mediaIds);
+        Map<Long, Media> byId = new HashMap<>();
+        for (Media loaded : media.findAllById(orderedMediaIds)) {
+            byId.put(loaded.getId(), loaded);
+        }
+        List<Media> loaded = new ArrayList<>(mediaIds.size());
+        for (Long mediaId : mediaIds) {
+            Media mediaItem = byId.get(mediaId);
+            if (mediaItem == null) {
+                throw new IllegalArgumentException("Media not found: " + mediaId);
+            }
+            loaded.add(mediaItem);
+        }
+        return downloadUrlsForLoadedMedia(loaded);
+    }
+
+    private Map<Long, MediaService.PresignedDownloadUrl> downloadUrlsForLoadedMedia(
+            Collection<Media> mediaItems
+    ) {
+        if (mediaItems.isEmpty()) {
+            return Map.of();
+        }
+        return mediaService.getPresignedDownloadUrls(mediaItems);
+    }
+
+    private List<BoardPostImageResponse> images(
+            List<BoardPostMedia> links,
+            Map<Long, MediaService.PresignedDownloadUrl> downloads
+    ) {
         return links.stream()
                 .map(link -> new BoardPostImageResponse(
                         link.getMediaId(),
-                        mediaService.getPresignedDownloadUrl(link.getMediaId()).url(),
+                        Objects.requireNonNull(downloads.get(link.getMediaId())).url(),
                         link.getDisplayOrder()
                 ))
                 .toList();

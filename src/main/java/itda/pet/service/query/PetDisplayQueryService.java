@@ -2,6 +2,7 @@ package itda.pet.service.query;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.media.domain.Media;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,7 +45,11 @@ public class PetDisplayQueryService {
                         new BusinessException(ErrorCode.PET_NOT_FOUND)
                 );
 
-        return toDisplaySummary(pet, badgeService.verifiedAt(pet.getId()));
+        return toDisplaySummary(
+                pet,
+                badgeService.verifiedAt(pet.getId()),
+                profileDownloads(List.of(pet))
+        );
     }
 
     @Transactional(readOnly = true)
@@ -59,7 +65,11 @@ public class PetDisplayQueryService {
                         PetStatus.ACTIVE,
                         AccountStatus.ACTIVE
                 )
-                .map(pet -> toDisplaySummary(pet, badgeService.verifiedAt(pet.getId())));
+                .map(pet -> toDisplaySummary(
+                        pet,
+                        badgeService.verifiedAt(pet.getId()),
+                        profileDownloads(List.of(pet))
+                ));
     }
 
     @Transactional(readOnly = true)
@@ -85,9 +95,14 @@ public class PetDisplayQueryService {
         List<Pet> pets = petRepository
                 .findAllByIdWithOwnerAndProfileAsset(requestedIds);
         Map<Long, Instant> badges = badgeService.verifiedAtByPetIds(requestedIds);
+        Map<Long, MediaService.PresignedDownloadUrl> profileDownloads = profileDownloads(pets);
         Map<Long, PetDisplaySummary> result = new LinkedHashMap<>();
         for (Pet pet : pets) {
-            result.put(pet.getId(), toDisplaySummary(pet, badges.get(pet.getId())));
+            result.put(pet.getId(), toDisplaySummary(
+                    pet,
+                    badges.get(pet.getId()),
+                    profileDownloads
+            ));
         }
 
         if (!result.keySet().equals(requestedIds)) {
@@ -97,25 +112,44 @@ public class PetDisplayQueryService {
         return Map.copyOf(result);
     }
 
-    private PetDisplaySummary toDisplaySummary(Pet pet, Instant verifiedAt) {
+    private PetDisplaySummary toDisplaySummary(
+            Pet pet,
+            Instant verifiedAt,
+            Map<Long, MediaService.PresignedDownloadUrl> profileDownloads
+    ) {
         return new PetDisplaySummary(
                 pet.getId(),
                 pet.getOwner().getId(),
                 pet.getPublicTag(),
                 pet.getNickname(),
-                profileUrlOf(pet),
+                profileUrlOf(pet, profileDownloads),
                 verifiedAt != null,
                 pet.getStatus(),
                 pet.getDeletedAt()
         );
     }
 
-    private String profileUrlOf(Pet pet) {
+    private Map<Long, MediaService.PresignedDownloadUrl> profileDownloads(Collection<Pet> pets) {
+        Map<Long, Media> assets = new LinkedHashMap<>();
+        for (Pet pet : pets) {
+            Media asset = pet.getProfileAsset();
+            if (asset != null) {
+                assets.putIfAbsent(asset.getId(), asset);
+            }
+        }
+        if (assets.isEmpty()) {
+            return Map.of();
+        }
+        return mediaService.getPresignedDownloadUrls(assets.values());
+    }
+
+    private String profileUrlOf(
+            Pet pet,
+            Map<Long, MediaService.PresignedDownloadUrl> profileDownloads
+    ) {
         if (pet.getProfileAsset() == null) {
             return null;
         }
-        return mediaService.getPresignedDownloadUrl(
-                pet.getProfileAsset().getId()
-        ).url();
+        return Objects.requireNonNull(profileDownloads.get(pet.getProfileAsset().getId())).url();
     }
 }
