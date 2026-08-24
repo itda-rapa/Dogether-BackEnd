@@ -104,6 +104,18 @@ app:
       dlt-publish-timeout: ${RISK_SIGNAL_CONSUMER_DLT_PUBLISH_TIMEOUT:10s}
       max-future-skew: ${RISK_SIGNAL_MAX_FUTURE_SKEW:5m}
       max-aggregation-range: ${RISK_SIGNAL_MAX_AGGREGATION_RANGE:90d}
+  safety:
+    evaluator:
+      enabled: ${SAFETY_EVALUATOR_ENABLED:false}
+      threshold: ${SAFETY_EVALUATOR_THRESHOLD:}
+      window: ${SAFETY_EVALUATOR_WINDOW:}
+      policy-version: ${SAFETY_EVALUATOR_POLICY_VERSION:}
+      batch-size: ${SAFETY_EVALUATOR_BATCH_SIZE:50}
+      delay-ms: ${SAFETY_EVALUATOR_DELAY_MS:5000}
+      lease: ${SAFETY_EVALUATOR_LEASE:1m}
+      max-attempts: ${SAFETY_EVALUATOR_MAX_ATTEMPTS:10}
+      base-backoff: ${SAFETY_EVALUATOR_BASE_BACKOFF:5s}
+      max-backoff: ${SAFETY_EVALUATOR_MAX_BACKOFF:10m}
   bootstrap-admin:
     enabled: ${INITIAL_ADMIN_ENABLED:false}
     email: ${INITIAL_ADMIN_EMAIL:}
