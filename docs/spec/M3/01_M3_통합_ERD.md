@@ -94,7 +94,7 @@ safety_review_cases 1 ─ N evidence_access_audits
 ### `chat_messages`
 
 - `type` 허용값: `TEXT`, `CARD`, `IMAGE`, `VIDEO`, `SETLOG_SHARE`, `SYSTEM`
-- `body`는 TEXT만 필수, 다른 타입은 nullable
+- `body`는 TEXT만 필수, 다른 타입은 nullable. IMAGE/VIDEO는 반드시 `NULL`이며 caption을 저장하지 않는다.
 - `shared_setlog_id BIGINT NULL FK setlogs(id)` 추가
 - 타입별 허용 필드는 DB CHECK 또는 Service+통합 테스트로 보장
 
@@ -112,7 +112,7 @@ safety_review_cases 1 ─ N evidence_access_audits
 제약:
 
 - `UNIQUE(message_id, display_order)`
-- `UNIQUE(media_id)` 권고: 한 업로드를 여러 메시지에 재사용하지 않음
+- `UNIQUE(media_id)` 정책/제약: 한 업로드 Media는 단 한 Chat 메시지에만 첨부할 수 있으며 재사용하지 않음
 - M3 기본 완료선은 메시지당 1개, 스키마는 다중 첨부 확장 가능
 
 Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증 metadata를 저장할 수 있으나 JWT·URL은 저장하지 않는다.

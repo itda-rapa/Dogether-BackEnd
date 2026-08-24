@@ -631,6 +631,7 @@ Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 
 - 인증: 방 참여 User의 Active Pet
 - 신규 생성: `201`
 - 같은 `clientMessageId`: 기존 메시지와 `200`
+- 사용자 전송 타입(`TEXT`, `IMAGE`, `VIDEO`, `SETLOG_SHARE`)은 모두 `clientMessageId`가 필요하다. 누락하면 `400 CHAT_CLIENT_MESSAGE_ID_REQUIRED`다.
 
 TEXT 요청:
 
@@ -753,7 +754,7 @@ SETLOG_SHARE 응답:
 | type | body | mediaId | setlogId |
 |---|---|---|---|
 | TEXT | 필수 | 금지 | 금지 |
-| IMAGE/VIDEO | 금지 또는 결정된 caption | 필수 | 금지 |
+| IMAGE/VIDEO | 반드시 `null` (caption 미지원) | 필수 | 금지 |
 | SETLOG_SHARE | 금지 | 금지 | 필수 |
 | CARD/SYSTEM | Client 전송 금지 | 금지 | 금지 |
 
@@ -762,7 +763,9 @@ SETLOG_SHARE 응답:
 - `404 CHAT_ROOM_NOT_FOUND`
 - `403 CHAT_SENDER_NOT_PARTICIPANT`
 - `403 BLOCKED_USER`
+- `400 CHAT_CLIENT_MESSAGE_ID_REQUIRED`는 모든 사용자 전송 타입의 `clientMessageId` 누락에 사용
 - `409 CHAT_DUPLICATE_MESSAGE`는 같은 ID·다른 payload일 때만 사용
+- `409 CHAT_MEDIA_ALREADY_ATTACHED`는 다른 `clientMessageId`로 이미 첨부된 Media를 재사용할 때 사용. 같은 ID·같은 payload의 멱등 재시도는 기존 메시지를 반환한다.
 - `400 CHAT_MESSAGE_TYPE_INVALID`
 - `400 CHAT_MESSAGE_PAYLOAD_INVALID`
 - `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_NOT_READY`
