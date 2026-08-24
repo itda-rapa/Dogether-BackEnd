@@ -30,10 +30,10 @@
 
 ## 쿼리와 운영 확인
 
-Dashboard 호출은 데이터 건수와 무관하게 관리자 DB 재검증 1개와 집계 3개, 총 4개 SQL을 실행한다.
+Dashboard 호출은 데이터 건수와 무관하게 관리자 DB 재검증 1개와 집계 3개, 총 4개 SQL을 실행한다. 핵심 count SQL은 `FILTER` aggregate로 User·Pet·Setlog·BoardPost·Report·Risk·Safety·Storage 테이블을 각각 한 번씩 읽어 전체/기간/상태별 값을 함께 계산한다. SQL round trip이 적다는 사실만으로 운영 성능을 보장하지는 않는다.
 
 1. scalar subquery를 사용한 핵심 count 1회
 2. RiskSignal 유형별 group 1회
 3. Report·SafetyCase 최근 목록 union 1회
 
-PostgreSQL 16 통합 fixture에서 대표적인 User 기간, Risk 기간·유형, Storage backlog 쿼리에 `EXPLAIN (ANALYZE, BUFFERS)`를 실행해 계획과 실행이 정상 완료되는 것을 검증했다. 작은 fixture의 결과만으로는 새 인덱스 근거가 충분하지 않다. 운영 규모와 유사한 데이터에서 Pet/BoardPost/Report와 recent union을 포함해 scan row·buffer를 다시 측정하고, 비용이 확인될 때 별도 migration으로 인덱스를 추가한다.
+PostgreSQL 16 통합 fixture에서 실제 핵심 count SQL, Risk 기간·유형, Storage backlog 쿼리에 `EXPLAIN (ANALYZE, BUFFERS)`를 실행해 계획과 실행이 정상 완료되는 것을 검증했다. 작은 fixture의 결과만으로는 새 인덱스 근거가 충분하지 않다. 운영 규모와 유사한 데이터에서 Pet/BoardPost/Report와 recent union을 포함해 scan row·buffer를 다시 측정하고, 비용이 확인될 때 별도 migration으로 인덱스를 추가한다.

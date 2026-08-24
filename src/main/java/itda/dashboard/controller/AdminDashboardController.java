@@ -31,6 +31,16 @@ public class AdminDashboardController {
     @Operation(summary = "관리자 Dashboard 조회",
             description = "Asia/Seoul 날짜 기준 통계와 최근 운영 항목을 조회합니다. "
                     + "기간은 기본 7일, 최대 90일이며 from과 to는 함께 입력해야 합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200", description = "Dashboard 조회 성공"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "INVALID_DATE_RANGE 또는 DATE_RANGE_TOO_LARGE"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "현재 활성 ADMIN 또는 SUPER_ADMIN이 아님")
+    })
     public ResponseEntity<ApiResponse<AdminDashboardResponse>> get(
             @AuthenticationPrincipal CurrentUser currentUser,
             @Parameter(description = "조회 시작일(포함)", example = "2026-08-14")

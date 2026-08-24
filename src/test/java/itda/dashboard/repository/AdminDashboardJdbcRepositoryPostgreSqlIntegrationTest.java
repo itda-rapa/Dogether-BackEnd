@@ -164,16 +164,10 @@ class AdminDashboardJdbcRepositoryPostgreSqlIntegrationTest {
     }
 
     @Test
-    void aggregateQueriesProduceExecutablePostgreSqlPlansBeforeAddingIndexes() {
+    void dashboardAggregateSqlProducesAnExecutablePostgreSqlPlanBeforeAddingIndexes() {
         insertUser("USER", "ACTIVE", FROM);
         insertRisk("USER_BLOCK", "USER_BLOCKED", 101, 201, FROM);
 
-        assertExplainCompletes("""
-                select count(*) from users
-                 where role = 'USER' and account_status <> 'WITHDRAWN'
-                   and created_at >= timestamptz '2026-08-23 15:00:00+00'
-                   and created_at < timestamptz '2026-08-24 15:00:00+00'
-                """);
         assertExplainCompletes("""
                 select signal_type, count(*) from risk_signal_events
                  where occurred_at >= timestamptz '2026-08-23 15:00:00+00'
@@ -186,6 +180,19 @@ class AdminDashboardJdbcRepositoryPostgreSqlIntegrationTest {
                        count(*) filter (where status = 'FAILED')
                   from storage_delete_jobs
                 """);
+
+        var plan = jdbc.query(
+                "explain (analyze, buffers, format text) "
+                        + AdminDashboardJdbcRepository.COUNTS_SQL,
+                (resultSet, rowNumber) -> resultSet.getString(1),
+                Timestamp.from(FROM), Timestamp.from(TO), Timestamp.from(FROM), Timestamp.from(TO),
+                Timestamp.from(FROM), Timestamp.from(TO), Timestamp.from(FROM), Timestamp.from(TO),
+                Timestamp.from(FROM), Timestamp.from(TO), Timestamp.from(FROM), Timestamp.from(TO));
+
+        assertThat(plan).anyMatch(line -> line.contains("users"));
+        assertThat(plan).anyMatch(line -> line.contains("storage_delete_jobs"));
+        assertThat(plan).anyMatch(line -> line.contains("Planning Time"));
+        assertThat(plan).anyMatch(line -> line.contains("Execution Time"));
     }
 
     private void assertExplainCompletes(String query) {

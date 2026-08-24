@@ -19,47 +19,98 @@ public class AdminDashboardJdbcRepository {
 
     private static final int RECENT_ITEM_LIMIT = 10;
 
+    /**
+     * Dashboard의 핵심 count는 도메인 테이블마다 한 번만 읽는다. 동일 테이블의 전체/기간
+     * count를 scalar subquery로 따로 실행하지 않고 FILTER aggregate로 함께 계산한다.
+     */
+    static final String COUNTS_SQL = """
+            select
+                users.users_total, users.users_new,
+                pets.pets_total, pets.pets_new,
+                setlogs.setlogs_total, setlogs.setlogs_new,
+                board_posts.board_posts_total, board_posts.board_posts_new,
+                reports.reports_created, reports.reports_open,
+                risk.detected_users, safety.open_cases,
+                storage.cleanup_pending, storage.cleanup_retry, storage.cleanup_failed
+              from (
+                  select
+                      count(*) filter (
+                          where role = 'USER' and account_status <> 'WITHDRAWN'
+                      ) as users_total,
+                      count(*) filter (
+                          where role = 'USER' and account_status <> 'WITHDRAWN'
+                            and created_at >= ? and created_at < ?
+                      ) as users_new
+                    from users
+              ) users
+              cross join (
+                  select
+                      count(*) filter (
+                          where status <> 'DELETED' and deleted_at is null
+                      ) as pets_total,
+                      count(*) filter (
+                          where status <> 'DELETED' and deleted_at is null
+                            and created_at >= ? and created_at < ?
+                      ) as pets_new
+                    from pets
+              ) pets
+              cross join (
+                  select
+                      count(*) filter (
+                          where status = 'VISIBLE' and is_seed = false
+                      ) as setlogs_total,
+                      count(*) filter (
+                          where status = 'VISIBLE' and is_seed = false
+                            and created_at >= ? and created_at < ?
+                      ) as setlogs_new
+                    from setlogs
+              ) setlogs
+              cross join (
+                  select
+                      count(*) filter (
+                          where status = 'PUBLISHED' and deleted_at is null
+                      ) as board_posts_total,
+                      count(*) filter (
+                          where status = 'PUBLISHED' and deleted_at is null
+                            and created_at >= ? and created_at < ?
+                      ) as board_posts_new
+                    from board_posts
+              ) board_posts
+              cross join (
+                  select
+                      count(*) filter (
+                          where created_at >= ? and created_at < ?
+                      ) as reports_created,
+                      count(*) filter (where status = 'OPEN') as reports_open
+                    from reports
+              ) reports
+              cross join (
+                  select count(distinct actor_user_id) filter (
+                          where occurred_at >= ? and occurred_at < ?
+                      ) as detected_users
+                    from risk_signal_events
+              ) risk
+              cross join (
+                  select count(*) filter (
+                          where status in ('OPEN', 'REVIEWING')
+                      ) as open_cases
+                    from safety_review_cases
+              ) safety
+              cross join (
+                  select
+                      count(*) filter (where status = 'PENDING') as cleanup_pending,
+                      count(*) filter (where status = 'RETRY') as cleanup_retry,
+                      count(*) filter (where status = 'FAILED') as cleanup_failed
+                    from storage_delete_jobs
+              ) storage
+            """;
+
     private final JdbcTemplate jdbc;
 
     public DashboardCounts findCounts(Instant fromInclusive, Instant toExclusive) {
         Timestamp from = Timestamp.from(fromInclusive);
         Timestamp to = Timestamp.from(toExclusive);
-        return jdbc.queryForObject("""
-                select
-                    (select count(*) from users
-                      where role = 'USER' and account_status <> 'WITHDRAWN') as users_total,
-                    (select count(*) from users
-                      where role = 'USER' and account_status <> 'WITHDRAWN'
-                        and created_at >= ? and created_at < ?) as users_new,
-                    (select count(*) from pets
-                      where status <> 'DELETED' and deleted_at is null) as pets_total,
-                    (select count(*) from pets
-                      where status <> 'DELETED' and deleted_at is null
-                        and created_at >= ? and created_at < ?) as pets_new,
-                    (select count(*) from setlogs
-                      where status = 'VISIBLE' and is_seed = false) as setlogs_total,
-                    (select count(*) from setlogs
-                      where status = 'VISIBLE' and is_seed = false
-                        and created_at >= ? and created_at < ?) as setlogs_new,
-                    (select count(*) from board_posts
-                      where status = 'PUBLISHED' and deleted_at is null) as board_posts_total,
-                    (select count(*) from board_posts
-                      where status = 'PUBLISHED' and deleted_at is null
-                        and created_at >= ? and created_at < ?) as board_posts_new,
-                    (select count(*) from reports
-                      where created_at >= ? and created_at < ?) as reports_created,
-                    (select count(*) from reports where status = 'OPEN') as reports_open,
-                    (select count(distinct actor_user_id) from risk_signal_events
-                      where occurred_at >= ? and occurred_at < ?) as detected_users,
-                    (select count(*) from safety_review_cases
-                      where status in ('OPEN', 'REVIEWING')) as open_cases,
-                    (select count(*) from storage_delete_jobs
-                      where status = 'PENDING') as cleanup_pending,
-                    (select count(*) from storage_delete_jobs
-                      where status = 'RETRY') as cleanup_retry,
-                    (select count(*) from storage_delete_jobs
-                      where status = 'FAILED') as cleanup_failed
-                """, AdminDashboardJdbcRepository::mapCounts,
+        return jdbc.queryForObject(COUNTS_SQL, AdminDashboardJdbcRepository::mapCounts,
                 from, to, from, to, from, to, from, to, from, to, from, to);
     }
 
