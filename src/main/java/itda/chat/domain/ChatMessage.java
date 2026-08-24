@@ -49,6 +49,9 @@ public class ChatMessage {
     @Column(name = "meeting_card_id")
     private Long meetingCardId;
 
+    @Column(name = "shared_setlog_id")
+    private Long sharedSetlogId;
+
     @Column(name = "client_message_id", length = 64)
     private String clientMessageId;
 

@@ -1721,7 +1721,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 - operationId: `listChatRooms`
 - 인증: Bearer Token 필요
-- 설명: 현재 Active Pet이 Participant인 방을 lastMessageAt 내림차순으로 반환한다.<br>차단 관계 방은 숨기되 증거 보존을 위해 삭제하지 않는다.<br>
+- 설명: 현재 Active Pet이 Participant인 방을 lastMessageAt 내림차순으로 반환한다.<br>차단 관계 방은 숨기되 증거 보존을 위해 삭제하지 않는다.<br>`lastMessage`는 room-list용 요약으로 type과 기본 메시지 필드만 제공하며, IMAGE/VIDEO의 attachment와 SETLOG_SHARE의 sharedSetlog 상세 hydration은 제공하지 않는다. 클라이언트는 type만으로 사진·동영상·셋로그 공유 텍스트 미리보기를 결정한다.<br>
 
 **파라미터**
 
@@ -1925,7 +1925,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 - operationId: `sendChatMessage`
 - 인증: Bearer Token 필요
-- 설명: clientMessageId로 재시도 멱등성을 보장한다.
+- 설명: clientMessageId로 재시도 멱등성을 보장한다. 사용자 전송 타입(TEXT/IMAGE/VIDEO/SETLOG_SHARE)은 모두 clientMessageId가 필요하며, IMAGE/VIDEO의 body는 반드시 null이고 caption은 지원하지 않는다.
 
 **파라미터**
 
@@ -1984,11 +1984,11 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 | HTTP | 대표 ErrorCode |
 |---:|---|
-| `400` | `VALIDATION_FAILED` |
+| `400` | `VALIDATION_FAILED`, `CHAT_CLIENT_MESSAGE_ID_REQUIRED`, `CHAT_MESSAGE_PAYLOAD_INVALID` |
 | `401` | `UNAUTHORIZED` |
 | `403` | `ACTIVE_PET_REQUIRED` |
 | `404` | `CHAT_ROOM_NOT_FOUND` |
-| `409` | `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE` |
+| `409` | `GREETING_REPLY_REQUIRED`, `CHAT_DUPLICATE_MESSAGE`, `CHAT_MEDIA_ALREADY_ATTACHED` |
 
 실제 가능한 전체 오류 코드는 정적 OpenAPI와 endpoint 오류 매트릭스를 따른다.
 

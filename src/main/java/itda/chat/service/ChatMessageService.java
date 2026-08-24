@@ -1,30 +1,37 @@
 package itda.chat.service;
 
+import itda.chat.domain.AttachmentType;
 import itda.chat.domain.ChatMessage;
+import itda.chat.domain.ChatMessageAttachment;
 import itda.chat.domain.MessageType;
 import itda.chat.domain.SenderType;
 import itda.chat.dto.ChatMessageCreateRequest;
 import itda.chat.dto.ChatMessageResult;
+import itda.chat.repository.ChatMessageAttachmentRepository;
 import itda.chat.repository.ChatMessageRepository;
 import itda.chat.repository.ChatMessageRepository.MessageUpsert;
 import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.chat.event.ChatMessageCommittedEvent;
-import itda.chat.dto.response.ChatMessageResponse;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.greeting.domain.Greeting;
 import itda.greeting.domain.GreetingStatus;
 import itda.greeting.repository.GreetingRepository;
+import itda.media.domain.MediaType;
+import itda.media.service.MediaService;
 import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
+import itda.setlog.service.SetlogQueryService;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 @Service
 @RequiredArgsConstructor
@@ -34,28 +41,37 @@ public class ChatMessageService {
     private static final int MAX_CLIENT_MESSAGE_ID_LENGTH = 64;
 
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatMessageAttachmentRepository attachmentRepository;
     private final ChatRoomRepository chatRoomRepository;
     private final ChatRoomParticipantRepository participantRepository;
     private final GreetingRepository greetingRepository;
     private final PetRepository petRepository;
+    private final MediaService mediaService;
+    private final SetlogQueryService setlogQueryService;
+    private final ChatMessageResponseAssembler responseAssembler;
     private final ApplicationEventPublisher eventPublisher;
 
     /**
-     * Send a user-authored message.
-     *
-     * <p>M1 allows exactly one user-authored message type, {@code TEXT} (최신 제품 정책 §4).
-     * The room and the sending Pet are parameters rather than request fields: a controller takes
-     * the room from the URL path and the Pet from the caller's authenticated Active Pet, so a
-     * client can neither address another room nor impersonate another Pet.
-     *
-     * <p>{@code clientMessageId} is mandatory: it backs the {@code uk_chat_message_client}
-     * unique constraint, so a retried send returns the original message instead of duplicating it.
+     * 사용자 전송 메시지의 공통 진입점. 모든 사용자 타입(TEXT/IMAGE/VIDEO/SETLOG_SHARE)이
+     * 동일한 인사 답변 게이트를 거친 뒤 공통 {@link #insert} 경로로 저장한다.
+     * CARD/SYSTEM은 서버 전용이므로 외부 요청에서 거부한다.
      */
     @Transactional
-    public ChatMessageResult sendText(long roomId, long senderPetId, ChatMessageCreateRequest request) {
-        if (request.clientMessageId() == null || request.clientMessageId().isBlank()) {
-            throw new BusinessException(ErrorCode.CHAT_CLIENT_MESSAGE_ID_REQUIRED);
-        }
+    public ChatMessageResult sendMessage(long roomId, long senderPetId, long ownerUserId,
+                                         ChatMessageCreateRequest request) {
+        MessageType type = normalizeType(request);
+        return insertUserMessage(roomId, senderPetId, ownerUserId, request, type);
+    }
+
+    /**
+     * 공통 사용자 메시지 경로. Greeting 답변 게이트를 모든 사용자 타입에 적용한다.
+     * Greeting 발신자는 상대 응답 전 어떤 타입이든 전송할 수 없고, 수신자가 임의 타입으로
+     * 응답하면 Greeting을 RESPONDED로 전이시킨다.
+     */
+    private ChatMessageResult insertUserMessage(long roomId, long senderPetId, Long ownerUserId,
+                                                ChatMessageCreateRequest request, MessageType type) {
+        requireClientMessageId(request);
+
         Optional<Greeting> greetingToRespond =
                 greetingRepository
                         .findFirstByRoomIdAndToPet_IdAndStatusOrderByIdAsc(
@@ -73,14 +89,47 @@ public class ChatMessageService {
             throw new BusinessException(ErrorCode.GREETING_REPLY_REQUIRED);
         }
 
-        ChatMessageResult result = insert(roomId, SenderType.PET, senderPetId,
-                MessageType.TEXT, request.body(), null, request.clientMessageId());
+        ChatMessageResult result = switch (type) {
+            case TEXT -> insert(roomId, SenderType.PET, senderPetId,
+                    MessageType.TEXT, request.body(), null, null, request.clientMessageId(),
+                    null, null, null);
+            case IMAGE -> insertMedia(roomId, senderPetId, ownerUserId, request, MessageType.IMAGE);
+            case VIDEO -> insertMedia(roomId, senderPetId, ownerUserId, request, MessageType.VIDEO);
+            case SETLOG_SHARE -> insertSetlogShare(roomId, senderPetId, ownerUserId, request);
+            default -> throw new BusinessException(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
+        };
         if (result.created()) {
             greetingToRespond.ifPresent(greeting ->
                     greeting.markResponded(Instant.now())
             );
         }
         return result;
+    }
+
+    /**
+     * M3 typed 계약의 하위 호환: {@code type}이 누락된 legacy TEXT 요청(mediaId/setlogId 없음)은
+     * TEXT로 정규화한다. type 없이 mediaId/setlogId만 있으면 타입을 특정할 수 없으므로 거부한다.
+     */
+    private MessageType normalizeType(ChatMessageCreateRequest request) {
+        MessageType type = request.type();
+        if (type != null) {
+            if (!type.isUserSettable()) {
+                throw new BusinessException(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
+            }
+            return type;
+        }
+        if (request.mediaId() == null && request.setlogId() == null) {
+            return MessageType.TEXT;
+        }
+        throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+    }
+
+    /**
+     * Send a user-authored TEXT message. 모든 사용자 타입과 동일한 인사 답변 게이트를 통과한다.
+     */
+    @Transactional
+    public ChatMessageResult sendText(long roomId, long senderPetId, ChatMessageCreateRequest request) {
+        return insertUserMessage(roomId, senderPetId, null, request, MessageType.TEXT);
     }
 
     /**
@@ -100,94 +149,132 @@ public class ChatMessageService {
                 MessageType.TEXT,
                 request.body(),
                 null,
-                request.clientMessageId()
+                null,
+                request.clientMessageId(),
+                null,
+                null,
+                null
         );
     }
 
     /**
-     * Announce a meeting card in its room. Server-side only — the meeting-card flow (M1-030)
-     * calls this after persisting the card, so {@code meetingCardId} is always a card the server
-     * just created.
+     * Announce a meeting card in its room. Server-side only.
      */
     @Transactional
     public ChatMessageResult postCard(long roomId, long creatorPetId, long meetingCardId, String clientMessageId) {
         return insert(roomId, SenderType.PET, creatorPetId,
-                MessageType.CARD, null, meetingCardId, clientMessageId);
+                MessageType.CARD, null, meetingCardId, null, clientMessageId,
+                null, null, null);
     }
 
     /**
      * Publish a system notice. Server-side only.
-     *
-     * <p>{@code clientMessageId} may be null: PostgreSQL treats NULLs as distinct within a UNIQUE
-     * constraint, so repeated notices in one room are all stored. Pass a deterministic key when a
-     * notice must be emitted at most once.
      */
     @Transactional
     public ChatMessageResult postSystem(long roomId, String body, String clientMessageId) {
         return insert(roomId, SenderType.SYSTEM, null,
-                MessageType.SYSTEM, body, null, clientMessageId);
+                MessageType.SYSTEM, body, null, null, clientMessageId,
+                null, null, null);
+    }
+
+    private ChatMessageResult insertMedia(long roomId, long senderPetId, Long ownerUserId,
+                                          ChatMessageCreateRequest request, MessageType type) {
+        AttachmentType attachmentType = type == MessageType.IMAGE ? AttachmentType.IMAGE : AttachmentType.VIDEO;
+        MediaType expected = type == MessageType.IMAGE ? MediaType.IMAGE : MediaType.VIDEO;
+        return insert(roomId, SenderType.PET, senderPetId, type, request.body(),
+                null, null, request.clientMessageId(), request.mediaId(), attachmentType,
+                () -> mediaService.requireOwnedPlayableMedia(request.mediaId(), ownerUserId, expected));
+    }
+
+    private ChatMessageResult insertSetlogShare(long roomId, long senderPetId, Long ownerUserId,
+                                                ChatMessageCreateRequest request) {
+        return insert(roomId, SenderType.PET, senderPetId, MessageType.SETLOG_SHARE, request.body(),
+                null, request.setlogId(), request.clientMessageId(), null, null,
+                () -> setlogQueryService.requireShareableSetlog(request.setlogId(), ownerUserId));
     }
 
     /**
      * Shared write path for every message type.
      *
-     * <p>The {@code uk_chat_message_client} unique constraint is the concurrency gate, not an
-     * application-level check: concurrent sends of the same key both reach the INSERT, exactly one
-     * row survives, and the statement hands each caller that row's id plus whether it was the one
-     * that wrote it.
+     * <p>Resource validation(media/setlog)은 방 존재·참여 검증 뒤에 실행한다. 비참여자가 media/setlog
+     * 존재 여부를 오류 차이로 추측하는 side channel을 만들지 않기 위함이다.
      */
     private ChatMessageResult insert(long roomId, SenderType senderType, Long senderPetId,
-                                     MessageType type, String body, Long meetingCardId, String clientMessageId) {
-        requireValidPayload(type, body, clientMessageId);
+                                     MessageType type, String body, Long meetingCardId,
+                                     Long sharedSetlogId, String clientMessageId,
+                                     Long mediaId, AttachmentType attachmentType,
+                                     Runnable resourceValidation) {
+        requireValidPayload(type, body, sharedSetlogId, mediaId, clientMessageId);
 
-        // Fast path: a message already stored under this key wins outright. It deliberately does
-        // not advance last_message_at — a retry is not new room activity.
+        // Fast path: a message already stored under this key wins outright.
         if (clientMessageId != null) {
             var existing = chatMessageRepository.findByRoomIdAndClientMessageId(roomId, clientMessageId);
             if (existing.isPresent()) {
                 ChatMessage found = existing.get();
-                requireSamePayload(found, senderPetId, type, body, meetingCardId);
+                requireSamePayload(found, senderPetId, type, body, meetingCardId, sharedSetlogId, mediaId);
                 return new ChatMessageResult(found, false);
             }
         }
 
-        // Serialize message insertion with lifecycle cleanup. A cleanup transaction may hold
-        // this room row while deleting it; waiting for the same FOR UPDATE lock makes the sender
-        // observe a missing room after cleanup commits instead of reaching the chat_messages FK
-        // and surfacing a raw DataIntegrityViolationException.
         chatRoomRepository.findByIdForUpdate(roomId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND));
 
-        // Only members may speak in a room. This is a chat invariant rather than an access-control
-        // detail, so it belongs here and not in a controller — and no DB constraint covers it:
-        // ck_chat_message_sender only checks that a PET sender has an id at all.
         if (senderPetId != null
                 && !participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(roomId, senderPetId)) {
             throw new BusinessException(ErrorCode.CHAT_SENDER_NOT_PARTICIPANT);
         }
 
+        if (resourceValidation != null) {
+            resourceValidation.run();
+        }
+
+        if (mediaId != null && attachmentRepository.existsByMediaId(mediaId)) {
+            throw new BusinessException(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+        }
+
         MessageUpsert upsert = chatMessageRepository.insertMessageOnConflictWithReturning(
-                roomId, senderType.name(), senderPetId, type.name(), body, meetingCardId, clientMessageId);
+                roomId, senderType.name(), senderPetId, type.name(), body, meetingCardId, sharedSetlogId, clientMessageId);
 
         ChatMessage message = chatMessageRepository.findById(upsert.getId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR));
 
-        // Losing the insert race returns the winner's row, which may not be ours.
-        requireSamePayload(message, senderPetId, type, body, meetingCardId);
-
         boolean created = Boolean.TRUE.equals(upsert.getCreated());
+        // Losing the insert race returns the winner's row, which may not be ours. The winner's row
+        // (message + attachment) is already committed by the time this loser reaches here, so the
+        // attachment comparison is reliable. The winner skips this check: it just wrote these values.
+        if (!created) {
+            requireSamePayload(message, senderPetId, type, body, meetingCardId, sharedSetlogId, mediaId);
+        }
         if (created) {
-            // Only a genuine insert counts as activity. A concurrent retry reaches this point too —
-            // it passed the fast-path lookup before the winner committed — and advancing the
-            // timestamp for it would contradict the sequential retry above, which returns early
-            // and touches nothing.
+            if (mediaId != null) {
+                try {
+                    attachmentRepository.saveAndFlush(
+                            ChatMessageAttachment.attach(message, mediaId, attachmentType));
+                } catch (DataIntegrityViolationException exception) {
+                    if (isMediaAttachmentUniqueViolation(exception)) {
+                        throw new BusinessException(ErrorCode.CHAT_MEDIA_ALREADY_ATTACHED);
+                    }
+                    throw exception;
+                }
+            }
             chatRoomRepository.activateAndTouchLastMessageAt(roomId);
             eventPublisher.publishEvent(new ChatMessageCommittedEvent(
                     message.getRoom().getType(),
-                    ChatMessageResponse.from(message, senderPetNickname(message.getSenderPetId()))
+                    responseAssembler.toResponse(message, senderPetNickname(message.getSenderPetId()))
             ));
         }
         return new ChatMessageResult(message, created);
+    }
+
+    private boolean isMediaAttachmentUniqueViolation(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof ConstraintViolationException violation) {
+                return "uk_chat_attachment_media".equals(violation.getConstraintName());
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private String senderPetNickname(Long senderPetId) {
@@ -199,19 +286,49 @@ public class ChatMessageService {
                 .orElse(null);
     }
 
-    /**
-     * Guards the payload here rather than leaning on {@code ck_chat_message_payload} alone.
-     * Server-side callers ({@code postCard}, {@code postSystem}) never pass through bean
-     * validation, and a constraint violation would surface as a raw persistence exception instead
-     * of a {@code BusinessException}.
-     */
-    private void requireValidPayload(MessageType type, String body, String clientMessageId) {
-        if (type == MessageType.CARD) {
-            if (body != null) {
-                throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+    private void requireClientMessageId(ChatMessageCreateRequest request) {
+        if (request.clientMessageId() == null || request.clientMessageId().isBlank()) {
+            throw new BusinessException(ErrorCode.CHAT_CLIENT_MESSAGE_ID_REQUIRED);
+        }
+    }
+
+    private void requireValidPayload(MessageType type, String body, Long sharedSetlogId,
+                                     Long mediaId, String clientMessageId) {
+        switch (type) {
+            case TEXT -> {
+                if (body == null || body.isBlank() || body.length() > MAX_BODY_LENGTH) {
+                    throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+                }
+                if (mediaId != null || sharedSetlogId != null) {
+                    throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+                }
             }
-        } else if (body == null || body.isBlank() || body.length() > MAX_BODY_LENGTH) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+            case CARD -> {
+                if (body != null) {
+                    throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+                }
+            }
+            case SYSTEM -> {
+                if (body == null || body.isBlank() || body.length() > MAX_BODY_LENGTH) {
+                    throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+                }
+            }
+            case IMAGE, VIDEO -> {
+                if (body != null || sharedSetlogId != null) {
+                    throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+                }
+                if (mediaId == null) {
+                    throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+                }
+            }
+            case SETLOG_SHARE -> {
+                if (body != null || mediaId != null) {
+                    throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+                }
+                if (sharedSetlogId == null) {
+                    throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
+                }
+            }
         }
         if (clientMessageId != null && clientMessageId.length() > MAX_CLIENT_MESSAGE_ID_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
@@ -223,12 +340,21 @@ public class ChatMessageService {
      * client bug rather than a retry, so reject it instead of silently returning something else.
      */
     private void requireSamePayload(ChatMessage stored, Long senderPetId, MessageType type,
-                                    String body, Long meetingCardId) {
+                                    String body, Long meetingCardId, Long sharedSetlogId, Long mediaId) {
         if (stored.getType() != type
                 || !Objects.equals(stored.getSenderPetId(), senderPetId)
                 || !Objects.equals(stored.getBody(), body)
-                || !Objects.equals(stored.getMeetingCardId(), meetingCardId)) {
+                || !Objects.equals(stored.getMeetingCardId(), meetingCardId)
+                || !Objects.equals(stored.getSharedSetlogId(), sharedSetlogId)) {
             throw new BusinessException(ErrorCode.CHAT_DUPLICATE_MESSAGE);
+        }
+        if (type == MessageType.IMAGE || type == MessageType.VIDEO) {
+            Long storedMediaId = attachmentRepository.findByMessageId(stored.getId())
+                    .map(ChatMessageAttachment::getMediaId)
+                    .orElse(null);
+            if (!Objects.equals(storedMediaId, mediaId)) {
+                throw new BusinessException(ErrorCode.CHAT_DUPLICATE_MESSAGE);
+            }
         }
     }
 }
