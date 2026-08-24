@@ -93,6 +93,17 @@ app:
       max-attempts: ${RISK_SIGNAL_OUTBOX_RELAY_MAX_ATTEMPTS:10}
       base-backoff: ${RISK_SIGNAL_OUTBOX_RELAY_BASE_BACKOFF:5s}
       max-backoff: ${RISK_SIGNAL_OUTBOX_RELAY_MAX_BACKOFF:10m}
+    consumer:
+      enabled: ${RISK_SIGNAL_CONSUMER_ENABLED:false}
+      group-id: ${RISK_SIGNAL_CONSUMER_GROUP_ID:dogether-risk-signal-v1}
+      concurrency: ${RISK_SIGNAL_CONSUMER_CONCURRENCY:1}
+      max-poll-records: ${RISK_SIGNAL_CONSUMER_MAX_POLL_RECORDS:100}
+      max-attempts: ${RISK_SIGNAL_CONSUMER_MAX_ATTEMPTS:3}
+      retry-backoff: ${RISK_SIGNAL_CONSUMER_RETRY_BACKOFF:1s}
+      dlt-topic: ${RISK_SIGNAL_CONSUMER_DLT_TOPIC:risk-signal-topic.DLT}
+      dlt-publish-timeout: ${RISK_SIGNAL_CONSUMER_DLT_PUBLISH_TIMEOUT:10s}
+      max-future-skew: ${RISK_SIGNAL_MAX_FUTURE_SKEW:5m}
+      max-aggregation-range: ${RISK_SIGNAL_MAX_AGGREGATION_RANGE:90d}
   bootstrap-admin:
     enabled: ${INITIAL_ADMIN_ENABLED:false}
     email: ${INITIAL_ADMIN_EMAIL:}
