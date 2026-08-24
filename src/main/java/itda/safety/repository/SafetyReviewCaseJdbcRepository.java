@@ -42,7 +42,7 @@ public class SafetyReviewCaseJdbcRepository {
                 ), upserted as (
                     insert into safety_review_cases (
                         subject_user_id, target_user_id, status, total_score, signal_count,
-                        primary_signal_type, score_policy_version, first_detected_at,
+                        primary_signal_type, evaluation_policy_version, first_detected_at,
                         last_detected_at, last_evaluated_event_id, evaluated_at
                     )
                     select ?, ?, 'OPEN', ?, ?, ?, ?, ?, ?, ?, ?
@@ -61,7 +61,7 @@ public class SafetyReviewCaseJdbcRepository {
                         total_score = excluded.total_score,
                         signal_count = excluded.signal_count,
                         primary_signal_type = excluded.primary_signal_type,
-                        score_policy_version = excluded.score_policy_version,
+                        evaluation_policy_version = excluded.evaluation_policy_version,
                         first_detected_at = excluded.first_detected_at,
                         last_detected_at = excluded.last_detected_at,
                         last_evaluated_event_id = excluded.last_evaluated_event_id,
@@ -86,7 +86,7 @@ public class SafetyReviewCaseJdbcRepository {
                 subjectUserId, targetUserId,
                 subjectUserId, targetUserId,
                 snapshot.totalScore(), snapshot.signalCount(), snapshot.primarySignalType(),
-                snapshot.scorePolicyVersion(), Timestamp.from(snapshot.firstDetectedAt()),
+                snapshot.evaluationPolicyVersion(), Timestamp.from(snapshot.firstDetectedAt()),
                 Timestamp.from(snapshot.lastDetectedAt()), snapshot.lastEvaluatedEventId(),
                 Timestamp.from(snapshot.evaluatedAt()),
                 subjectUserId, targetUserId, snapshot.lastEvaluatedEventId(),
@@ -109,11 +109,27 @@ public class SafetyReviewCaseJdbcRepository {
             throw new IllegalArgumentException("Safety case transition is invalid");
         }
         return jdbc.query("""
-                update safety_review_cases
-                   set status = ?, version = version + 1, updated_at = current_timestamp
-                 where id = ? and version = ? and status = ?
-                returning *
-                """, ROW_MAPPER, nextStatus.name(), caseId, expectedVersion, expectedStatus.name())
+                with target_case as (
+                    select subject_user_id, target_user_id
+                      from safety_review_cases
+                     where id = ?
+                ), pair_lock as (
+                    select pg_advisory_xact_lock(hashtextextended(
+                        concat(cast(subject_user_id as text), ':',
+                               coalesce(cast(target_user_id as text), 'null')), 0))
+                      from target_case
+                ), updated as (
+                    update safety_review_cases current_case
+                       set status = ?, version = version + 1, updated_at = current_timestamp
+                      from pair_lock
+                     where current_case.id = ?
+                       and current_case.version = ?
+                       and current_case.status = ?
+                    returning current_case.*
+                )
+                select * from updated
+                """, ROW_MAPPER, caseId, nextStatus.name(), caseId,
+                expectedVersion, expectedStatus.name())
                 .stream().findFirst();
     }
 
@@ -136,7 +152,7 @@ public class SafetyReviewCaseJdbcRepository {
                 resultSet.getLong("total_score"),
                 resultSet.getLong("signal_count"),
                 resultSet.getString("primary_signal_type"),
-                resultSet.getInt("score_policy_version"),
+                resultSet.getInt("evaluation_policy_version"),
                 resultSet.getTimestamp("first_detected_at").toInstant(),
                 resultSet.getTimestamp("last_detected_at").toInstant(),
                 resultSet.getLong("last_evaluated_event_id"),

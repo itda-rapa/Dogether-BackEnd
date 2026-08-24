@@ -14,6 +14,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -50,7 +55,9 @@ class SafetyRepositoryPostgreSqlIntegrationTest {
     @Autowired private SafetyCaseActionJdbcRepository actionRepository;
     @Autowired private EvidenceAccessAuditJdbcRepository auditRepository;
     @Autowired private SafetyEvaluationJobJdbcRepository jobRepository;
+    @Autowired private SafetyAdminQueryJdbcRepository adminQueryRepository;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @Test
     void upsertsOneOpenCaseIncludingNullTargetAndDoesNotRegressSnapshot() {
@@ -131,6 +138,77 @@ class SafetyRepositoryPostgreSqlIntegrationTest {
         assertThatThrownBy(() -> caseRepository.transition(
                 open.id(), open.version(), SafetyCaseStatus.DISMISSED, SafetyCaseStatus.OPEN))
                 .hasRootCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void transitionWaitsForTheSamePairAdvisoryLockAsEvaluatorUpsert() throws Exception {
+        long subjectId = uniqueId();
+        long targetId = uniqueId();
+        Instant detectedAt = Instant.parse("2026-08-24T03:30:00Z");
+        SafetyReviewCase open = caseRepository.upsertOpenCase(
+                subjectId, targetId, snapshot(30, 1, detectedAt, detectedAt)).orElseThrow();
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+        CountDownLatch transitionStarted = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+
+        try {
+            var holder = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        jdbc.queryForObject("""
+                                select pg_advisory_xact_lock(hashtextextended(
+                                    concat(cast(? as text), ':', cast(? as text)), 0))
+                                """, (resultSet, rowNumber) -> true, subjectId, targetId);
+                        lockHeld.countDown();
+                        awaitLatch(releaseLock);
+                    }));
+            assertThat(lockHeld.await(5, TimeUnit.SECONDS)).isTrue();
+
+            var transition = executor.submit(() -> {
+                transitionStarted.countDown();
+                return caseRepository.transition(
+                        open.id(), open.version(), SafetyCaseStatus.OPEN,
+                        SafetyCaseStatus.DISMISSED);
+            });
+            assertThat(transitionStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(200);
+            assertThat(transition.isDone()).isFalse();
+
+            releaseLock.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            assertThat(transition.get(5, TimeUnit.SECONDS)).isPresent();
+        } finally {
+            releaseLock.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void queueCursorRemainsStableWhenCaseDetectionSnapshotIsRefreshed() {
+        long subjectId = uniqueId();
+        Instant detectedAt = Instant.parse("2026-08-24T03:40:00Z");
+        caseRepository.upsertOpenCase(
+                subjectId, uniqueId(), snapshot(30, 1, detectedAt, detectedAt)).orElseThrow();
+        caseRepository.upsertOpenCase(
+                subjectId, uniqueId(), snapshot(30, 1, detectedAt, detectedAt)).orElseThrow();
+
+        var initial = adminQueryRepository.findCases(
+                SafetyCaseStatus.OPEN, null, subjectId, null,
+                null, null, null, null, 2);
+        SafetyReviewCase firstPageLast = initial.getFirst();
+        SafetyReviewCase nextCase = initial.get(1);
+        Instant refreshedAt = detectedAt.plusSeconds(60);
+        jdbc.update("""
+                update safety_review_cases
+                   set last_detected_at = ?, evaluated_at = ?, updated_at = current_timestamp
+                 where id = ?
+                """, Timestamp.from(refreshedAt), Timestamp.from(refreshedAt), nextCase.id());
+
+        var nextPage = adminQueryRepository.findCases(
+                SafetyCaseStatus.OPEN, null, subjectId, null,
+                null, null, firstPageLast.createdAt(), firstPageLast.id(), 2);
+
+        assertThat(nextPage).extracting(SafetyReviewCase::id).containsExactly(nextCase.id());
     }
 
     @Test
@@ -244,5 +322,16 @@ class SafetyRepositoryPostgreSqlIntegrationTest {
 
     private static long uniqueId() {
         return Math.abs(UUID.randomUUID().getMostSignificantBits() % 1_000_000_000L) + 1;
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("Timed out waiting for test latch");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting for test latch", exception);
+        }
     }
 }

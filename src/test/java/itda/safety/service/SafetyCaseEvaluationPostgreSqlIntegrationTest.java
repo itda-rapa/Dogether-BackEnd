@@ -81,10 +81,10 @@ class SafetyCaseEvaluationPostgreSqlIntegrationTest {
         ingestion.ingest(event(UUID.randomUUID(), 503, now.plusSeconds(1)));
         assertThat(worker.runOnce().cases()).isEqualTo(1);
         assertThat(count("safety_review_cases")).isEqualTo(1);
-        assertThat(jdbc.queryForMap("select total_score, signal_count, score_policy_version, primary_signal_type from safety_review_cases"))
+        assertThat(jdbc.queryForMap("select total_score, signal_count, evaluation_policy_version, primary_signal_type from safety_review_cases"))
                 .containsEntry("total_score", 90L)
                 .containsEntry("signal_count", 3L)
-                .containsEntry("score_policy_version", 7)
+                .containsEntry("evaluation_policy_version", 7)
                 .containsEntry("primary_signal_type", "USER_BLOCKED");
     }
 

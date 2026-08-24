@@ -12,7 +12,7 @@ public record SafetyCaseResponse(
         long totalScore,
         long signalCount,
         String primarySignalType,
-        int scorePolicyVersion,
+        int evaluationPolicyVersion,
         Instant firstDetectedAt,
         Instant lastDetectedAt,
         Instant evaluatedAt,
@@ -27,7 +27,7 @@ public record SafetyCaseResponse(
     ) {
         return new SafetyCaseResponse(
                 value.id(), subject, target, value.status(), value.totalScore(),
-                value.signalCount(), value.primarySignalType(), value.scorePolicyVersion(),
+                value.signalCount(), value.primarySignalType(), value.evaluationPolicyVersion(),
                 value.firstDetectedAt(), value.lastDetectedAt(), value.evaluatedAt(),
                 value.version(), value.createdAt(), value.updatedAt());
     }

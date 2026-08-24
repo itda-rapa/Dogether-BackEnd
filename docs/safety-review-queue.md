@@ -27,6 +27,8 @@ Evaluator는 기본적으로 비활성화된다. 팀이 M3 점수 fixture를 확
 - `SAFETY_EVALUATOR_WINDOW`: 집계 기간
 - `SAFETY_EVALUATOR_POLICY_VERSION`: Case 평가 정책 버전
 
+Case의 `evaluationPolicyVersion`은 임계값·집계 기간 등 SafetyCase 생성 정책의 버전이다. 각 RiskSignal의 `scorePolicyVersion`은 점수 산정 정책 snapshot으로 별도 유지하며 두 값을 같은 의미로 사용하지 않는다.
+
 운영 조정 변수:
 
 - `SAFETY_EVALUATOR_BATCH_SIZE` 기본 50
@@ -60,7 +62,7 @@ Case는 `lastEvaluatedEventId` 워터마크를 저장한다. 발생 시각이 �
 - `GET /admin/safety/cases`
   - 기본 상태 `OPEN`, 기본 size 20, 최대 100
   - 상태·신호 유형·subject·target·기간 필터
-  - 최신 위험 신호를 우선하는 `(lastDetectedAt DESC, caseId DESC)` keyset cursor
+  - 페이지 사이 Case 재평가에도 순서가 변하지 않는 `(createdAt DESC, caseId DESC)` keyset cursor
 - `GET /admin/safety/cases/{caseId}`
   - Case snapshot, 공개 사용자 태그, 관련 RiskSignal과 action 이력
   - 최근 RiskSignal은 최대 100건이며 추가 항목은 `hasMoreSignals`로 표시

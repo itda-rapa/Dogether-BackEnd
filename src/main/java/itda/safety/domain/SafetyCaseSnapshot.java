@@ -10,12 +10,12 @@ public record SafetyCaseSnapshot(
         Instant lastDetectedAt,
         long lastEvaluatedEventId,
         String primarySignalType,
-        int scorePolicyVersion,
+        int evaluationPolicyVersion,
         Instant evaluatedAt
 ) {
     public SafetyCaseSnapshot {
         if (totalScore < 0 || signalCount <= 0 || lastEvaluatedEventId <= 0
-                || scorePolicyVersion <= 0) {
+                || evaluationPolicyVersion <= 0) {
             throw new IllegalArgumentException("Safety case snapshot numbers are invalid");
         }
         Objects.requireNonNull(firstDetectedAt, "firstDetectedAt");

@@ -6,7 +6,7 @@ CREATE TABLE safety_review_cases (
     total_score BIGINT NOT NULL,
     signal_count BIGINT NOT NULL,
     primary_signal_type VARCHAR(50) NOT NULL,
-    score_policy_version INTEGER NOT NULL,
+    evaluation_policy_version INTEGER NOT NULL,
     first_detected_at TIMESTAMPTZ NOT NULL,
     last_detected_at TIMESTAMPTZ NOT NULL,
     last_evaluated_event_id BIGINT NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE safety_review_cases (
         AND total_score >= 0
         AND signal_count > 0
         AND last_evaluated_event_id > 0
-        AND score_policy_version > 0
+        AND evaluation_policy_version > 0
         AND first_detected_at <= last_detected_at
         AND evaluated_at >= last_detected_at
         AND version >= 0
@@ -35,7 +35,7 @@ CREATE UNIQUE INDEX uk_safety_review_cases_open_subject_target
     WHERE status IN ('OPEN', 'REVIEWING');
 
 CREATE INDEX ix_safety_review_cases_queue
-    ON safety_review_cases (status, last_detected_at DESC, id DESC);
+    ON safety_review_cases (status, created_at DESC, id DESC);
 
 CREATE INDEX ix_safety_review_cases_subject
     ON safety_review_cases (subject_user_id, last_detected_at DESC, id DESC);

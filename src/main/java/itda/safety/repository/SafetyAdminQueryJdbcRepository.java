@@ -8,6 +8,7 @@ import itda.safety.dto.SafetyEvidenceResponse.SourceSummary;
 import itda.safety.dto.SafetySignalResponse;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -52,11 +53,11 @@ public class SafetyAdminQueryJdbcRepository {
         }
         if (fromInclusive != null) {
             sql.append(" and c.last_detected_at >= ?");
-            arguments.add(fromInclusive);
+            arguments.add(Timestamp.from(fromInclusive));
         }
         if (toExclusive != null) {
             sql.append(" and c.last_detected_at < ?");
-            arguments.add(toExclusive);
+            arguments.add(Timestamp.from(toExclusive));
         }
         if (signalType != null) {
             sql.append("""
@@ -73,12 +74,12 @@ public class SafetyAdminQueryJdbcRepository {
             arguments.add(signalType.name());
         }
         if (cursorAt != null) {
-            sql.append(" and (c.last_detected_at < ? or (c.last_detected_at = ? and c.id < ?))");
-            arguments.add(cursorAt);
-            arguments.add(cursorAt);
+            sql.append(" and (c.created_at < ? or (c.created_at = ? and c.id < ?))");
+            arguments.add(Timestamp.from(cursorAt));
+            arguments.add(Timestamp.from(cursorAt));
             arguments.add(cursorId);
         }
-        sql.append(" order by c.last_detected_at desc, c.id desc limit ?");
+        sql.append(" order by c.created_at desc, c.id desc limit ?");
         arguments.add(limit);
         return jdbc.query(sql.toString(), SafetyAdminQueryJdbcRepository::mapCase,
                 arguments.toArray());
@@ -110,7 +111,8 @@ public class SafetyAdminQueryJdbcRepository {
                  limit ?
                 """, SafetyAdminQueryJdbcRepository::mapSignal,
                 safetyCase.subjectUserId(), safetyCase.targetUserId(), safetyCase.targetUserId(),
-                safetyCase.firstDetectedAt(), safetyCase.lastDetectedAt(),
+                Timestamp.from(safetyCase.firstDetectedAt()),
+                Timestamp.from(safetyCase.lastDetectedAt()),
                 safetyCase.lastEvaluatedEventId(), limit);
     }
 
@@ -134,8 +136,10 @@ public class SafetyAdminQueryJdbcRepository {
                  limit ?
                 """, SafetyAdminQueryJdbcRepository::mapSignal,
                 safetyCase.subjectUserId(), safetyCase.targetUserId(), safetyCase.targetUserId(),
-                safetyCase.firstDetectedAt(), safetyCase.lastDetectedAt(),
-                safetyCase.lastEvaluatedEventId(), cursorAt, cursorAt, cursorAt, cursorId, limit);
+                Timestamp.from(safetyCase.firstDetectedAt()),
+                Timestamp.from(safetyCase.lastDetectedAt()),
+                safetyCase.lastEvaluatedEventId(), nullableTimestamp(cursorAt),
+                nullableTimestamp(cursorAt), nullableTimestamp(cursorAt), cursorId, limit);
     }
 
     public Optional<SourceSummary> findBlockEvidence(
@@ -192,7 +196,7 @@ public class SafetyAdminQueryJdbcRepository {
                 SafetyCaseStatus.valueOf(resultSet.getString("status")),
                 resultSet.getLong("total_score"), resultSet.getLong("signal_count"),
                 resultSet.getString("primary_signal_type"),
-                resultSet.getInt("score_policy_version"),
+                resultSet.getInt("evaluation_policy_version"),
                 resultSet.getTimestamp("first_detected_at").toInstant(),
                 resultSet.getTimestamp("last_detected_at").toInstant(),
                 resultSet.getLong("last_evaluated_event_id"),
@@ -219,5 +223,9 @@ public class SafetyAdminQueryJdbcRepository {
                 resultSet.getString("target_public_tag"),
                 resultSet.getString("source_status"),
                 resultSet.getTimestamp("source_occurred_at").toInstant());
+    }
+
+    private static Timestamp nullableTimestamp(Instant value) {
+        return value == null ? null : Timestamp.from(value);
     }
 }

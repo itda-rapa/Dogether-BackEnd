@@ -48,7 +48,7 @@ class SafetyCaseEvaluationTransactionServiceTest {
         verify(cases).upsertOpenCase(org.mockito.ArgumentMatchers.eq(41L),
                 org.mockito.ArgumentMatchers.eq(42L), snapshot.capture());
         assertThat(snapshot.getValue().totalScore()).isEqualTo(90);
-        assertThat(snapshot.getValue().scorePolicyVersion()).isEqualTo(7);
+        assertThat(snapshot.getValue().evaluationPolicyVersion()).isEqualTo(7);
         assertThat(snapshot.getValue().lastEvaluatedEventId()).isEqualTo(11);
         verify(jobs).complete(claimed);
     }

@@ -10,7 +10,7 @@ public record SafetyReviewCase(
         long totalScore,
         long signalCount,
         String primarySignalType,
-        int scorePolicyVersion,
+        int evaluationPolicyVersion,
         Instant firstDetectedAt,
         Instant lastDetectedAt,
         long lastEvaluatedEventId,
