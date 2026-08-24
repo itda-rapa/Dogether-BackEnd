@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import itda.block.dto.BlockCreateRequest;
+import itda.block.service.BlockService;
 import itda.common.security.CurrentUser;
 import itda.user.domain.Role;
 import java.util.UUID;
@@ -14,6 +16,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -48,6 +52,9 @@ class BlockApiContractPostgreSqlIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private BlockService blockService;
+
     private long blockerUserId;
     private long blockerPetId;
     private long targetPetId;
@@ -55,7 +62,7 @@ class BlockApiContractPostgreSqlIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.execute("""
-                truncate user_blocks, pets, users
+                truncate risk_signal_outbox, user_blocks, pets, users
                 restart identity cascade
                 """);
 
@@ -97,6 +104,44 @@ class BlockApiContractPostgreSqlIntegrationTest {
                         .content(request))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.blockId").value((int) blockId));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from risk_signal_outbox where source_type = 'USER_BLOCK'",
+                Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "select signal_type from risk_signal_outbox where source_id = ?",
+                String.class, blockId)).isEqualTo("USER_BLOCKED");
+    }
+
+    @Test
+    void riskOutboxFailureRollsBackNewBlock() {
+        jdbcTemplate.execute("""
+                create or replace function reject_block_risk_event()
+                returns trigger language plpgsql as $$
+                begin
+                  raise exception 'forced risk outbox failure';
+                end $$
+                """);
+        jdbcTemplate.execute("""
+                create trigger reject_block_risk_event
+                before insert on risk_signal_outbox
+                for each row execute function reject_block_risk_event()
+                """);
+
+        try {
+            assertThatThrownBy(() -> blockService.block(
+                    blockerUserId,
+                    new BlockCreateRequest(targetPetId)
+            )).isInstanceOf(RuntimeException.class);
+
+            assertThat(jdbcTemplate.queryForObject(
+                    "select count(*) from user_blocks", Long.class)).isZero();
+            assertThat(jdbcTemplate.queryForObject(
+                    "select count(*) from risk_signal_outbox", Long.class)).isZero();
+        } finally {
+            jdbcTemplate.execute("drop trigger reject_block_risk_event on risk_signal_outbox");
+            jdbcTemplate.execute("drop function reject_block_risk_event()");
+        }
     }
 
     @Test

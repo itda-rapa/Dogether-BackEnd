@@ -50,7 +50,7 @@ class ChatRoomLifecyclePostgreSqlIntegrationTest {
     @BeforeEach
     void reset() {
         jdbcTemplate.execute("""
-                truncate reports, greetings, friendships, chat_messages,
+                truncate risk_signal_outbox, reports, greetings, friendships, chat_messages,
                          chat_room_participants, chat_rooms, setlogs, media,
                          pets, users
                 restart identity cascade
@@ -261,6 +261,61 @@ class ChatRoomLifecyclePostgreSqlIntegrationTest {
         assertThat(second.expiredGreetings()).isZero();
         assertThat(second.deletedRooms()).isZero();
         assertThat(statusOfGreeting(greetingId)).isEqualTo("EXPIRED");
+    }
+
+    @Test
+    void expiresGreetingAndStoresOneRiskEventWithExpiresAt() {
+        long roomId = newRoom();
+        long greetingId = insertGreeting(roomId, "SENT", NOW.minusSeconds(1));
+
+        maintenanceService.runOnce(NOW);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from risk_signal_outbox
+                 where source_type = 'GREETING' and source_id = ?
+                   and signal_type = 'GREETING_EXPIRED'
+                """, Long.class, greetingId)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("""
+                select occurred_at from risk_signal_outbox
+                 where source_type = 'GREETING' and source_id = ?
+                """, Timestamp.class, greetingId).toInstant()).isEqualTo(NOW.minusSeconds(1));
+
+        maintenanceService.runOnce(NOW);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from risk_signal_outbox
+                 where source_type = 'GREETING' and source_id = ?
+                """, Long.class, greetingId)).isEqualTo(1L);
+    }
+
+    @Test
+    void riskOutboxFailureRollsBackGreetingExpiration() {
+        long roomId = newRoom();
+        long greetingId = insertGreeting(roomId, "SENT", NOW.minusSeconds(1));
+        jdbcTemplate.execute("""
+                create or replace function reject_greeting_risk_event()
+                returns trigger language plpgsql as $$
+                begin
+                  raise exception 'forced risk outbox failure';
+                end $$
+                """);
+        jdbcTemplate.execute("""
+                create trigger reject_greeting_risk_event
+                before insert on risk_signal_outbox
+                for each row execute function reject_greeting_risk_event()
+                """);
+
+        try {
+            ChatRoomLifecycleMaintenanceService.MaintenanceResult result =
+                    maintenanceService.runOnce(NOW);
+
+            assertThat(result.expiredGreetings()).isZero();
+            assertThat(statusOfGreeting(greetingId)).isEqualTo("SENT");
+            assertThat(count("risk_signal_outbox")).isZero();
+        } finally {
+            jdbcTemplate.execute("drop trigger reject_greeting_risk_event on risk_signal_outbox");
+            jdbcTemplate.execute("drop function reject_greeting_risk_event()");
+        }
     }
 
     private long newRoom() {
