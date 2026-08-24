@@ -78,7 +78,9 @@ Open Chat:
 
 - `risk-signal-topic`, key=`actorUserId`
 - 이번 공용 계약의 Producer 진입점: `RiskSourceEventPublisher.enqueue(command)`
-- `enqueue`는 원천 도메인의 DB 트랜잭션 안에서 `risk_signal_outbox`에만 적재한다. Kafka relay/Consumer는 별도 작업이다.
+- `enqueue`는 원천 도메인의 DB 트랜잭션 안에서 `risk_signal_outbox`에 적재한다. Relay는 별도 트랜잭션으로 선점한 뒤 기존 JSON을 Kafka에 at-least-once로 전달한다.
+- Relay 상태는 `PENDING → PROCESSING → SENT/RETRY/FAILED`이고, lease 만료 `PROCESSING`은 새 `claimToken`으로 회수한다.
+- 모든 완료 변경은 `id + PROCESSING + claimToken`으로 fencing하며 Consumer는 `eventId`로 멱등 처리한다.
 - 현재 Source/Signal 조합: `USER_BLOCK/USER_BLOCKED`, `GREETING/GREETING_EXPIRED`
 - 다른 Source/Signal 조합은 Command/Event 생성 시 거부한다.
 - metadata는 Signal별 allowlist만 허용한다: `USER_BLOCKED.reasonCode`, `GREETING_EXPIRED.ttlHours`.

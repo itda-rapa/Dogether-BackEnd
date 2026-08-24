@@ -1109,7 +1109,9 @@ Producer 계약:
 - 위 두 조합을 교차하거나 정의되지 않은 조합은 Command/Event 생성 시 거부한다.
 - `sourceId`, `actorUserId`, `targetUserId`는 양의 정수이며 `sourceId`는 JSON number다.
 - `eventId`는 Publisher가 UUID로 생성한다. Outbox는 `eventId`와 `(sourceType, sourceId, signalType)`을 모두 멱등키로 사용한다.
-- `RiskSourceEventPublisher.enqueue`는 원천 DB 트랜잭션 안에서 Outbox만 적재한다. Kafka publish 실패 재시도는 후속 relay가 처리한다.
+- `RiskSourceEventPublisher.enqueue`는 원천 DB 트랜잭션 안에서 Outbox를 적재한다. Relay는 due/stale 이벤트를 한 건씩 선점해 기존 JSON을 발행하고 Kafka ack를 기다린다.
+- 상태는 `PENDING → PROCESSING → SENT/RETRY/FAILED`이며 lease 만료 `PROCESSING`은 새 `claimToken`으로 재선점한다. 상태 변경은 `id + PROCESSING + claimToken`으로 fencing한다.
+- 전달은 at-least-once다. Kafka ack 후 `SENT` 갱신 실패나 timeout 뒤 늦은 broker 성공으로 중복될 수 있으므로 Consumer는 `eventId` 멱등 처리가 필수다.
 - metadata allowlist:
   - `USER_BLOCKED`: 선택적 `reasonCode`, 대문자 영문·숫자·underscore 코드, 최대 64자
   - `GREETING_EXPIRED`: 선택적 `ttlHours`, 문자열로 표현한 1~168 정수
