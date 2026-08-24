@@ -21,9 +21,16 @@ import itda.interaction.service.InteractionPairLockService;
 import itda.meetingcard.repository.CardDraftRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
+import itda.pet.domain.Pet;
 import itda.report.repository.ReportRepository;
+import itda.risk.contract.RiskSignalType;
+import itda.risk.contract.RiskSourceEventCommand;
+import itda.risk.contract.RiskSourceEventPublisher;
+import itda.risk.contract.RiskSourceType;
+import itda.user.domain.User;
 import java.time.Instant;
 import java.util.Optional;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +54,8 @@ class ChatRoomLifecycleTransactionServiceTest {
     private final FriendshipRepository friendshipRepository = mock(FriendshipRepository.class);
     private final InteractionPairLockService interactionPairLockService =
             mock(InteractionPairLockService.class);
+    private final RiskSourceEventPublisher riskSourceEventPublisher =
+            mock(RiskSourceEventPublisher.class);
 
     private final ChatRoomLifecycleTransactionService service =
             new ChatRoomLifecycleTransactionService(
@@ -59,7 +68,8 @@ class ChatRoomLifecycleTransactionServiceTest {
                     meetingParticipantRepository,
                     reportRepository,
                     friendshipRepository,
-                    interactionPairLockService
+                    interactionPairLockService,
+                    riskSourceEventPublisher
             );
 
     @Test
@@ -69,6 +79,7 @@ class ChatRoomLifecycleTransactionServiceTest {
         when(greetingRepository.findByIdForUpdate(GREETING_ID))
                 .thenReturn(Optional.of(greeting));
         when(greeting.getStatus()).thenReturn(GreetingStatus.SENT);
+        stubGreetingRiskFields(greeting);
         when(greeting.getExpiresAt()).thenReturn(NOW.minusSeconds(1));
         when(greeting.getRoomId()).thenReturn(ROOM_ID);
         when(chatRoomRepository.findByIdForUpdate(ROOM_ID))
@@ -90,6 +101,18 @@ class ChatRoomLifecycleTransactionServiceTest {
         assertThat(result.expired()).isTrue();
         assertThat(result.roomDeleted()).isTrue();
         verify(greeting).expire();
+        ArgumentCaptor<RiskSourceEventCommand> eventCaptor =
+                ArgumentCaptor.forClass(RiskSourceEventCommand.class);
+        verify(riskSourceEventPublisher).enqueue(eventCaptor.capture());
+        assertThat(eventCaptor.getValue()).isEqualTo(new RiskSourceEventCommand(
+                RiskSourceType.GREETING,
+                GREETING_ID,
+                RiskSignalType.GREETING_EXPIRED,
+                11L,
+                22L,
+                NOW.minusSeconds(1),
+                java.util.Map.of()
+        ));
         verify(chatMessageRepository).deleteByRoomId(ROOM_ID);
         verify(meetingParticipantRepository).deleteByRoomId(ROOM_ID);
         verify(meetingCardRepository).deleteByRoomId(ROOM_ID);
@@ -106,6 +129,7 @@ class ChatRoomLifecycleTransactionServiceTest {
         when(greetingRepository.findByIdForUpdate(GREETING_ID))
                 .thenReturn(Optional.of(greeting));
         when(greeting.getStatus()).thenReturn(GreetingStatus.SENT);
+        stubGreetingRiskFields(greeting);
         when(greeting.getExpiresAt()).thenReturn(NOW.minusSeconds(1));
         when(greeting.getRoomId()).thenReturn(ROOM_ID);
         when(chatRoomRepository.findByIdForUpdate(ROOM_ID))
@@ -135,6 +159,7 @@ class ChatRoomLifecycleTransactionServiceTest {
         when(greetingRepository.findByIdForUpdate(GREETING_ID))
                 .thenReturn(Optional.of(greeting));
         when(greeting.getStatus()).thenReturn(GreetingStatus.SENT);
+        stubGreetingRiskFields(greeting);
         when(greeting.getExpiresAt()).thenReturn(NOW.minusSeconds(1));
         when(greeting.getRoomId()).thenReturn(ROOM_ID);
         when(chatRoomRepository.findByIdForUpdate(ROOM_ID))
@@ -163,6 +188,38 @@ class ChatRoomLifecycleTransactionServiceTest {
         lockOrder.verify(interactionPairLockService)
                 .lockInteractionPair(11L, 22L);
         lockOrder.verify(chatRoomRepository).findByIdForUpdate(ROOM_ID);
+    }
+
+    @Test
+    void doesNotPublishForAlreadyExpiredGreeting() {
+        Greeting greeting = mock(Greeting.class);
+        when(greetingRepository.findByIdForUpdate(GREETING_ID))
+                .thenReturn(Optional.of(greeting));
+        when(greeting.getStatus()).thenReturn(GreetingStatus.EXPIRED);
+        when(greeting.getRoomId()).thenReturn(ROOM_ID);
+        when(chatRoomRepository.findByIdForUpdate(ROOM_ID))
+                .thenReturn(Optional.empty());
+
+        ChatRoomLifecycleTransactionService.ExpiredGreetingOutcome result =
+                service.expireGreetingAndCleanup(GREETING_ID, ROOM_ID, null, null, NOW);
+
+        assertThat(result.expired()).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(riskSourceEventPublisher);
+        verify(greeting, never()).expire();
+    }
+
+    private void stubGreetingRiskFields(Greeting greeting) {
+        Pet fromPet = mock(Pet.class);
+        Pet toPet = mock(Pet.class);
+        User fromUser = mock(User.class);
+        User toUser = mock(User.class);
+        when(greeting.getId()).thenReturn(GREETING_ID);
+        when(greeting.getFromPet()).thenReturn(fromPet);
+        when(greeting.getToPet()).thenReturn(toPet);
+        when(fromPet.getOwner()).thenReturn(fromUser);
+        when(toPet.getOwner()).thenReturn(toUser);
+        when(fromUser.getId()).thenReturn(11L);
+        when(toUser.getId()).thenReturn(22L);
     }
 
     @Test
