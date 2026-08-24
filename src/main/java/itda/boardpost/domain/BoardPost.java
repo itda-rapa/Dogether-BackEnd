@@ -37,5 +37,8 @@ public class BoardPost extends BaseEntity {
         if (changed) { this.title = title; this.content = content; }
         return changed;
     }
+    public void markAttachmentsChanged() {
+        touchUpdatedAt();
+    }
     public void delete(Instant deletedAt) { this.status = PostStatus.DELETED; this.deletedAt = deletedAt; }
 }

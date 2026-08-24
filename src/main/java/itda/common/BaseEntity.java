@@ -21,4 +21,15 @@ public abstract class BaseEntity {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * Marks this aggregate as changed when a domain change is represented outside of its own
+     * table. Subclasses must expose a domain-specific operation rather than calling this directly.
+     */
+    protected final void touchUpdatedAt() {
+        Instant now = Instant.now();
+        updatedAt = updatedAt == null || now.isAfter(updatedAt)
+                ? now
+                : updatedAt.plusNanos(1);
+    }
 }
