@@ -21,7 +21,7 @@ public class RiskSignalOutboxJdbcRepository {
                         (event_id, schema_version, source_type, source_id, signal_type,
                          actor_user_id, target_user_id, occurred_at, payload,
                          status, attempts, next_retry_at)
-                    values (?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), 'PENDING', 0, ?)
+                    values (?, ?, ?, ?, ?, ?, ?, ?, cast(? as jsonb), 'PENDING', 0, current_timestamp)
                     on conflict (source_type, source_id, signal_type) do nothing
                     """,
                     event.eventId(),
@@ -32,8 +32,7 @@ public class RiskSignalOutboxJdbcRepository {
                     event.actorUserId(),
                     event.targetUserId(),
                     Timestamp.from(event.occurredAt()),
-                    objectMapper.writeValueAsString(event),
-                    Timestamp.from(event.occurredAt()));
+                    objectMapper.writeValueAsString(event));
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to enqueue risk signal outbox event", exception);
         }

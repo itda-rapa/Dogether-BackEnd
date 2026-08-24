@@ -74,3 +74,14 @@ app:
     upload-settle-grace: 30m
     base-backoff: 30s
     max-backoff: 6h
+  risk:
+    outbox-relay:
+      enabled: false
+      delay-ms: 1000
+      batch-size: 50
+      lease: 1m
+      send-timeout: 10s
+      max-block: 5s
+      max-attempts: 10
+      base-backoff: 5s
+      max-backoff: 10m
