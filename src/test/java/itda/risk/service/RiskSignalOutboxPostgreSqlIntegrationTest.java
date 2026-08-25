@@ -6,9 +6,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 
 import itda.risk.contract.RiskSignalType;
+import itda.risk.contract.RiskSignalEventV1;
 import itda.risk.contract.RiskSourceEventCommand;
 import itda.risk.contract.RiskSourceEventPublisher;
 import itda.risk.contract.RiskSourceType;
+import itda.risk.repository.RiskSignalOutboxJdbcRepository;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
@@ -25,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -50,6 +53,7 @@ class RiskSignalOutboxPostgreSqlIntegrationTest {
     @Autowired private RiskSourceEventPublisher publisher;
     @Autowired private RiskSignalOutboxClaimService claims;
     @Autowired private RiskSignalOutboxRelayWorker worker;
+    @Autowired private RiskSignalOutboxJdbcRepository outboxRepository;
     @MockitoBean private RiskSignalKafkaPublisher kafkaPublisher;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -98,6 +102,20 @@ class RiskSignalOutboxPostgreSqlIntegrationTest {
         assertThat(jdbc.queryForObject(
                 "select event_id from risk_signal_outbox where source_id = ?", UUID.class, 102L))
                 .isEqualTo(firstEventId);
+    }
+
+    @Test
+    void eventIdCannotBeReusedForAnotherLogicalSource() {
+        UUID eventId = UUID.randomUUID();
+        outboxRepository.insertIfAbsent(RiskSignalEventV1.from(eventId, command(109L)));
+
+        assertThatThrownBy(() -> outboxRepository.insertIfAbsent(
+                RiskSignalEventV1.from(eventId, command(110L))))
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasCauseInstanceOf(IllegalStateException.class)
+                .hasStackTraceContaining("uk_risk_signal_outbox_event_id");
+
+        assertThat(count()).isEqualTo(1L);
     }
 
     @Test
