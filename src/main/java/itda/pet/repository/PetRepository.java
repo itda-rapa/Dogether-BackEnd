@@ -41,6 +41,22 @@ public interface PetRepository extends JpaRepository<Pet, Long> {
             from Pet pet
             join fetch pet.owner owner
             left join fetch pet.profileAsset
+            where pet.id = :petId
+              and pet.status = :petStatus
+              and pet.deletedAt is null
+              and owner.accountStatus = :ownerStatus
+            """)
+    Optional<Pet> findPublicProfileById(
+            @Param("petId") Long petId,
+            @Param("petStatus") PetStatus petStatus,
+            @Param("ownerStatus") AccountStatus ownerStatus
+    );
+
+    @Query("""
+            select pet
+            from Pet pet
+            join fetch pet.owner owner
+            left join fetch pet.profileAsset
             where pet.publicTag = :publicTag
               and pet.status = :petStatus
               and pet.deletedAt is null

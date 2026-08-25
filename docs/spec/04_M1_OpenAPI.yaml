@@ -326,6 +326,58 @@ paths:
                       relationship: null
                     error: null
 
+  /pets/{petId}/profile:
+    parameters:
+      - $ref: '#/components/parameters/PetId'
+    get:
+      tags: [Pet]
+      summary: Pet 공개 프로필 조회
+      operationId: getPetPublicProfile
+      description: |
+        로그인한 조회자가 공개 가능한 Pet의 프로필을 조회한다.
+        대상 Pet은 `status=ACTIVE`, `deletedAt=null`, 소유자 계정 `ACTIVE`여야 하며,
+        조회자와 대상 소유자 사이에 어느 방향으로든 Block이 있으면 존재하지 않는 것처럼
+        `404 PET_NOT_FOUND`를 반환한다. 자기 Pet도 조회할 수 있으나 relationship은 null이다.
+        비자기 대상에서 조회자의 Active Pet이 없으면 조회는 성공하고 relationship은 null이다.
+        Active Pet이 있을 때만 기존 FriendRelationship 값(`NONE`, `REQUEST_SENT`,
+        `REQUEST_RECEIVED`, `FRIEND`)을 반환한다.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: Pet 공개 프로필 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetPublicProfileEnvelope'
+              examples:
+                success:
+                  value:
+                    success: true
+                    message: Pet 공개 프로필이 조회되었습니다.
+                    data:
+                      petId: 20
+                      publicTag: pet#TAG2
+                      nickname: 나나
+                      profileUrl: https://storage.example/presigned...
+                      verified: true
+                      breedName: 푸들
+                      sex: FEMALE
+                      neutered: true
+                      birthDate: '2023-01-01'
+                      sizeCode: SMALL
+                      bio: 산책을 좋아해요
+                      personalityTags: [활발함, 사교적]
+                      helpfulReceivedCount: 12
+                      relationship: FRIEND
+                    error: null
+        '404':
+          description: Pet이 없거나 공개 불가 상태이거나 양방향 Block 관계임 (PET_NOT_FOUND)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
   /pets/{petId}:
     parameters:
       - $ref: '#/components/parameters/PetId'
@@ -1647,6 +1699,55 @@ components:
           format: int64
           minimum: 0
           description: 삭제되지 않은 게시글과 댓글이 받은 HELPFUL 반응의 합계. LIKE, 차단 관계, 반응 Pet의 이후 상태는 포함 판단에 사용하지 않는다.
+    PetPublicProfile:
+      type: object
+      additionalProperties: false
+      required: [petId, publicTag, nickname, profileUrl, verified, breedName, sex, neutered, birthDate, sizeCode, bio, personalityTags, helpfulReceivedCount, relationship]
+      properties:
+        petId:
+          type: integer
+          format: int64
+        publicTag:
+          type: string
+          maxLength: 30
+          pattern: '^.{1,25}#[A-Z0-9]{4}$'
+        nickname:
+          type: string
+          minLength: 1
+        profileUrl:
+          type: [string, 'null']
+          format: uri
+          description: 연결된 profile Media를 조회 시점에 signing한 URL이며, profileAsset이 없으면 null이다.
+        verified:
+          type: boolean
+        breedName:
+          type: [string, 'null']
+        sex:
+          $ref: '#/components/schemas/NullablePetSex'
+        neutered:
+          type: [boolean, 'null']
+        birthDate:
+          type: [string, 'null']
+          format: date
+        sizeCode:
+          type: [string, 'null']
+          enum: [SMALL, MEDIUM, LARGE, null]
+        bio:
+          type: [string, 'null']
+        personalityTags:
+          type: array
+          items:
+            type: string
+          description: 빈 배열을 포함해 항상 배열로 반환한다.
+        helpfulReceivedCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 기존 HELPFUL 집계 기준을 그대로 사용한다.
+        relationship:
+          type: [string, 'null']
+          enum: [NONE, REQUEST_SENT, REQUEST_RECEIVED, FRIEND, null]
+          description: 자기 Pet 또는 조회자의 Active Pet이 없으면 null이다.
     PetSearchItem:
       type: object
       required: [petId, publicTag, nickname, verified, relationship]
@@ -2305,6 +2406,15 @@ components:
         success: { type: boolean, const: true }
         message: { type: string }
         data: { $ref: '#/components/schemas/Pet' }
+        error: { type: 'null' }
+    PetPublicProfileEnvelope:
+      type: object
+      additionalProperties: false
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string, const: 'Pet 공개 프로필이 조회되었습니다.' }
+        data: { $ref: '#/components/schemas/PetPublicProfile' }
         error: { type: 'null' }
     PetCreateResult:
       type: object

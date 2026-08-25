@@ -6,6 +6,7 @@ import itda.common.exception.BusinessException;
 import itda.common.security.CurrentUser;
 import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
+import itda.pet.dto.PetPublicProfileResponse;
 import itda.pet.dto.PetResponse;
 import itda.pet.dto.PetProfileImageRequest;
 import itda.pet.dto.PetSearchItemResponse;
@@ -18,6 +19,7 @@ import itda.pet.service.PetCreationService;
 import itda.pet.service.PetUpdateService;
 import itda.pet.service.PetProfileImageService;
 import itda.pet.service.query.PetSearchQueryService;
+import itda.pet.service.query.PetPublicProfileQueryService;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -46,6 +48,7 @@ public class PetController implements PetSwaggerSupporter {
     private final PetCreationService petCreationService;
     private final MyPetQueryService myPetQueryService;
     private final PetSearchQueryService petSearchQueryService;
+    private final PetPublicProfileQueryService petPublicProfileQueryService;
     private final PetUpdateRequestParser petUpdateRequestParser;
     private final PetUpdateService petUpdateService;
     private final PetProfileImageService petProfileImageService;
@@ -55,6 +58,7 @@ public class PetController implements PetSwaggerSupporter {
             PetCreationService petCreationService,
             MyPetQueryService myPetQueryService,
             PetSearchQueryService petSearchQueryService,
+            PetPublicProfileQueryService petPublicProfileQueryService,
             PetUpdateRequestParser petUpdateRequestParser,
             PetUpdateService petUpdateService,
             PetProfileImageService petProfileImageService,
@@ -63,6 +67,7 @@ public class PetController implements PetSwaggerSupporter {
         this.petCreationService = petCreationService;
         this.myPetQueryService = myPetQueryService;
         this.petSearchQueryService = petSearchQueryService;
+        this.petPublicProfileQueryService = petPublicProfileQueryService;
         this.petUpdateRequestParser = petUpdateRequestParser;
         this.petUpdateService = petUpdateService;
         this.petProfileImageService = petProfileImageService;
@@ -128,6 +133,20 @@ public class PetController implements PetSwaggerSupporter {
         return ResponseEntity.ok(ApiResponse.ok(
                 myPetQueryService.getMyPet(currentUser.id(), petId),
                 "Pet 상세 정보가 조회되었습니다."
+        ));
+    }
+
+    @GetMapping("/{petId}/profile")
+    public ResponseEntity<ApiResponse<PetPublicProfileResponse>> getPublicProfile(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                petPublicProfileQueryService.getPublicProfile(
+                        currentUser.id(),
+                        petId
+                ),
+                "Pet 공개 프로필이 조회되었습니다."
         ));
     }
 
