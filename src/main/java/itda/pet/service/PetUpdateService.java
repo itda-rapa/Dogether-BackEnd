@@ -2,6 +2,7 @@ package itda.pet.service;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.media.domain.Media;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
@@ -9,6 +10,7 @@ import itda.pet.repository.PetRepository;
 import itda.media.service.MediaService;
 import itda.petverification.PetVerificationBadgeService;
 import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,7 +42,7 @@ public class PetUpdateService {
     ) {
         validateCommand(command);
 
-        Pet pet = petRepository.findByIdWithOwner(petId)
+        Pet pet = petRepository.findByIdWithOwnerAndProfileAsset(petId)
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.PET_NOT_FOUND)
                 );
@@ -53,6 +55,7 @@ public class PetUpdateService {
         }
 
         applyUpdate(pet, command);
+        petRepository.flush();
 
         return PetResponse.from(pet, pet.getOwner().isActivePet(petId),
                 profileUrlOf(pet), badgeService.verifiedAt(petId),
@@ -107,8 +110,9 @@ public class PetUpdateService {
         if (pet.getProfileAsset() == null) {
             return null;
         }
-        return mediaService.getPresignedDownloadUrl(
-                pet.getProfileAsset().getId()
-        ).url();
+        Media profileAsset = pet.getProfileAsset();
+        return mediaService.getPresignedDownloadUrls(List.of(profileAsset))
+                .get(profileAsset.getId())
+                .url();
     }
 }

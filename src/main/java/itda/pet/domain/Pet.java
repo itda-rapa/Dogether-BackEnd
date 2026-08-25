@@ -176,6 +176,27 @@ public class Pet extends BaseEntity {
         this.profileAsset = Objects.requireNonNull(profileAsset);
     }
 
+    public boolean replaceProfileAsset(Media profileAsset) {
+        Media newProfileAsset = Objects.requireNonNull(profileAsset);
+        if (this.profileAsset != null
+                && Objects.equals(
+                this.profileAsset.getId(),
+                newProfileAsset.getId()
+        )) {
+            return false;
+        }
+        this.profileAsset = newProfileAsset;
+        return true;
+    }
+
+    public boolean removeProfileAsset() {
+        if (this.profileAsset == null) {
+            return false;
+        }
+        this.profileAsset = null;
+        return true;
+    }
+
     public void changeNickname(String nickname) {
         if (!Objects.equals(this.nickname, nickname)) {
             this.nickname = nickname;

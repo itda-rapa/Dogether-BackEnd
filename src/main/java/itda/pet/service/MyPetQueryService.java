@@ -2,6 +2,7 @@ package itda.pet.service;
 
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.media.domain.Media;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
@@ -9,8 +10,10 @@ import itda.pet.repository.PetRepository;
 import itda.media.service.MediaService;
 import itda.petverification.PetVerificationBadgeService;
 import java.time.Instant;
-import java.util.Map;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,7 +40,7 @@ public class MyPetQueryService {
 
     @Transactional(readOnly = true)
     public PetResponse getMyPet(Long userId, Long petId) {
-        Pet pet = petRepository.findById(petId)
+        Pet pet = petRepository.findByIdWithOwnerAndProfileAsset(petId)
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.PET_NOT_FOUND)
                 );
@@ -51,7 +54,7 @@ public class MyPetQueryService {
         return PetResponse.from(
                 pet,
                 pet.getOwner().isActivePet(petId),
-                profileUrlOf(pet),
+                profileUrlOf(pet, profileDownloads(List.of(pet))),
                 verifiedAt(petId),
                 helpfulReceivedCount(petId)
         );
@@ -80,11 +83,13 @@ public class MyPetQueryService {
         Map<Long, Long> helpfulCounts = helpfulReceivedCounts.countForPets(
                 pets.stream().map(Pet::getId).toList()
         );
+        Map<Long, MediaService.PresignedDownloadUrl> profileDownloads =
+                profileDownloads(pets);
         return pets.stream()
                 .map(pet -> PetResponse.from(
                                 pet,
                                 pet.getOwner().isActivePet(pet.getId()),
-                                profileUrlOf(pet),
+                                profileUrlOf(pet, profileDownloads),
                                 badges.get(pet.getId()),
                                 helpfulCounts.getOrDefault(pet.getId(), 0L)
                         )
@@ -92,13 +97,30 @@ public class MyPetQueryService {
                 .toList();
     }
 
-    private String profileUrlOf(Pet pet) {
+    private Map<Long, MediaService.PresignedDownloadUrl> profileDownloads(
+            Collection<Pet> pets
+    ) {
+        Map<Long, Media> profileAssets = new LinkedHashMap<>();
+        for (Pet pet : pets) {
+            Media profileAsset = pet.getProfileAsset();
+            if (profileAsset != null) {
+                profileAssets.putIfAbsent(profileAsset.getId(), profileAsset);
+            }
+        }
+        if (profileAssets.isEmpty()) {
+            return Map.of();
+        }
+        return mediaService.getPresignedDownloadUrls(profileAssets.values());
+    }
+
+    private String profileUrlOf(
+            Pet pet,
+            Map<Long, MediaService.PresignedDownloadUrl> profileDownloads
+    ) {
         if (pet.getProfileAsset() == null) {
             return null;
         }
-        return mediaService.getPresignedDownloadUrl(
-                pet.getProfileAsset().getId()
-        ).url();
+        return profileDownloads.get(pet.getProfileAsset().getId()).url();
     }
 
     private Instant verifiedAt(Long petId) { return badgeService.verifiedAt(petId); }

@@ -99,7 +99,7 @@ class MyPetQueryServiceTest {
             User owner = user(USER_ID);
             owner.selectActivePet(PET_ID);
             Pet pet = pet(owner, List.of("친화적", "활발함"));
-            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
             given(helpfulReceivedCounts.countForPet(PET_ID)).willReturn(9L);
 
             PetResponse response = service.getMyPet(USER_ID, PET_ID);
@@ -137,18 +137,21 @@ class MyPetQueryServiceTest {
             ReflectionTestUtils.setField(
                     pet, "profileAsset", profileMedia(31L)
             );
-            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
-            given(mediaService.getPresignedDownloadUrl(31L)).willReturn(
-                    new MediaService.PresignedDownloadUrl(
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+            given(mediaService.getPresignedDownloadUrls(anyCollection())).willReturn(Map.of(
+                    31L, new MediaService.PresignedDownloadUrl(
                             "https://presigned.example/pet/31", Instant.now()
                     )
-            );
+            ));
 
             PetResponse response = service.getMyPet(USER_ID, PET_ID);
 
             assertThat(response.profileUrl())
                     .isEqualTo("https://presigned.example/pet/31");
-            then(mediaService).should().getPresignedDownloadUrl(31L);
+            then(mediaService).should().getPresignedDownloadUrls(argThat(
+                    media -> media.stream().map(Media::getId).toList().equals(List.of(31L))
+            ));
+            then(mediaService).should(never()).getPresignedDownloadUrl(31L);
         }
 
         @Test
@@ -156,7 +159,7 @@ class MyPetQueryServiceTest {
         void itReturnsEmptyPersonalityTagsForNullValue() {
             User owner = user(USER_ID);
             Pet pet = pet(owner, null);
-            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
 
             PetResponse response = service.getMyPet(USER_ID, PET_ID);
 
@@ -170,7 +173,7 @@ class MyPetQueryServiceTest {
             User owner = user(USER_ID);
             owner.selectActivePet(3L);
             Pet pet = pet(owner, null);
-            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
 
             assertThat(service.getMyPet(USER_ID, PET_ID).active()).isFalse();
         }
@@ -182,7 +185,7 @@ class MyPetQueryServiceTest {
             owner.selectActivePet(PET_ID);
             Pet pet = pet(owner, null);
             ReflectionTestUtils.setField(pet, "status", PetStatus.SUSPENDED);
-            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
 
             PetResponse response = service.getMyPet(USER_ID, PET_ID);
 
@@ -193,7 +196,7 @@ class MyPetQueryServiceTest {
         @Test
         @DisplayName("It: Pet이 없으면 PET_NOT_FOUND를 반환한다")
         void itRejectsMissingPet() {
-            given(petRepository.findById(PET_ID)).willReturn(Optional.empty());
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.empty());
 
             assertErrorCode(
                     () -> service.getMyPet(USER_ID, PET_ID),
@@ -207,7 +210,7 @@ class MyPetQueryServiceTest {
             Pet pet = pet(user(9L), null);
             ReflectionTestUtils.setField(pet, "status", PetStatus.DELETED);
             ReflectionTestUtils.setField(pet, "deletedAt", Instant.now());
-            given(petRepository.findById(PET_ID)).willReturn(Optional.of(pet));
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
 
             assertErrorCode(
                     () -> service.getMyPet(USER_ID, PET_ID),
@@ -218,7 +221,7 @@ class MyPetQueryServiceTest {
         @Test
         @DisplayName("It: 미삭제 타인 Pet은 PET_NOT_OWNED를 반환한다")
         void itRejectsPetOwnedByAnotherUser() {
-            given(petRepository.findById(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet(user(9L), null)));
 
             assertErrorCode(
@@ -395,17 +398,46 @@ class MyPetQueryServiceTest {
             );
             given(petRepository.findMyPetsOrdered(USER_ID))
                     .willReturn(List.of(profiled));
-            given(mediaService.getPresignedDownloadUrl(32L)).willReturn(
-                    new MediaService.PresignedDownloadUrl(
+            given(mediaService.getPresignedDownloadUrls(anyCollection())).willReturn(Map.of(
+                    32L, new MediaService.PresignedDownloadUrl(
                             "https://presigned.example/pet/32", Instant.now()
                     )
-            );
+            ));
 
             List<PetResponse> responses = service.getMyPets(USER_ID);
 
             assertThat(responses).singleElement()
                     .extracting(PetResponse::profileUrl)
                     .isEqualTo("https://presigned.example/pet/32");
+            then(mediaService).should().getPresignedDownloadUrls(argThat(
+                    media -> media.stream().map(Media::getId).toList().equals(List.of(32L))
+            ));
+            then(mediaService).should(never()).getPresignedDownloadUrl(32L);
+        }
+
+        @Test
+        @DisplayName("It: 여러 fetch-loaded profile Media를 단일 collection signing으로 조립한다")
+        void batchSignsDistinctLoadedProfileAssetsWithoutSingleMediaLookup() {
+            Pet first = pet(user(USER_ID), null);
+            Pet second = pet(user(USER_ID), 3L, "초코#C9N4", "초코", null);
+            Media firstAsset = profileMedia(32L);
+            Media secondAsset = profileMedia(33L);
+            ReflectionTestUtils.setField(first, "profileAsset", firstAsset);
+            ReflectionTestUtils.setField(second, "profileAsset", secondAsset);
+            given(petRepository.findMyPetsOrdered(USER_ID)).willReturn(List.of(first, second));
+            given(mediaService.getPresignedDownloadUrls(anyCollection())).willReturn(Map.of(
+                    32L, new MediaService.PresignedDownloadUrl("https://url/32", Instant.now()),
+                    33L, new MediaService.PresignedDownloadUrl("https://url/33", Instant.now())
+            ));
+
+            List<PetResponse> responses = service.getMyPets(USER_ID);
+
+            assertThat(responses).extracting(PetResponse::profileUrl)
+                    .containsExactly("https://url/32", "https://url/33");
+            then(mediaService).should().getPresignedDownloadUrls(argThat(media ->
+                    media.stream().map(Media::getId).toList().equals(List.of(32L, 33L))
+            ));
+            then(mediaService).should(never()).getPresignedDownloadUrl(org.mockito.ArgumentMatchers.anyLong());
         }
     }
 

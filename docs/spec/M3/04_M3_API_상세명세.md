@@ -50,7 +50,7 @@ Content-Type: application/json
 - Instant: ISO 8601 UTC, 예: `2026-08-20T09:00:00Z`
 - 좌표: WGS84 decimal degree
 - Cursor: 서버가 발급한 opaque 문자열을 Client가 해석하지 않음
-- 알 수 없는 JSON 필드는 `400 VALIDATION_FAILED`로 거절하는 것을 권장
+- JSON 필드 허용 여부와 알 수 없는 필드 처리는 각 endpoint의 runtime 계약을 따른다.
 
 ---
 
@@ -199,6 +199,22 @@ Provider 인증
 
 ## 3. Pet 삭제·이미지
 
+`PetResponse`를 반환하는 API는 `version`을 포함한다. `status`는 현재 Pet 상태
+(`ACTIVE`, `SUSPENDED`, `DELETED`)이며, 삭제된 Pet은 일반적인 본인 Pet 조회에서
+`PET_NOT_FOUND`로 은닉된다. `profileUrl`은 연결된 업로드 완료 IMAGE Media의
+조회 시점 presigned URL이고, 연결되지 않았으면 `null`이다.
+
+### `POST /pets/{petId}/profile-image`
+
+- 인증: Pet 소유 User
+- 성공: `201 Created`와 `PetResponse`
+- body: `{"mediaId":123}` (`mediaId`는 양의 정수)
+- 최초 1회만 연결할 수 있으며 이미 연결된 Pet은 `409 PET_PROFILE_IMAGE_ALREADY_SET`이다.
+- Media는 요청자 소유의 IMAGE이고 `UPLOADED` 또는 `COMPLETED` 상태여야 한다.
+- 오류: `400 VALIDATION_FAILED`, `403 PET_NOT_OWNED`·`MEDIA_NOT_OWNED`,
+  `404 PET_NOT_FOUND`·`MEDIA_NOT_FOUND`, `409 PET_PROFILE_IMAGE_ALREADY_SET`,
+  `422 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
+
 ### `DELETE /pets/{petId}`
 
 - 인증: Pet 소유 User
@@ -217,7 +233,12 @@ Provider 인증
 ### `PUT /pets/{petId}/profile-image`
 
 - Header: `If-Match: "{petVersion}"` 필수
-- PUT/DELETE 모두 같은 Pet version 낙관적 잠금 정책을 사용한다.
+- `If-Match`는 큰따옴표로 감싼 0 이상의 10진수 strong ETag 하나만 허용한다. 예: `If-Match: "3"`.
+- 헤더가 없거나 blank, weak ETag(`W/"3"`), wildcard(`*`), 반복 헤더, comma-separated 값,
+  부호·공백·숫자가 아닌 값·범위를 벗어난 값이면 `400 VALIDATION_FAILED`이며 service를 호출하지 않는다.
+- PUT/DELETE 모두 같은 Pet `version` 낙관적 잠금 정책을 사용한다.
+- 요청 body는 `{"mediaId":123}` 형식이며 `mediaId`는 양의 정수다. 알 수 없는 필드는 이 endpoint에서 별도 오류로 처리하지 않는다.
+- Media는 요청자 소유의 IMAGE이고 상태가 `UPLOADED` 또는 `COMPLETED`여야 한다.
 
 요청:
 
@@ -232,29 +253,45 @@ Provider 인증
 ```json
 {
   "success": true,
-  "message": "프로필 이미지가 변경되었습니다.",
+  "message": "Pet 프로필 이미지가 교체되었습니다.",
   "data": {
-    "petId": 12,
-    "profileImage": {
-      "mediaId": 501,
-      "contentType": "image/jpeg",
-      "url": "https://storage.example/presigned...",
-      "expiresAt": "2026-08-20T09:15:00Z"
-    },
-    "version": 4
+    "petId": 10,
+    "publicTag": "pet#TAG1",
+    "nickname": "초코",
+    "profileUrl": "https://storage.example/presigned...",
+    "status": "ACTIVE",
+    "version": 4,
+    "verified": true,
+    "active": true,
+    "helpfulReceivedCount": 12
   },
   "error": null
 }
 ```
 
-오류: `404 PET_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
+- 실제 Media 교체이면 Pet row의 `version`이 정확히 1 증가한다. 현재 연결과 같은
+  `mediaId`를 다시 지정하면 Media 검증을 먼저 수행한 뒤 no-op으로 처리하며 `version`은 증가하지 않는다.
+- 응답 `data`는 일반 `PetResponse`이며 `version`은 저장된 Pet version과 같다.
+- 이 요청은 Pet의 Media link만 변경한다. Media row, `deletedAt`, S3 객체와
+  `StorageDeleteJob` 생성 여부는 변경하지 않는다.
+
+오류: `400 VALIDATION_FAILED`, `403 PET_NOT_OWNED`·`MEDIA_NOT_OWNED`,
+`404 PET_NOT_FOUND`·`MEDIA_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`,
+`422 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
 
 ### `DELETE /pets/{petId}/profile-image`
 
 - Header: `If-Match: "{petVersion}"` 필수
-- 성공: `204`
-- 기존 Media link를 해제하고, 다른 유효 참조 또는 Evidence 보존 정책이 없는 경우 Media 정책에 따라 StorageDeleteJob 대상에 등록한다.
-- 오류: `409 CONCURRENT_UPDATE_CONFLICT`를 PUT과 동일하게 적용한다.
+- `If-Match` 문법과 version 검사는 PUT과 동일하다. 누락·malformed header는 `400 VALIDATION_FAILED`,
+  stale version은 `409 CONCURRENT_UPDATE_CONFLICT`다.
+- Request body는 없고, 성공은 `204 No Content`다. 응답 body와 DELETE ETag를 반환하지 않는다.
+- 실제 link 해제이면 Pet row의 `version`이 정확히 1 증가한다. 이미 link가 없으면 no-op으로
+  `version`은 증가하지 않는다.
+- 별도의 `MediaRepository` command lookup 및 Media 소유권/type/status validation 없이 Pet의
+  profile link만 해제한다.
+- 이 요청도 Pet의 Media link만 변경한다. Media row, `deletedAt`, S3 객체와
+  `StorageDeleteJob`은 변경하지 않는다. Media 물리 삭제 lifecycle은 이 API 계약에 포함하지 않는다.
+- 오류: `403 PET_NOT_OWNED`, `404 PET_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`.
 
 ---
 
@@ -544,7 +581,10 @@ N+1 방지: feed는 페이지 전체 `BoardPostMedia`의 distinct Media ID를 `f
 
 게시글 생성·수정·목록·상세 응답에서 기존 `reactionCount`·`reactedByMe`는 LIKE 의미를 유지한다. HELPFUL 상태는 `helpfulCount`·`helpfulByMe`로 별도 제공한다.
 
-기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정 응답에는 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다. 공개 타 사용자 Pet profile endpoint, `PetSearchItemResponse`, `PetDisplaySummary` 확장은 이번 범위가 아니다.
+기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정·교체 응답에는
+`version`과 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다.
+프로필 이미지 PUT/DELETE는 Pet link만 변경하고 Media lifecycle을 변경하지 않는다. 공개 타 사용자 Pet
+profile endpoint, `PetSearchItemResponse`, `PetDisplaySummary` 확장은 이번 범위가 아니다.
 
 오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
 
