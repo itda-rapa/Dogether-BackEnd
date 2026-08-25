@@ -16,6 +16,14 @@ spring:
     bootstrap-servers: localhost:9092
 
 app:
+  kakao:
+    local:
+      base-url: http://localhost
+      rest-api-key: test-kakao-rest-api-key
+  location:
+    max-capture-age: 5m
+    future-tolerance: 30s
+    quality-threshold-meters: 50
   setlog-upload:
     require-version-id: false
   jwt:
