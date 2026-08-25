@@ -13,6 +13,8 @@ public enum ErrorCode {
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증에 실패했습니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "현재 계정에 권한이 없습니다."),
+    INVALID_DATE_RANGE(HttpStatus.BAD_REQUEST, "조회 시작일과 종료일을 올바르게 입력해주세요."),
+    DATE_RANGE_TOO_LARGE(HttpStatus.BAD_REQUEST, "조회 기간은 최대 90일까지 가능합니다."),
     CONCURRENT_UPDATE_CONFLICT(
             HttpStatus.CONFLICT,
             "동시 요청으로 상태가 변경되었습니다. 다시 시도해주세요."

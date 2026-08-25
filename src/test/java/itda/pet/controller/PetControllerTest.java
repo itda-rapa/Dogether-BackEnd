@@ -7,9 +7,12 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,6 +36,7 @@ import itda.pet.service.PetUpdateCommand;
 import itda.pet.service.PetUpdateService;
 import itda.pet.service.PetProfileImageService;
 import itda.pet.service.query.PetSearchQueryService;
+import itda.pet.support.IfMatchVersionParser;
 import itda.user.domain.Role;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -50,6 +54,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -58,7 +63,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(PetController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@Import(PetUpdateRequestParser.class)
+@Import({PetUpdateRequestParser.class, IfMatchVersionParser.class})
 @DisplayName("PetController")
 class PetControllerTest {
 
@@ -136,7 +141,7 @@ class PetControllerTest {
                     .andExpect(jsonPath("$.error").isEmpty())
                     .andExpect(jsonPath("$.data.pet.firstPetCandidate")
                             .doesNotExist())
-                    .andExpect(jsonPath("$.data.pet.version").doesNotExist())
+                    .andExpect(jsonPath("$.data.pet.version").value(0))
                     .andExpect(jsonPath("$.data.pet.owner").doesNotExist())
                     .andExpect(jsonPath("$.data.pet.profileAsset").doesNotExist());
             InOrder order = inOrder(petCreationService, myPetQueryService);
@@ -437,7 +442,7 @@ class PetControllerTest {
                             .value("SUSPENDED"))
                     .andExpect(jsonPath("$.error").isEmpty())
                     .andExpect(jsonPath("$.data[0].owner").doesNotExist())
-                    .andExpect(jsonPath("$.data[0].version").doesNotExist());
+                    .andExpect(jsonPath("$.data[0].version").value(0));
             then(myPetQueryService).should().getMyPets(USER_ID);
             then(myPetQueryService).should(never())
                     .getMyPet(any(), any());
@@ -636,7 +641,7 @@ class PetControllerTest {
                     .andExpect(jsonPath("$.data.verifiedAt").isEmpty())
                     .andExpect(jsonPath("$.error").isEmpty())
                     .andExpect(jsonPath("$.data.owner").doesNotExist())
-                    .andExpect(jsonPath("$.data.version").doesNotExist());
+                    .andExpect(jsonPath("$.data.version").value(0));
             then(myPetQueryService).should().getMyPet(USER_ID, PET_ID);
         }
 
@@ -716,8 +721,8 @@ class PetControllerTest {
                     response.neutered(), response.birthDate(), response.weightKg(),
                     response.sizeCode(), response.bio(), response.personalityTags(),
                     response.careNote(), "https://presigned.example/media/3",
-                    response.status(), response.deletedAt(), response.verified(),
-                    response.verifiedAt(), response.active()
+                    response.status(), response.deletedAt(), response.version(), response.verified(),
+                    response.verifiedAt(), response.active(), response.helpfulReceivedCount()
             );
             given(petProfileImageService.setInitialProfileImage(
                     USER_ID, PET_ID, 3L
@@ -754,8 +759,203 @@ class PetControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: PUT /pets/{petId}/profile-image")
+    class DescribeReplaceProfileImage {
+
+        @Test
+        @DisplayName("It: strong If-Match version을 전달해 200과 version 포함 PetResponse를 반환한다")
+        void replacesProfileImage() throws Exception {
+            PetResponse response = petResponseWithVersion(true, 5L);
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, 3L, 4L))
+                    .willReturn(response);
+
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"4\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.data.version").value(5));
+
+            then(petProfileImageService).should()
+                    .replaceProfileImage(USER_ID, PET_ID, 3L, 4L);
+        }
+
+        @Test
+        @DisplayName("It: 누락·반복·malformed If-Match는 400이고 Service를 호출하지 않는다")
+        void rejectsInvalidIfMatchBeforeServiceInvocation() throws Exception {
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"4\"", "\"5\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "W/\"4\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"4\", \"5\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petProfileImageService).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: stale If-Match는 누락·null·0·음수 mediaId보다 먼저 409으로 Service에 전달된다")
+        void staleIfMatchPrecedesInvalidBodyValidation()
+                throws Exception {
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, null, 2L))
+                    .willThrow(new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT));
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, 0L, 2L))
+                    .willThrow(new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT));
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, -1L, 2L))
+                    .willThrow(new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT));
+
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()));
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":null}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()));
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":0}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()));
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":-1}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()));
+
+            then(petProfileImageService).should(times(2))
+                    .replaceProfileImage(USER_ID, PET_ID, null, 2L);
+            then(petProfileImageService).should()
+                    .replaceProfileImage(USER_ID, PET_ID, 0L, 2L);
+            then(petProfileImageService).should()
+                    .replaceProfileImage(USER_ID, PET_ID, -1L, 2L);
+        }
+
+        @Test
+        @DisplayName("It: unknown body field는 허용하고 known mediaId만 Service에 전달한다")
+        void toleratesUnknownProfileImageField() throws Exception {
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, 3L, 2L))
+                    .willReturn(petResponse(true));
+
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3,\"unknown\":true}"))
+                    .andExpect(status().isOk());
+
+            then(petProfileImageService).should()
+                    .replaceProfileImage(USER_ID, PET_ID, 3L, 2L);
+        }
+
+        @Test
+        @DisplayName("It: stale version은 CONCURRENT_UPDATE_CONFLICT 409를 반환한다")
+        void returnsConflictForStaleVersion() throws Exception {
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, 3L, 2L))
+                    .willThrow(new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT));
+
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()));
+
+            then(petProfileImageService).should()
+                    .replaceProfileImage(USER_ID, PET_ID, 3L, 2L);
+        }
+
+        @Test
+        @DisplayName("It: actual optimistic lock failure도 409 CONCURRENT_UPDATE_CONFLICT다")
+        void mapsOptimisticLockFailureToConflict() throws Exception {
+            given(petProfileImageService.replaceProfileImage(USER_ID, PET_ID, 3L, 2L))
+                    .willThrow(new ObjectOptimisticLockingFailureException(
+                            "itda.pet.domain.Pet", PET_ID
+                    ));
+
+            mockMvc.perform(put("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"2\"")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"mediaId\":3}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()));
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: DELETE /pets/{petId}/profile-image")
+    class DescribeDeleteProfileImage {
+
+        @Test
+        @DisplayName("It: If-Match version을 전달하고 204 body 없이 반환한다")
+        void deletesProfileImageWithoutBodyOrEtag() throws Exception {
+            mockMvc.perform(delete("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "\"4\""))
+                    .andExpect(status().isNoContent())
+                    .andExpect(jsonPath("$").doesNotExist())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .header().doesNotExist("ETag"));
+
+            then(petProfileImageService).should().deleteProfileImage(USER_ID, PET_ID, 4L);
+        }
+
+        @Test
+        @DisplayName("It: malformed If-Match는 400이고 delete Service를 호출하지 않는다")
+        void rejectsMalformedIfMatchBeforeDeleteServiceInvocation() throws Exception {
+            mockMvc.perform(delete("/pets/{petId}/profile-image", PET_ID)
+                            .header("If-Match", "3"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+
+            then(petProfileImageService).shouldHaveNoInteractions();
+        }
+    }
+
     private PetResponse petResponse(boolean active) {
         return petResponse(PET_ID, PetStatus.ACTIVE, active);
+    }
+
+    private PetResponse petResponseWithVersion(boolean active, long version) {
+        PetResponse response = petResponse(active);
+        return new PetResponse(
+                response.petId(), response.ownerUserId(),
+                response.publicTag(), response.ownerPublicTag(),
+                response.nickname(), response.breedName(), response.sex(),
+                response.neutered(), response.birthDate(), response.weightKg(),
+                response.sizeCode(), response.bio(), response.personalityTags(), response.careNote(),
+                response.profileUrl(), response.status(), response.deletedAt(), version,
+                response.verified(), response.verifiedAt(), response.active(), response.helpfulReceivedCount()
+        );
     }
 
     private PetSearchItemResponse searchItem(
@@ -795,9 +995,11 @@ class PetControllerTest {
                 null,
                 status,
                 null,
+                0L,
                 false,
                 null,
-                active
+                active,
+                0L
         );
     }
 }

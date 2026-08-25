@@ -19,10 +19,21 @@
 | POST | `/auth/oauth/signup` | 신규 OAuth 사용자 프로필 입력·가입 완료 |
 | POST | `/auth/oauth/link` | 동일 이메일 기존 계정 본인 확인 후 Provider 연결(D-02 선택 시) |
 | DELETE | `/pets/{petId}` | Pet Soft Delete |
-| PUT | `/pets/{petId}/profile-image` | 프로필 이미지 교체 |
-| DELETE | `/pets/{petId}/profile-image` | 프로필 이미지 제거 |
+| POST | `/pets/{petId}/profile-image` | 최초 프로필 이미지 설정, 201 `PetResponse` |
+| PUT | `/pets/{petId}/profile-image` | `If-Match` 필수 프로필 이미지 교체, 200 `PetResponse` |
+| DELETE | `/pets/{petId}/profile-image` | `If-Match` 필수 프로필 이미지 link 제거, 204 body 없음 |
 
-기존 `PetResponse` 소비 endpoint는 `helpfulReceivedCount`를 포함한다. 이는 삭제되지 않은 게시글과 댓글이 받은 HELPFUL 합계이며 LIKE는 포함하지 않는다. 타 사용자 public Pet profile endpoint를 새로 만들지 않는다.
+기존 `PetResponse` 소비 endpoint는 `version`과 `helpfulReceivedCount`를 포함한다. `status`는
+`ACTIVE`·`SUSPENDED`·`DELETED`이며, `helpfulReceivedCount`는 삭제되지 않은 게시글과 댓글이
+받은 HELPFUL 합계이고 LIKE는 포함하지 않는다. 타 사용자 public Pet profile endpoint를 새로 만들지 않는다.
+
+프로필 이미지 PUT/DELETE의 `If-Match`는 큰따옴표로 감싼 0 이상의 10진수 하나만 허용한다
+(예: `If-Match: "3"`). 누락·malformed·반복 헤더는 `400 VALIDATION_FAILED`, stale version은
+`409 CONCURRENT_UPDATE_CONFLICT`다. PUT body는 양의 `mediaId`만 허용하며 IMAGE이고
+`UPLOADED` 또는 `COMPLETED`인 Media만 연결한다. 같은 Media PUT은 Media 검증 뒤 no-op으로
+`version`을 유지한다. 이미 비어 있는 DELETE는 별도의 MediaRepository command lookup 및 Media 소유권/type/status validation 없이 no-op으로 `version`을
+유지하고, 실제 link 교체·제거만 `version`을 1 증가시킨다.
+두 mutation은 Pet link만 변경하며 Media row/`deletedAt`/S3/`StorageDeleteJob`을 변경하지 않는다.
 
 ## 3. 게시판
 

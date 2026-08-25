@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 
 import itda.common.constants.ErrorCode;
@@ -21,6 +22,8 @@ import itda.pet.service.query.PetHelpfulReceivedCountQueryService;
 import itda.petverification.PetVerificationBadgeService;
 import itda.user.domain.User;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -72,12 +75,11 @@ class PetProfileImageServiceTest {
                 .willReturn(Optional.of(pet));
         given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID))
                 .willReturn(Optional.of(media));
-        given(mediaService.getPresignedDownloadUrl(MEDIA_ID)).willReturn(
-                new MediaService.PresignedDownloadUrl(
-                        "https://presigned.example/media/3",
-                        Instant.now()
+        given(mediaService.getPresignedDownloadUrls(List.of(media))).willReturn(Map.of(
+                MEDIA_ID, new MediaService.PresignedDownloadUrl(
+                        "https://presigned.example/media/3", Instant.now()
                 )
-        );
+        ));
 
         PetResponse response = service.setInitialProfileImage(
                 USER_ID, PET_ID, MEDIA_ID
@@ -86,7 +88,9 @@ class PetProfileImageServiceTest {
         assertThat(pet.getProfileAsset()).isSameAs(media);
         assertThat(response.profileUrl())
                 .isEqualTo("https://presigned.example/media/3");
-        then(mediaService).should().getPresignedDownloadUrl(MEDIA_ID);
+        then(petRepository).should().flush();
+        then(mediaService).should().getPresignedDownloadUrls(List.of(media));
+        then(mediaService).should(never()).getPresignedDownloadUrl(MEDIA_ID);
     }
 
     @Test
@@ -97,8 +101,9 @@ class PetProfileImageServiceTest {
         Instant verifiedAt = Instant.parse("2026-08-12T12:00:00Z");
         given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
         given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID)).willReturn(Optional.of(media));
-        given(mediaService.getPresignedDownloadUrl(MEDIA_ID))
-                .willReturn(new MediaService.PresignedDownloadUrl("https://presigned.example/media/3", Instant.now()));
+        given(mediaService.getPresignedDownloadUrls(List.of(media)))
+                .willReturn(Map.of(MEDIA_ID, new MediaService.PresignedDownloadUrl(
+                        "https://presigned.example/media/3", Instant.now())));
         given(badgeService.verifiedAt(PET_ID)).willReturn(verifiedAt);
         given(helpfulReceivedCounts.countForPet(PET_ID)).willReturn(4L);
 
@@ -121,9 +126,9 @@ class PetProfileImageServiceTest {
                 .willReturn(Optional.of(pet));
         given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID))
                 .willReturn(Optional.of(media));
-        given(mediaService.getPresignedDownloadUrl(MEDIA_ID)).willReturn(
-                new MediaService.PresignedDownloadUrl("https://url", Instant.now())
-        );
+        given(mediaService.getPresignedDownloadUrls(List.of(media))).willReturn(Map.of(
+                MEDIA_ID, new MediaService.PresignedDownloadUrl("https://url", Instant.now())
+        ));
 
         service.setInitialProfileImage(USER_ID, PET_ID, MEDIA_ID);
 
@@ -190,6 +195,157 @@ class PetProfileImageServiceTest {
         then(mediaRepository).shouldHaveNoInteractions();
     }
 
+    @Test
+    @DisplayName("PUT은 검증한 Media로 기존 프로필을 교체하고 flush 뒤 version 응답을 조립한다")
+    void replacesProfileImageAndReusesValidatedMediaForSigning() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        Media previous = media(4L, USER_ID, MediaType.IMAGE, MediaStatus.UPLOADED, null);
+        Media replacement = media(MEDIA_ID, USER_ID, MediaType.IMAGE, MediaStatus.COMPLETED, null);
+        ReflectionTestUtils.setField(pet, "profileAsset", previous);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+        given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID)).willReturn(Optional.of(replacement));
+        given(mediaService.getPresignedDownloadUrls(List.of(replacement))).willReturn(Map.of(
+                MEDIA_ID, new MediaService.PresignedDownloadUrl("https://url/3", Instant.now())
+        ));
+
+        PetResponse response = service.replaceProfileImage(USER_ID, PET_ID, MEDIA_ID, 3L);
+
+        assertThat(pet.getProfileAsset()).isSameAs(replacement);
+        assertThat(response.profileUrl()).isEqualTo("https://url/3");
+        then(petRepository).should().flush();
+        then(mediaService).should().getPresignedDownloadUrls(List.of(replacement));
+        then(mediaService).should(never()).getPresignedDownloadUrl(MEDIA_ID);
+    }
+
+    @Test
+    @DisplayName("same-media PUT도 Media 검증 후 현재 version을 유지하고 flush하지 않는다")
+    void validatesSameMediaBeforeNoOpWithoutFlush() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        Media existing = media(MEDIA_ID, USER_ID, MediaType.IMAGE, MediaStatus.UPLOADED, null);
+        ReflectionTestUtils.setField(pet, "profileAsset", existing);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+        given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID)).willReturn(Optional.of(existing));
+        given(mediaService.getPresignedDownloadUrls(List.of(existing))).willReturn(Map.of(
+                MEDIA_ID, new MediaService.PresignedDownloadUrl("https://url/3", Instant.now())
+        ));
+
+        PetResponse response = service.replaceProfileImage(USER_ID, PET_ID, MEDIA_ID, 3L);
+
+        assertThat(response.version()).isEqualTo(3L);
+        then(mediaRepository).should().findByIdAndDeletedAtIsNull(MEDIA_ID);
+        then(petRepository).should(never()).flush();
+    }
+
+    @Test
+    @DisplayName("same-media PUT도 IMAGE·업로드 상태 검증을 생략하지 않는다")
+    void rejectsInvalidSameMediaBeforeNoOp() {
+        assertSameMediaValidationError(
+                media(MEDIA_ID, USER_ID, MediaType.VIDEO, MediaStatus.UPLOADED, null),
+                ErrorCode.INVALID_MEDIA_TYPE
+        );
+        assertSameMediaValidationError(
+                media(MEDIA_ID, USER_ID, MediaType.IMAGE, MediaStatus.INIT, null),
+                ErrorCode.MEDIA_NOT_UPLOADED
+        );
+        assertSameMediaValidationError(
+                media(MEDIA_ID, 9L, MediaType.IMAGE, MediaStatus.UPLOADED, null),
+                ErrorCode.MEDIA_NOT_OWNED
+        );
+    }
+
+    @Test
+    @DisplayName("same-media PUT도 missing/deleted Media를 no-op으로 처리하지 않는다")
+    void rejectsMissingSameMediaBeforeNoOp() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        Media existing = media(MEDIA_ID, USER_ID, MediaType.IMAGE, MediaStatus.UPLOADED, null);
+        ReflectionTestUtils.setField(pet, "profileAsset", existing);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+        given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID)).willReturn(Optional.empty());
+
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, MEDIA_ID, 3L),
+                ErrorCode.MEDIA_NOT_FOUND);
+
+        assertThat(pet.getProfileAsset()).isSameAs(existing);
+        then(petRepository).should(never()).flush();
+        then(mediaService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("stale PUT과 DELETE는 Media 검증보다 먼저 CONCURRENT_UPDATE_CONFLICT다")
+    void rejectsStaleVersionBeforeMediaValidation() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, MEDIA_ID, 2L),
+                ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        assertError(() -> service.deleteProfileImage(USER_ID, PET_ID, 2L),
+                ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        then(mediaRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("stale PUT은 null·0·음수 mediaId보다 먼저 CONCURRENT_UPDATE_CONFLICT다")
+    void stalePutPrecedesAllInvalidMediaIds() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
+                .willReturn(Optional.of(pet));
+
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, null, 2L),
+                ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, 0L, 2L),
+                ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, -1L, 2L),
+                ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+
+        then(mediaRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("current PUT은 null·0·음수 mediaId를 Media 조회 전에 VALIDATION_FAILED로 거절한다")
+    void currentPutRejectsInvalidMediaIdsBeforeMediaLookup() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
+                .willReturn(Optional.of(pet));
+
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, null, 3L),
+                ErrorCode.VALIDATION_FAILED);
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, 0L, 3L),
+                ErrorCode.VALIDATION_FAILED);
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, -1L, 3L),
+                ErrorCode.VALIDATION_FAILED);
+
+        then(mediaRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
+    @DisplayName("DELETE는 연결만 제거하고 actual mutation에서만 flush한다")
+    void deletesProfileImageAndSkipsFlushForAlreadyNullProfile() {
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        Media existing = media(MEDIA_ID, USER_ID, MediaType.IMAGE, MediaStatus.UPLOADED, null);
+        ReflectionTestUtils.setField(pet, "profileAsset", existing);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+
+        service.deleteProfileImage(USER_ID, PET_ID, 3L);
+
+        assertThat(pet.getProfileAsset()).isNull();
+        then(petRepository).should().flush();
+        reset(petRepository);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
+
+        service.deleteProfileImage(USER_ID, PET_ID, 3L);
+
+        then(petRepository).should(never()).flush();
+        then(mediaRepository).shouldHaveNoInteractions();
+        then(mediaService).shouldHaveNoInteractions();
+    }
+
     private void assertMediaError(Media media, ErrorCode errorCode) {
         reset(petRepository, mediaRepository, mediaService);
         Pet pet = pet(USER_ID, PetStatus.ACTIVE);
@@ -207,6 +363,29 @@ class PetProfileImageServiceTest {
                 USER_ID, PET_ID, MEDIA_ID
         ), errorCode);
         assertThat(pet.getProfileAsset()).isNull();
+    }
+
+    private void assertSameMediaValidationError(
+            Media invalidSameIdMedia,
+            ErrorCode errorCode
+    ) {
+        reset(petRepository, mediaRepository, mediaService);
+        Pet pet = pet(USER_ID, PetStatus.ACTIVE);
+        Media existing = media(MEDIA_ID, USER_ID, MediaType.IMAGE,
+                MediaStatus.UPLOADED, null);
+        ReflectionTestUtils.setField(pet, "profileAsset", existing);
+        ReflectionTestUtils.setField(pet, "version", 3L);
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
+                .willReturn(Optional.of(pet));
+        given(mediaRepository.findByIdAndDeletedAtIsNull(MEDIA_ID))
+                .willReturn(Optional.of(invalidSameIdMedia));
+
+        assertError(() -> service.replaceProfileImage(USER_ID, PET_ID, MEDIA_ID, 3L),
+                errorCode);
+
+        assertThat(pet.getProfileAsset()).isSameAs(existing);
+        then(petRepository).should(never()).flush();
+        then(mediaService).shouldHaveNoInteractions();
     }
 
     private Pet pet(Long ownerId, PetStatus status) {

@@ -11,6 +11,7 @@ import itda.pet.dto.PetProfileImageRequest;
 import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.dto.PetUpdateRequest;
 import itda.pet.dto.PetUpdateRequestParser;
+import itda.pet.support.IfMatchVersionParser;
 import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
@@ -29,7 +30,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,6 +49,7 @@ public class PetController implements PetSwaggerSupporter {
     private final PetUpdateRequestParser petUpdateRequestParser;
     private final PetUpdateService petUpdateService;
     private final PetProfileImageService petProfileImageService;
+    private final IfMatchVersionParser ifMatchVersionParser;
 
     public PetController(
             PetCreationService petCreationService,
@@ -52,7 +57,8 @@ public class PetController implements PetSwaggerSupporter {
             PetSearchQueryService petSearchQueryService,
             PetUpdateRequestParser petUpdateRequestParser,
             PetUpdateService petUpdateService,
-            PetProfileImageService petProfileImageService
+            PetProfileImageService petProfileImageService,
+            IfMatchVersionParser ifMatchVersionParser
     ) {
         this.petCreationService = petCreationService;
         this.myPetQueryService = myPetQueryService;
@@ -60,6 +66,7 @@ public class PetController implements PetSwaggerSupporter {
         this.petUpdateRequestParser = petUpdateRequestParser;
         this.petUpdateService = petUpdateService;
         this.petProfileImageService = petProfileImageService;
+        this.ifMatchVersionParser = ifMatchVersionParser;
     }
 
     @PostMapping
@@ -139,6 +146,42 @@ public class PetController implements PetSwaggerSupporter {
                         ),
                         "Pet 프로필 이미지가 설정되었습니다."
                 ));
+    }
+
+    @PutMapping("/{petId}/profile-image")
+    public ResponseEntity<ApiResponse<PetResponse>> replaceProfileImage(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId,
+            @RequestHeader(value = "If-Match", required = false)
+            List<String> ifMatchValues,
+            @RequestBody PetProfileImageRequest request
+    ) {
+        long expectedVersion = ifMatchVersionParser.parse(ifMatchValues);
+        return ResponseEntity.ok(ApiResponse.ok(
+                petProfileImageService.replaceProfileImage(
+                        currentUser.id(),
+                        petId,
+                        request.mediaId(),
+                        expectedVersion
+                ),
+                "Pet 프로필 이미지가 교체되었습니다."
+        ));
+    }
+
+    @DeleteMapping("/{petId}/profile-image")
+    public ResponseEntity<Void> deleteProfileImage(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId,
+            @RequestHeader(value = "If-Match", required = false)
+            List<String> ifMatchValues
+    ) {
+        long expectedVersion = ifMatchVersionParser.parse(ifMatchValues);
+        petProfileImageService.deleteProfileImage(
+                currentUser.id(),
+                petId,
+                expectedVersion
+        );
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{petId}")

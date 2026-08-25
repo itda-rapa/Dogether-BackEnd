@@ -46,7 +46,7 @@
 - OAuth callback·신규 signup·동일 이메일 연결 후보 계약 보완
 - Board/Comment 응답을 현재 DTO와 하위 호환되게 수정
 - 대댓글 조회·Place upsert·PATCH 생략/null 의미 명시
-- Pet 이미지 동시성·StorageDeleteJob 조건 보완
+- Pet 이미지 동시성·link-only Media lifecycle 조건 보완
 - FriendRequest RiskSignal, Redis 완료 기준, Media batch WBS 보완
 
 ## 노동훈 피드백 반영 위치
