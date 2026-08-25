@@ -204,6 +204,23 @@ Provider 인증
 `PET_NOT_FOUND`로 은닉된다. `profileUrl`은 연결된 업로드 완료 IMAGE Media의
 조회 시점 presigned URL이고, 연결되지 않았으면 `null`이다.
 
+### `GET /pets/{petId}/profile`
+
+- 인증: 로그인 User
+- 성공: `200 ApiResponse<PetPublicProfileResponse>`, message는 `Pet 공개 프로필이 조회되었습니다.`
+- `data`는 `petId`, `publicTag`, `nickname`, `profileUrl`, `verified`, `breedName`, `sex`,
+  `neutered`, `birthDate`, `sizeCode`, `bio`, `personalityTags`, `helpfulReceivedCount`,
+  `relationship`만 반환한다. `personalityTags`는 빈 경우에도 `[]`이며, `profileUrl`은 profile Media가
+  없으면 `null`이다.
+- 공개 대상은 `status=ACTIVE`, `deletedAt=null`, 소유자 `accountStatus=ACTIVE`를 모두 만족해야 한다.
+  Pet 부재, 정지·삭제·soft-delete Pet, 비활성 소유자, 조회자→소유자 또는 소유자→조회자 Block은 모두
+  `404 PET_NOT_FOUND`로 existence hiding 한다.
+- 자기 Pet은 조회 가능하되 `relationship=null`이며 Active Pet·FriendRelationship 조회를 하지 않는다.
+  비자기 대상도 조회자의 Active Pet이 없으면 성공하고 `relationship=null`이다. 유효 Active Pet이 있을
+  때만 기존 FriendRelationship의 `NONE`, `REQUEST_SENT`, `REQUEST_RECEIVED`, `FRIEND`를 계산한다.
+- `verified`는 기존 verification badge 결과만 공개하고 `verifiedAt`은 반환하지 않는다. `helpfulReceivedCount`는
+  기존 HELPFUL 집계 기준을 변경하지 않는다.
+
 ### `POST /pets/{petId}/profile-image`
 
 - 인증: Pet 소유 User
@@ -467,6 +484,33 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 }
 ```
 
+### `POST /posts/{postId}/comments/{commentId}/direct-room`
+
+게시글에 직접 작성된 Root 댓글 작성자 Pet과 게시글 작성자 Pet 사이의 기존 DIRECT 채팅방을 조회하거나 생성한다. 새 DIRECT room이 생성되면 `origin=BOARD_COMMENT`로 저장하며, 기존 room 재사용 시 origin은 변경하지 않는다.
+
+- 인증: Bearer JWT
+- Request body: 없음
+- Controller 입력: `CurrentUser`, `postId`, `commentId`만 사용한다. Pet ID를 body·header·JWT claim에서 받지 않는다.
+- 대상 Comment: 요청 Post에 속한 active Root(`depth=0`, `parentCommentId=null`, `rootCommentId=null`)만 허용하며 Reply는 `404 BOARD_POST_COMMENT_NOT_FOUND`다.
+- 호출 권한: Active Pet이 Post author Pet 또는 Comment author Pet이 아니면 기존 `FORBIDDEN`(403)으로 거부하고 Chat Core를 호출하지 않는다.
+- same Pet: `CHAT_ROOM_SAME_PET_FORBIDDEN`(400)
+- same-owner Pet: `SAME_OWNER_INTERACTION_FORBIDDEN`(400)
+- Block: 양방향 Block이면 `CHAT_ROOM_NOT_FOUND`(404)로 existence hiding한다.
+- 삭제/비공개: 삭제 Post는 `BOARD_POST_NOT_FOUND`, 삭제 Comment는 `BOARD_POST_COMMENT_NOT_FOUND`로 Board visibility 계약을 따른다. 기존 room은 Chat 경로로만 접근한다.
+
+응답은 `200 ApiResponse<EnsureDirectRoomResult>`다.
+
+```json
+{
+  "success": true,
+  "message": "DIRECT 채팅방이 연결되었습니다.",
+  "data": { "roomId": 1, "isNew": true },
+  "error": null
+}
+```
+
+Board 계층은 Post/Comment identity·visibility와 호출 권한만 확인한다. DIRECT pair 정규화, 기존 room 재사용, Participant 생성, DB 중복 방지, Chat existence hiding은 기존 `ChatRoomService.ensureDirectRoom(...)`과 Chat 조회 계약의 책임이다.
+
 ### `POST /boards/{boardId}/posts`
 
 아래 `placeId` 요청·응답 계약은 기존 M3 Place 제품 계획 계약이다. Issue #124는 Place를 구현하거나 변경하지 않으며, 현재 runtime POST parser는 `title`·`content`·선택 `mediaIds`만, PATCH parser는 이 절의 `title`·`content`·`mediaIds`·`version` 계약만 받는다.
@@ -584,7 +628,8 @@ N+1 방지: feed는 페이지 전체 `BoardPostMedia`의 distinct Media ID를 `f
 기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정·교체 응답에는
 `version`과 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다.
 프로필 이미지 PUT/DELETE는 Pet link만 변경하고 Media lifecycle을 변경하지 않는다. 공개 타 사용자 Pet
-profile endpoint, `PetSearchItemResponse`, `PetDisplaySummary` 확장은 이번 범위가 아니다.
+profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearchItemResponse`와
+`PetDisplaySummary`는 확장하지 않는다.
 
 오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
 

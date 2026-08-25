@@ -100,6 +100,19 @@ class RiskSignalOutboxRelayWorkerTest {
     }
 
     @Test
+    void publishFailureFromAnOldClaimIsFencedInsteadOfSchedulingRetry() {
+        ClaimedRiskSignal event = RiskSignalKafkaPublisherTest.event(1);
+        when(claims.claim(1, properties.lease())).thenReturn(List.of(event), List.of());
+        doThrow(failure()).when(publisher).publish(event, properties.sendTimeout());
+        when(claims.retry(eq(event), any(Instant.class), any(String.class))).thenReturn(false);
+
+        assertThat(worker.runOnce()).isEqualTo(new RiskSignalOutboxRelayWorker.Result(0, 0, 0, 1));
+
+        verify(metrics).recordResult(event, "fenced");
+        verify(metrics, never()).recordResult(event, "retried");
+    }
+
+    @Test
     void claimsOneAtATimeUpToConfiguredCycleLimit() {
         ClaimedRiskSignal first = RiskSignalKafkaPublisherTest.event(1);
         ClaimedRiskSignal second = new ClaimedRiskSignal(

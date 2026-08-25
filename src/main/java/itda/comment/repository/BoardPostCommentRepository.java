@@ -14,6 +14,24 @@ public interface BoardPostCommentRepository extends JpaRepository<BoardPostComme
 
     Optional<BoardPostComment> findByIdAndDeletedAtIsNull(Long commentId);
 
+    /**
+     * Reads only the identity and hierarchy shape needed before the interaction pair lock.
+     * This projection must not materialize a managed BoardPostComment entity.
+     */
+    @Query("""
+            SELECT comment.id AS commentId,
+                   comment.postId AS postId,
+                   comment.authorUserId AS authorUserId,
+                   comment.authorPetId AS authorPetId,
+                   comment.parentCommentId AS parentCommentId,
+                   comment.rootCommentId AS rootCommentId,
+                   comment.depth AS depth,
+                   comment.deletedAt AS deletedAt
+            FROM BoardPostComment comment
+            WHERE comment.id = :commentId
+            """)
+    Optional<ShareIdentity> findShareIdentityById(@Param("commentId") Long commentId);
+
     @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("""
             SELECT comment
@@ -31,6 +49,25 @@ public interface BoardPostCommentRepository extends JpaRepository<BoardPostComme
               AND comment.deletedAt IS NULL
             """)
     Optional<BoardPostComment> findActiveByIdForUpdate(@Param("commentId") Long commentId);
+
+    interface ShareIdentity {
+
+        Long getCommentId();
+
+        Long getPostId();
+
+        Long getAuthorUserId();
+
+        Long getAuthorPetId();
+
+        Long getParentCommentId();
+
+        Long getRootCommentId();
+
+        Short getDepth();
+
+        Instant getDeletedAt();
+    }
 
     @Query(value = """
             SELECT board_comment.*
