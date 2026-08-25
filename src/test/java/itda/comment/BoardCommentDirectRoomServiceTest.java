@@ -7,6 +7,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.anyLong;
 
 import itda.block.service.BlockRelationshipQueryService;
 import itda.boardpost.domain.BoardPost;
@@ -18,13 +19,15 @@ import itda.chat.service.ChatRoomService;
 import itda.comment.domain.BoardPostComment;
 import itda.comment.repository.BoardPostCommentRepository;
 import itda.comment.service.BoardCommentDirectRoomService;
+import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.dto.LockedPetContext;
 import itda.interaction.dto.LockedUserContext;
 import itda.interaction.service.InteractionPairLockService;
-import itda.interaction.service.InteractionTargetQueryService;
 import itda.pet.domain.PetStatus;
+import itda.pet.service.query.ActivePetContext;
+import itda.pet.service.query.ActivePetQueryService;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
@@ -43,11 +46,10 @@ class BoardCommentDirectRoomServiceTest {
     @Mock private BoardPostRepository posts;
     @Mock private BoardPostCommentRepository comments;
     @Mock private UserRepository users;
+    @Mock private ActivePetQueryService activePetQueryService;
     @Mock private InteractionPairLockService pairLocks;
     @Mock private BlockRelationshipQueryService blocks;
     @Mock private ChatRoomService chatRooms;
-
-    private final InteractionTargetQueryService targets = new InteractionTargetQueryService();
 
     @Test
     void readsIdentityLocksPairThenReReadsAuthoritativeResourcesBeforeVisibility() {
@@ -62,13 +64,29 @@ class BoardCommentDirectRoomServiceTest {
         EnsureDirectRoomResult result = service().ensureDirectRoom(1L, 10L, 20L);
 
         assertThat(result).isEqualTo(new EnsureDirectRoomResult(99L, false));
-        InOrder order = inOrder(posts, comments, pairLocks);
+        InOrder order = inOrder(posts, comments, activePetQueryService, pairLocks);
         order.verify(posts).findShareIdentityById(10L);
         order.verify(comments).findShareIdentityById(20L);
+        order.verify(activePetQueryService).requireActivePet(1L);
         order.verify(pairLocks).lockInteractionPair(11L, 22L);
         order.verify(posts).findPublishedByIdForShare(10L);
         order.verify(comments).findActiveByIdForShare(20L);
         then(chatRooms).should().ensureDirectRoom(11L, 22L, RoomOrigin.BOARD_COMMENT);
+    }
+
+    @Test
+    void returnsActivePetRequiredBeforePairLockWhenCallerHasNoActivePet() {
+        BoardPost post = post(10L, 1L, 11L);
+        BoardPostComment comment = rootComment(20L, 10L, 2L, 22L);
+        BoardPostRepository.ShareIdentity postIdentity = postIdentity(post);
+        BoardPostCommentRepository.ShareIdentity commentIdentity = commentIdentity(comment);
+        given(posts.findShareIdentityById(10L)).willReturn(Optional.of(postIdentity));
+        given(comments.findShareIdentityById(20L)).willReturn(Optional.of(commentIdentity));
+        given(activePetQueryService.requireActivePet(3L))
+                .willThrow(new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED));
+
+        assertCode(() -> service().ensureDirectRoom(3L, 10L, 20L), "ACTIVE_PET_REQUIRED");
+        then(pairLocks).shouldHaveNoInteractions();
     }
 
     @Test
@@ -85,7 +103,7 @@ class BoardCommentDirectRoomServiceTest {
     }
 
     @Test
-    void rejectsAuthorUserWhenLockedActivePetChanged() {
+    void returnsActivePetRequiredWhenLockedCallerActivePetChanged() {
         BoardPost post = post(10L, 1L, 11L);
         BoardPostComment comment = rootComment(20L, 10L, 2L, 22L);
         stubBoardAndLock(post, comment, new InteractionPairContext(
@@ -95,7 +113,26 @@ class BoardCommentDirectRoomServiceTest {
                 new LockedPetContext(22L, 2L, PetStatus.ACTIVE, null)
         ));
 
-        assertCode(() -> service().ensureDirectRoom(1L, 10L, 20L), "FORBIDDEN");
+        assertCode(() -> service().ensureDirectRoom(1L, 10L, 20L), "ACTIVE_PET_REQUIRED");
+        then(users).shouldHaveNoInteractions();
+        then(chatRooms).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void returnsConcurrentUpdateConflictWhenLockedCallerPetOwnerChanged() {
+        BoardPost post = post(10L, 1L, 11L);
+        BoardPostComment comment = rootComment(20L, 10L, 2L, 22L);
+        stubBoardAndLock(post, comment, new InteractionPairContext(
+                new LockedUserContext(99L, AccountStatus.ACTIVE, 11L, "changed-owner"),
+                new LockedUserContext(2L, AccountStatus.ACTIVE, 22L, "comment-owner"),
+                new LockedPetContext(11L, 99L, PetStatus.ACTIVE, null),
+                new LockedPetContext(22L, 2L, PetStatus.ACTIVE, null)
+        ));
+
+        assertCode(
+                () -> service().ensureDirectRoom(1L, 10L, 20L),
+                "CONCURRENT_UPDATE_CONFLICT"
+        );
         then(users).shouldHaveNoInteractions();
         then(chatRooms).shouldHaveNoInteractions();
     }
@@ -114,6 +151,7 @@ class BoardCommentDirectRoomServiceTest {
 
         assertCode(() -> service().ensureDirectRoom(1L, 10L, 20L), "BOARD_POST_COMMENT_NOT_FOUND");
         then(pairLocks).shouldHaveNoInteractions();
+        then(activePetQueryService).shouldHaveNoInteractions();
         then(chatRooms).shouldHaveNoInteractions();
     }
 
@@ -127,8 +165,9 @@ class BoardCommentDirectRoomServiceTest {
         given(posts.findShareIdentityById(10L)).willReturn(Optional.of(postIdentity));
         given(comments.findShareIdentityById(20L)).willReturn(Optional.of(commentIdentity));
 
-        assertCode(() -> service().ensureDirectRoom(3L, 10L, 20L), "BOARD_POST_NOT_FOUND");
+        assertCode(() -> service().ensureDirectRoom(1L, 10L, 20L), "BOARD_POST_NOT_FOUND");
         then(pairLocks).shouldHaveNoInteractions();
+        then(activePetQueryService).shouldHaveNoInteractions();
         then(chatRooms).shouldHaveNoInteractions();
     }
 
@@ -142,8 +181,9 @@ class BoardCommentDirectRoomServiceTest {
         given(posts.findShareIdentityById(10L)).willReturn(Optional.of(postIdentity));
         given(comments.findShareIdentityById(20L)).willReturn(Optional.of(commentIdentity));
 
-        assertCode(() -> service().ensureDirectRoom(3L, 10L, 20L), "BOARD_POST_COMMENT_NOT_FOUND");
+        assertCode(() -> service().ensureDirectRoom(1L, 10L, 20L), "BOARD_POST_COMMENT_NOT_FOUND");
         then(pairLocks).shouldHaveNoInteractions();
+        then(activePetQueryService).shouldHaveNoInteractions();
         then(chatRooms).shouldHaveNoInteractions();
     }
 
@@ -190,8 +230,12 @@ class BoardCommentDirectRoomServiceTest {
                         22L, 2L, PetStatus.DELETED, Instant.parse("2024-01-01T00:00:00Z"), AccountStatus.ACTIVE),
                 pair(11L, 1L, PetStatus.ACTIVE, null, AccountStatus.ACTIVE,
                         22L, 2L, PetStatus.ACTIVE, null, AccountStatus.SUSPENDED),
-                pair(11L, 99L, PetStatus.ACTIVE, null, AccountStatus.ACTIVE,
-                        22L, 2L, PetStatus.ACTIVE, null, AccountStatus.ACTIVE)
+                new InteractionPairContext(
+                        new LockedUserContext(1L, AccountStatus.ACTIVE, 11L, "post-owner"),
+                        new LockedUserContext(2L, AccountStatus.ACTIVE, 22L, "comment-owner"),
+                        new LockedPetContext(11L, 1L, PetStatus.ACTIVE, null),
+                        new LockedPetContext(22L, 99L, PetStatus.ACTIVE, null)
+                )
         };
 
         for (InteractionPairContext lockedPair : pairs) {
@@ -237,6 +281,8 @@ class BoardCommentDirectRoomServiceTest {
     ) {
         BoardPostRepository.ShareIdentity postIdentity = postIdentity(post);
         BoardPostCommentRepository.ShareIdentity commentIdentity = commentIdentity(comment);
+        lenient().when(activePetQueryService.requireActivePet(anyLong()))
+                .thenAnswer(invocation -> activePetFor((Long) invocation.getArgument(0)));
         lenient().when(posts.findShareIdentityById(post.getId())).thenReturn(Optional.of(postIdentity));
         lenient().when(comments.findShareIdentityById(comment.getId())).thenReturn(Optional.of(commentIdentity));
         lenient().when(pairLocks.lockInteractionPair(post.getAuthorPetId(), comment.getAuthorPetId()))
@@ -247,8 +293,13 @@ class BoardCommentDirectRoomServiceTest {
 
     private BoardCommentDirectRoomService service() {
         return new BoardCommentDirectRoomService(
-                posts, comments, users, targets, pairLocks, blocks, chatRooms
+                posts, comments, users, activePetQueryService, pairLocks, blocks, chatRooms
         );
+    }
+
+    private ActivePetContext activePetFor(long userId) {
+        long petId = userId == 1L ? 11L : userId == 2L ? 22L : 33L;
+        return new ActivePetContext(petId, userId, "user#AB12", "pet", null, false);
     }
 
     private InteractionPairContext pair(

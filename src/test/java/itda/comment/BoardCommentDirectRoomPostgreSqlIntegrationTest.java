@@ -141,6 +141,77 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     }
 
     @Test
+    void endpointRequiresAnActivePetBeforeBoardAuthorization() throws Exception {
+        mockMvc.perform(post(
+                        "/posts/{postId}/comments/{commentId}/direct-room", postId, commentId
+                ).with(user(principal(thirdPartyId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("ACTIVE_PET_REQUIRED"));
+
+        assertNoDirectRoom();
+    }
+
+    @Test
+    void endpointRequiresAnActivePetWhenCallerUserIsInactive() throws Exception {
+        jdbc.update("update users set account_status = 'SUSPENDED' where id = ?", authorId);
+
+        mockMvc.perform(post(
+                        "/posts/{postId}/comments/{commentId}/direct-room", postId, commentId
+                ).with(user(principal(authorId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("ACTIVE_PET_REQUIRED"));
+
+        assertNoDirectRoom();
+    }
+
+    @Test
+    void endpointRequiresAnActivePetWhenCallerPetIsSuspendedOrDeleted() throws Exception {
+        jdbc.update("update pets set status = 'SUSPENDED' where id = ?", authorPetId);
+
+        mockMvc.perform(post(
+                        "/posts/{postId}/comments/{commentId}/direct-room", postId, commentId
+                ).with(user(principal(authorId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("ACTIVE_PET_REQUIRED"));
+
+        jdbc.update("update pets set status = 'DELETED', deleted_at = current_timestamp where id = ?", authorPetId);
+
+        mockMvc.perform(post(
+                        "/posts/{postId}/comments/{commentId}/direct-room", postId, commentId
+                ).with(user(principal(authorId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("ACTIVE_PET_REQUIRED"));
+
+        assertNoDirectRoom();
+    }
+
+    @Test
+    void endpointRequiresAnActivePetWhenCallerPetOwnershipDoesNotMatch() throws Exception {
+        jdbc.update("update users set active_pet_id = ? where id = ?", commenterPetId, authorId);
+
+        mockMvc.perform(post(
+                        "/posts/{postId}/comments/{commentId}/direct-room", postId, commentId
+                ).with(user(principal(authorId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("ACTIVE_PET_REQUIRED"));
+
+        assertNoDirectRoom();
+    }
+
+    @Test
+    void endpointRejectsAThirdPartyBeforePairLock() throws Exception {
+        activate(thirdPartyId, createPet(thirdPartyId, "third-party-pet"));
+
+        mockMvc.perform(post(
+                        "/posts/{postId}/comments/{commentId}/direct-room", postId, commentId
+                ).with(user(principal(thirdPartyId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+
+        assertNoDirectRoom();
+    }
+
+    @Test
     void suspendedCommentAuthorPetIsHiddenFromDirectRoom() throws Exception {
         jdbc.update("update pets set status = 'SUSPENDED' where id = ?", commenterPetId);
 
@@ -229,6 +300,7 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     @Test
     void deletedPostIsHiddenFromThirdPartyBeforePairLock() {
         jdbc.update("update board_posts set status = 'DELETED', deleted_at = current_timestamp where id = ?", postId);
+        activate(thirdPartyId, createPet(thirdPartyId, "third-party-pet"));
 
         assertThatThrownBy(() -> directRooms.ensureDirectRoom(thirdPartyId, postId, commentId))
                 .isInstanceOf(BusinessException.class)
@@ -240,6 +312,7 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
     @Test
     void deletedCommentIsHiddenFromThirdPartyBeforePairLock() {
         jdbc.update("update board_post_comments set deleted_at = current_timestamp where id = ?", commentId);
+        activate(thirdPartyId, createPet(thirdPartyId, "third-party-pet"));
 
         assertThatThrownBy(() -> directRooms.ensureDirectRoom(thirdPartyId, postId, commentId))
                 .isInstanceOf(BusinessException.class)

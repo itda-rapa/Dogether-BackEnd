@@ -12,8 +12,13 @@ import itda.comment.repository.BoardPostCommentRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.interaction.dto.InteractionPairContext;
+import itda.interaction.dto.LockedPetContext;
+import itda.interaction.dto.LockedUserContext;
 import itda.interaction.service.InteractionPairLockService;
-import itda.interaction.service.InteractionTargetQueryService;
+import itda.pet.service.query.ActivePetContext;
+import itda.pet.service.query.ActivePetQueryService;
+import itda.pet.domain.PetStatus;
+import itda.user.domain.AccountStatus;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.util.Objects;
@@ -34,7 +39,7 @@ public class BoardCommentDirectRoomService {
     private final BoardPostRepository posts;
     private final BoardPostCommentRepository comments;
     private final UserRepository users;
-    private final InteractionTargetQueryService interactionTargetQueryService;
+    private final ActivePetQueryService activePetQueryService;
     private final InteractionPairLockService interactionPairLockService;
     private final BlockRelationshipQueryService blocks;
     private final ChatRoomService chatRoomService;
@@ -43,7 +48,7 @@ public class BoardCommentDirectRoomService {
             BoardPostRepository posts,
             BoardPostCommentRepository comments,
             UserRepository users,
-            InteractionTargetQueryService interactionTargetQueryService,
+            ActivePetQueryService activePetQueryService,
             InteractionPairLockService interactionPairLockService,
             BlockRelationshipQueryService blocks,
             ChatRoomService chatRoomService
@@ -51,7 +56,7 @@ public class BoardCommentDirectRoomService {
         this.posts = posts;
         this.comments = comments;
         this.users = users;
-        this.interactionTargetQueryService = interactionTargetQueryService;
+        this.activePetQueryService = activePetQueryService;
         this.interactionPairLockService = interactionPairLockService;
         this.blocks = blocks;
         this.chatRoomService = chatRoomService;
@@ -69,21 +74,23 @@ public class BoardCommentDirectRoomService {
                 .orElseThrow(this::commentNotFound);
 
         validateInitialIdentity(postIdentity, commentIdentity);
+        ActivePetContext callerActivePet = activePetQueryService.requireActivePet(userId);
+        requireCallerAuthor(
+                userId,
+                callerActivePet,
+                postIdentity,
+                commentIdentity
+        );
 
         InteractionPairContext pair = interactionPairLockService.lockInteractionPair(
                 postIdentity.getAuthorPetId(),
                 commentIdentity.getAuthorPetId()
         );
-        interactionTargetQueryService.requireActiveTargets(
+        validateLockedCaller(userId, callerActivePet, pair);
+        requireActiveTargets(
                 pair,
                 postIdentity.getAuthorUserId(),
                 commentIdentity.getAuthorUserId()
-        );
-        requireCallerAuthorWithLockedActivePet(
-                userId,
-                postIdentity,
-                commentIdentity,
-                pair
         );
 
         BoardPost post = posts.findPublishedByIdForShare(postId)
@@ -118,6 +125,23 @@ public class BoardCommentDirectRoomService {
         );
     }
 
+    private void requireCallerAuthor(
+            Long callerUserId,
+            ActivePetContext callerActivePet,
+            BoardPostRepository.ShareIdentity post,
+            BoardPostCommentRepository.ShareIdentity comment
+    ) {
+        boolean isPostAuthor = Objects.equals(callerUserId, post.getAuthorUserId())
+                && Objects.equals(callerActivePet.ownerUserId(), post.getAuthorUserId())
+                && Objects.equals(callerActivePet.petId(), post.getAuthorPetId());
+        boolean isCommentAuthor = Objects.equals(callerUserId, comment.getAuthorUserId())
+                && Objects.equals(callerActivePet.ownerUserId(), comment.getAuthorUserId())
+                && Objects.equals(callerActivePet.petId(), comment.getAuthorPetId());
+        if (!isPostAuthor && !isCommentAuthor) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
+    }
+
     private void validateInitialIdentity(
             BoardPostRepository.ShareIdentity post,
             BoardPostCommentRepository.ShareIdentity comment
@@ -138,42 +162,75 @@ public class BoardCommentDirectRoomService {
         }
     }
 
-    private void requireCallerAuthorWithLockedActivePet(
+    private void validateLockedCaller(
             Long callerUserId,
-            BoardPostRepository.ShareIdentity post,
-            BoardPostCommentRepository.ShareIdentity comment,
+            ActivePetContext initialActivePet,
             InteractionPairContext pair
     ) {
-        boolean isPostAuthor = callerOwnsLockedActivePet(
-                callerUserId,
-                post.getAuthorUserId(),
-                post.getAuthorPetId(),
-                pair.sourceUser(),
-                pair.sourcePet()
-        );
-        boolean isCommentAuthor = callerOwnsLockedActivePet(
-                callerUserId,
-                comment.getAuthorUserId(),
-                comment.getAuthorPetId(),
-                pair.targetUser(),
-                pair.targetPet()
-        );
-        if (!isPostAuthor && !isCommentAuthor) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+        LockedUserContext callerUser = findLockedUser(pair, callerUserId);
+        LockedPetContext callerPet = findLockedPet(pair, initialActivePet.petId());
+        if (callerUser == null
+                || callerPet == null
+                || !Objects.equals(callerUser.userId(), initialActivePet.ownerUserId())
+                || !Objects.equals(callerPet.petId(), initialActivePet.petId())
+                || !Objects.equals(callerPet.ownerUserId(), initialActivePet.ownerUserId())) {
+            throw new BusinessException(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+        }
+        if (callerUser.accountStatus() != AccountStatus.ACTIVE
+                || !Objects.equals(callerUser.activePetId(), initialActivePet.petId())
+                || callerPet.status() != PetStatus.ACTIVE
+                || callerPet.deletedAt() != null) {
+            throw new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
         }
     }
 
-    private boolean callerOwnsLockedActivePet(
-            Long callerUserId,
-            Long expectedAuthorUserId,
-            Long expectedAuthorPetId,
-            itda.interaction.dto.LockedUserContext lockedUser,
-            itda.interaction.dto.LockedPetContext lockedPet
+    private LockedUserContext findLockedUser(
+            InteractionPairContext pair,
+            Long callerUserId
     ) {
-        return Objects.equals(callerUserId, expectedAuthorUserId)
-                && Objects.equals(lockedUser.userId(), callerUserId)
-                && Objects.equals(lockedUser.activePetId(), expectedAuthorPetId)
-                && Objects.equals(lockedPet.petId(), expectedAuthorPetId);
+        if (Objects.equals(pair.sourceUser().userId(), callerUserId)) {
+            return pair.sourceUser();
+        }
+        if (Objects.equals(pair.targetUser().userId(), callerUserId)) {
+            return pair.targetUser();
+        }
+        return null;
+    }
+
+    private LockedPetContext findLockedPet(
+            InteractionPairContext pair,
+            Long activePetId
+    ) {
+        if (Objects.equals(pair.sourcePet().petId(), activePetId)) {
+            return pair.sourcePet();
+        }
+        if (Objects.equals(pair.targetPet().petId(), activePetId)) {
+            return pair.targetPet();
+        }
+        return null;
+    }
+
+    private void requireActiveTargets(
+            InteractionPairContext pair,
+            Long sourceOwnerUserId,
+            Long targetOwnerUserId
+    ) {
+        if (!isActiveTarget(pair.sourcePet(), pair.sourceUser(), sourceOwnerUserId)
+                || !isActiveTarget(pair.targetPet(), pair.targetUser(), targetOwnerUserId)) {
+            throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
+    }
+
+    private boolean isActiveTarget(
+            LockedPetContext pet,
+            LockedUserContext owner,
+            Long expectedOwnerUserId
+    ) {
+        return expectedOwnerUserId != null
+                && pet.status() == PetStatus.ACTIVE
+                && pet.deletedAt() == null
+                && owner.accountStatus() == AccountStatus.ACTIVE
+                && Objects.equals(expectedOwnerUserId, pet.ownerUserId());
     }
 
     private void validateAuthoritativeResources(
