@@ -56,7 +56,7 @@ class BoardCommentDirectRoomServiceTest {
         stubBoardAndLock(post, comment, pair(11L, 1L, 22L, 2L));
         given(users.findById(1L)).willReturn(Optional.of(user(1L)));
         given(blocks.existsBlockBetween(1L, 2L)).willReturn(false);
-        given(chatRooms.ensureDirectRoom(11L, 22L, RoomOrigin.FRIEND))
+        given(chatRooms.ensureDirectRoom(11L, 22L, RoomOrigin.BOARD_COMMENT))
                 .willReturn(new EnsureDirectRoomResult(99L, false));
 
         EnsureDirectRoomResult result = service().ensureDirectRoom(1L, 10L, 20L);
@@ -68,7 +68,7 @@ class BoardCommentDirectRoomServiceTest {
         order.verify(pairLocks).lockInteractionPair(11L, 22L);
         order.verify(posts).findPublishedByIdForShare(10L);
         order.verify(comments).findActiveByIdForShare(20L);
-        then(chatRooms).should().ensureDirectRoom(11L, 22L, RoomOrigin.FRIEND);
+        then(chatRooms).should().ensureDirectRoom(11L, 22L, RoomOrigin.BOARD_COMMENT);
     }
 
     @Test
@@ -78,7 +78,7 @@ class BoardCommentDirectRoomServiceTest {
         stubBoardAndLock(post, comment, pair(11L, 1L, 22L, 2L));
         given(users.findById(2L)).willReturn(Optional.of(user(2L)));
         given(blocks.existsBlockBetween(1L, 2L)).willReturn(false);
-        given(chatRooms.ensureDirectRoom(11L, 22L, RoomOrigin.FRIEND))
+        given(chatRooms.ensureDirectRoom(11L, 22L, RoomOrigin.BOARD_COMMENT))
                 .willReturn(new EnsureDirectRoomResult(99L, true));
 
         assertThat(service().ensureDirectRoom(2L, 10L, 20L).isNew()).isTrue();

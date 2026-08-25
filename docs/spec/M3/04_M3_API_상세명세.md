@@ -469,7 +469,7 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 
 ### `POST /posts/{postId}/comments/{commentId}/direct-room`
 
-게시글에 직접 작성된 Root 댓글 작성자 Pet과 게시글 작성자 Pet 사이의 기존 DIRECT 채팅방을 조회하거나 생성한다.
+게시글에 직접 작성된 Root 댓글 작성자 Pet과 게시글 작성자 Pet 사이의 기존 DIRECT 채팅방을 조회하거나 생성한다. 새 DIRECT room이 생성되면 `origin=BOARD_COMMENT`로 저장하며, 기존 room 재사용 시 origin은 변경하지 않는다.
 
 - 인증: Bearer JWT
 - Request body: 없음

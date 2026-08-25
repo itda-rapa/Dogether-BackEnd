@@ -59,7 +59,7 @@
 
 게시글 이미지 읽기는 Post별 조회를 반복하지 않는다. feed는 페이지 전체 링크의 Media를 한 번 batch hydrate·sign하고, detail 및 PATCH 보존 경로도 link 집합 단위로 hydrate한다. 하나라도 missing, soft-deleted 또는 다운로드 불가면 부분 이미지를 반환하지 않고 기존 단건 다운로드와 같은 읽기 실패로 전체 요청을 실패시킨다. create/PATCH의 command validation은 기존 Media ErrorCode를 유지하며, Media entity·repository·lifecycle·migration은 변경하지 않는다. feed 작성자 Pet profile URL도 fetch-join된 Media를 한 번 collection signing하여 Pet 수에 비례한 Media 조회를 만들지 않는다.
 
-`POST /posts/{postId}/comments/{commentId}/direct-room`은 request body가 없다. 대상 Comment는 해당 Post에 속한 active Root(`depth=0`, parent/root identity 없음)여야 하며 Reply는 제외한다. 호출자의 Active Pet은 Post author Pet 또는 Comment author Pet 중 하나여야 한다. 성공 응답은 기존 `EnsureDirectRoomResult`를 `ApiResponse<T>`로 감싼 `roomId`, `isNew`이고, 재호출은 기존 room을 재사용한다. same Pet·same-owner는 기존 상호작용/Chat 오류를 사용하고, 양방향 Block은 `CHAT_ROOM_NOT_FOUND` 404로 숨긴다.
+`POST /posts/{postId}/comments/{commentId}/direct-room`은 request body가 없다. 대상 Comment는 해당 Post에 속한 active Root(`depth=0`, parent/root identity 없음)여야 하며 Reply는 제외한다. 호출자의 Active Pet은 Post author Pet 또는 Comment author Pet 중 하나여야 한다. 성공 응답은 기존 `EnsureDirectRoomResult`를 `ApiResponse<T>`로 감싼 `roomId`, `isNew`이고, 재호출은 기존 room을 재사용한다. 새 room을 생성하는 게시판 Root 댓글 경로의 `origin`은 `BOARD_COMMENT`이며, 기존 room의 origin은 변경하지 않는다. same Pet·same-owner는 기존 상호작용/Chat 오류를 사용하고, 양방향 Block은 `CHAT_ROOM_NOT_FOUND` 404로 숨긴다.
 
 ## 4. Media·Chat·Setlog 공유
 
@@ -77,7 +77,7 @@ Chat typed message 공통 규칙:
 - 하나의 업로드 Media는 한 Chat 메시지에만 첨부할 수 있다. 같은 Media를 다른 `clientMessageId`로 전송하면 `409 CHAT_MEDIA_ALREADY_ATTACHED`다.
 - 같은 `clientMessageId`와 같은 payload의 재시도는 기존 메시지를 반환하며, 이때 Media 재사용 정책을 적용해 거부하지 않는다.
 
-`GET /chat/rooms`의 `lastMessage`는 room-list용 요약이다. `type`과 기본 메시지 필드만 반환하며 `IMAGE`/`VIDEO`의 `attachment`와 `SETLOG_SHARE`의 `sharedSetlog` 상세 hydration은 제공하지 않는다. 클라이언트는 `type`만으로 사진·동영상·셋로그 공유 텍스트 미리보기를 결정한다. 상세는 `GET /chat/rooms/{roomId}/messages`에서 조회한다.
+`GET /chat/rooms`의 `lastMessage`는 room-list용 요약이다. `type`과 기본 메시지 필드만 반환하며 `IMAGE`/`VIDEO`의 `attachment`와 `SETLOG_SHARE`의 `sharedSetlog` 상세 hydration은 제공하지 않는다. `origin`은 `GREETING`, `FRIEND`, `BOARD_COMMENT`, `OPEN_CHAT` 중 하나이며, 게시판 Root 댓글 경로로 신규 생성된 DIRECT room은 `BOARD_COMMENT`다. 클라이언트는 `type`만으로 사진·동영상·셋로그 공유 텍스트 미리보기를 결정한다. 상세는 `GET /chat/rooms/{roomId}/messages`에서 조회한다.
 
 DIRECT WebSocket:
 

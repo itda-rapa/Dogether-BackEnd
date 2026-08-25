@@ -135,6 +135,9 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
 
         assertThat(jdbc.queryForObject("select count(*) from chat_rooms", Long.class)).isEqualTo(1L);
         assertThat(jdbc.queryForObject("select count(*) from chat_room_participants", Long.class)).isEqualTo(2L);
+        assertThat(jdbc.queryForObject(
+                "select origin from chat_rooms where id = ?", String.class, roomId
+        )).isEqualTo("BOARD_COMMENT");
     }
 
     @Test

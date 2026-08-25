@@ -1845,7 +1845,7 @@ components:
           enum: [ACTIVE, ARCHIVED]
         origin:
           type: string
-          enum: [GREETING, FRIEND]
+          enum: [GREETING, FRIEND, BOARD_COMMENT, OPEN_CHAT]
         counterpartPet:
           $ref: '#/components/schemas/PetSearchItem'
         canSend:

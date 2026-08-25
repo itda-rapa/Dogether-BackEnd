@@ -65,6 +65,8 @@ class BoardPostCommentOpenApiTest {
                         .value("#/components/schemas/CommentResponse"))
                 .andExpect(jsonPath("$.components.schemas.ApiResponseCommentListResponse.properties.data.$ref")
                         .value("#/components/schemas/CommentListResponse"))
+                .andExpect(jsonPath("$.components.schemas.ChatRoomResponse.properties.origin.enum")
+                        .value(org.hamcrest.Matchers.hasItems("BOARD_COMMENT")))
                 .andExpect(jsonPath("$.components.schemas.CommentResponse.properties.commentId").exists())
                 .andExpect(jsonPath("$.components.schemas.CommentResponse.properties.postId").exists())
                 .andExpect(jsonPath("$.components.schemas.CommentResponse.properties.parentCommentId").exists())

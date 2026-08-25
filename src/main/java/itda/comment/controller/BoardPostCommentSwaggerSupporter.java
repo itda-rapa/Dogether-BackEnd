@@ -52,7 +52,7 @@ public interface BoardPostCommentSwaggerSupporter {
 
     @Operation(
             summary = "댓글 작성자와 DIRECT 채팅방 연결",
-            description = "게시글 작성 Pet과 직접 작성된 root 댓글 작성 Pet 사이의 기존 DIRECT 방을 조회하거나 생성합니다. 현재 Active Pet이 두 대상 Pet 중 하나인 경우에만 호출할 수 있으며 요청 본문은 없습니다."
+            description = "게시글 작성 Pet과 직접 작성된 root 댓글 작성 Pet 사이의 기존 DIRECT 방을 조회하거나 생성합니다. 새 방이 생성되면 Chat room origin은 BOARD_COMMENT이며, 기존 방의 origin은 변경하지 않습니다. 현재 Active Pet이 두 대상 Pet 중 하나인 경우에만 호출할 수 있으며 요청 본문은 없습니다."
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",

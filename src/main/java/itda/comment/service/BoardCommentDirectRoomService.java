@@ -114,7 +114,7 @@ public class BoardCommentDirectRoomService {
         return chatRoomService.ensureDirectRoom(
                 post.getAuthorPetId(),
                 comment.getAuthorPetId(),
-                RoomOrigin.FRIEND
+                RoomOrigin.BOARD_COMMENT
         );
     }
 
