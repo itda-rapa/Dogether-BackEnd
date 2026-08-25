@@ -58,6 +58,11 @@ app:
     heartbeat-send: 10s
     heartbeat-receive: 10s
     message-size-limit: 32KB
+  location:
+    # 유효한 저정확도 값은 거부하지 않고 Meeting의 확인 코드 fallback 신호로 반환한다.
+    max-capture-age: ${LOCATION_MAX_CAPTURE_AGE:5m}
+    future-tolerance: ${LOCATION_FUTURE_TOLERANCE:30s}
+    quality-threshold-meters: ${LOCATION_QUALITY_THRESHOLD_METERS:50}
   s3:
     # Credentials use the AWS SDK default chain, including AWS_ACCESS_KEY_ID /
     # AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) and IAM workload roles.
