@@ -126,6 +126,9 @@ class FriendRequestConcurrencyPostgreSqlIntegrationTest {
         assertThat(count("friendships")).isEqualTo(1);
         assertThat(count("chat_rooms")).isEqualTo(1);
         assertThat(count("chat_room_participants")).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT origin FROM chat_rooms", String.class
+        )).isEqualTo("FRIEND");
     }
 
     @Test
