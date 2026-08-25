@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -110,7 +111,9 @@ class RiskSignalOutboxPostgreSqlIntegrationTest {
 
         assertThatThrownBy(() -> outboxRepository.insertIfAbsent(
                 RiskSignalEventV1.from(eventId, command(110L))))
-                .isInstanceOf(RuntimeException.class);
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasCauseInstanceOf(IllegalStateException.class)
+                .hasStackTraceContaining("uk_risk_signal_outbox_event_id");
 
         assertThat(count()).isEqualTo(1L);
     }
