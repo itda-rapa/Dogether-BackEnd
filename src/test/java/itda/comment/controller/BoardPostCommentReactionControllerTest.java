@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import itda.comment.domain.CommentReactionType;
 import itda.comment.dto.CommentReactionResponse;
 import itda.comment.dto.CommentRequestParser;
+import itda.comment.service.BoardCommentDirectRoomService;
 import itda.comment.service.BoardPostCommentService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
@@ -35,6 +36,7 @@ class BoardPostCommentReactionControllerTest {
 
     @Autowired private MockMvc mockMvc;
     @MockitoBean private BoardPostCommentService service;
+    @MockitoBean private BoardCommentDirectRoomService directRoomService;
     @MockitoBean private JwtFilter jwtFilter;
 
     @BeforeEach

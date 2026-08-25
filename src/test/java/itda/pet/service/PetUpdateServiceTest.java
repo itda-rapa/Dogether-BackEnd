@@ -64,7 +64,7 @@ class PetUpdateServiceTest {
     void preservesVerificationBadgeAfterProfileUpdate() {
         Pet pet = pet(user(USER_ID));
         Instant verifiedAt = Instant.parse("2026-08-12T12:00:00Z");
-        given(petRepository.findByIdWithOwner(PET_ID)).willReturn(Optional.of(pet));
+        given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID)).willReturn(Optional.of(pet));
         given(badgeService.verifiedAt(PET_ID)).willReturn(verifiedAt);
         given(helpfulReceivedCounts.countForPet(PET_ID)).willReturn(5L);
 
@@ -147,7 +147,7 @@ class PetUpdateServiceTest {
         @Test
         @DisplayName("It: Pet이 없으면 PET_NOT_FOUND다")
         void rejectsMissingPet() {
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.empty());
 
             assertErrorCode(
@@ -155,7 +155,7 @@ class PetUpdateServiceTest {
                     ErrorCode.PET_NOT_FOUND
             );
 
-            then(petRepository).should().findByIdWithOwner(PET_ID);
+            then(petRepository).should().findByIdWithOwnerAndProfileAsset(PET_ID);
             then(petRepository).shouldHaveNoMoreInteractions();
         }
 
@@ -164,7 +164,7 @@ class PetUpdateServiceTest {
         void rejectsDeletedStatusBeforeOwnership() {
             Pet pet = pet(user(9L));
             ReflectionTestUtils.setField(pet, "status", PetStatus.DELETED);
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             assertErrorCode(
@@ -178,7 +178,7 @@ class PetUpdateServiceTest {
         void rejectsDeletedAtBeforeOwnership() {
             Pet pet = pet(user(9L));
             ReflectionTestUtils.setField(pet, "deletedAt", Instant.now());
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             assertErrorCode(
@@ -190,7 +190,7 @@ class PetUpdateServiceTest {
         @Test
         @DisplayName("It: 미삭제 타인 Pet은 PET_NOT_OWNED다")
         void rejectsUnownedPet() {
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet(user(9L))));
 
             assertErrorCode(
@@ -210,7 +210,7 @@ class PetUpdateServiceTest {
             User owner = user(USER_ID);
             owner.selectActivePet(PET_ID);
             Pet pet = pet(owner);
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             PetResponse response = service.update(
@@ -223,8 +223,8 @@ class PetUpdateServiceTest {
             assertThat(response.active()).isTrue();
             assertThat(response.verified()).isFalse();
             assertThat(response.verifiedAt()).isNull();
-            then(petRepository).should().findByIdWithOwner(PET_ID);
-            then(petRepository).shouldHaveNoMoreInteractions();
+            then(petRepository).should().findByIdWithOwnerAndProfileAsset(PET_ID);
+            then(petRepository).should().flush();
         }
 
         @Test
@@ -232,12 +232,12 @@ class PetUpdateServiceTest {
         void propagatesProfileUrlToUpdateResponse() {
             Pet pet = pet(user(USER_ID));
             ReflectionTestUtils.setField(pet, "profileAsset", profileMedia(41L));
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
-            given(mediaService.getPresignedDownloadUrl(41L)).willReturn(
-                    new MediaService.PresignedDownloadUrl(
+            given(mediaService.getPresignedDownloadUrls(List.of(pet.getProfileAsset()))).willReturn(
+                    java.util.Map.of(41L, new MediaService.PresignedDownloadUrl(
                             "https://presigned.example/pet/41", Instant.now()
-                    )
+                    ))
             );
 
             PetResponse response = service.update(
@@ -247,6 +247,8 @@ class PetUpdateServiceTest {
             assertThat(response.profileUrl())
                     .isEqualTo("https://presigned.example/pet/41");
             assertThat(pet.getProfileAsset().getId()).isEqualTo(41L);
+            then(mediaService).should().getPresignedDownloadUrls(List.of(pet.getProfileAsset()));
+            then(mediaService).shouldHaveNoMoreInteractions();
         }
 
         @Test
@@ -256,7 +258,7 @@ class PetUpdateServiceTest {
             owner.selectActivePet(99L);
             Pet pet = pet(owner);
             ReflectionTestUtils.setField(pet, "status", PetStatus.SUSPENDED);
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             PetResponse response = service.update(
@@ -279,7 +281,7 @@ class PetUpdateServiceTest {
             PetStatus status = pet.getStatus();
             Instant deletedAt = pet.getDeletedAt();
             Media profileAsset = pet.getProfileAsset();
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
             PetUpdateCommand command = new PetUpdateCommand(
                     PatchValue.missing(),
@@ -318,7 +320,7 @@ class PetUpdateServiceTest {
         @DisplayName("It: null 이후 값과 값 이후 null을 모두 적용한다")
         void supportsNullAndValueTransitions() {
             Pet pet = pet(user(USER_ID));
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             service.update(
@@ -347,7 +349,7 @@ class PetUpdateServiceTest {
         @DisplayName("It: nullable bio의 명시적 null은 정상적으로 초기화한다")
         void clearsBioWithExplicitNull() {
             Pet pet = pet(user(USER_ID));
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             PetResponse response = service.update(
@@ -357,15 +359,15 @@ class PetUpdateServiceTest {
             );
 
             assertThat(response.bio()).isNull();
-            then(petRepository).should().findByIdWithOwner(PET_ID);
-            then(petRepository).shouldHaveNoMoreInteractions();
+            then(petRepository).should().findByIdWithOwnerAndProfileAsset(PET_ID);
+            then(petRepository).should().flush();
         }
 
         @Test
         @DisplayName("It: 같은 값인 no-op도 현재 응답을 반환한다")
         void returnsCurrentResponseForNoOp() {
             Pet pet = pet(user(USER_ID));
-            given(petRepository.findByIdWithOwner(PET_ID))
+            given(petRepository.findByIdWithOwnerAndProfileAsset(PET_ID))
                     .willReturn(Optional.of(pet));
 
             PetResponse response = service.update(
@@ -375,8 +377,8 @@ class PetUpdateServiceTest {
             );
 
             assertThat(response.nickname()).isEqualTo("몽이");
-            then(petRepository).should().findByIdWithOwner(PET_ID);
-            then(petRepository).shouldHaveNoMoreInteractions();
+            then(petRepository).should().findByIdWithOwnerAndProfileAsset(PET_ID);
+            then(petRepository).should().flush();
         }
     }
 

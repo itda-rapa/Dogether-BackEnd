@@ -114,6 +114,6 @@ class PetVerificationControllerTest {
     private PetResponse verifiedPet() {
         return new PetResponse(31L, 7L, "pet#A1B2", "owner#C3D4", "Synthetic Pet", null,
                 null, null, null, null, null, null, List.of(), null, null,
-                PetStatus.ACTIVE, null, true, Instant.parse("2026-08-12T12:00:00Z"), false);
+                PetStatus.ACTIVE, null, 0L, true, Instant.parse("2026-08-12T12:00:00Z"), false, 0L);
     }
 }

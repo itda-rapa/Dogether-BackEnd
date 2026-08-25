@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -36,6 +37,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -94,8 +96,8 @@ class BoardPostServiceTest {
         given(media.findAllById(List.of(30L, 10L))).willReturn(List.of(second, first));
         given(posts.save(org.mockito.ArgumentMatchers.any(BoardPost.class))).willReturn(created);
         given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
-        given(mediaService.getPresignedDownloadUrl(30L)).willReturn(new MediaService.PresignedDownloadUrl("url-30", Instant.now()));
-        given(mediaService.getPresignedDownloadUrl(10L)).willReturn(new MediaService.PresignedDownloadUrl("url-10", Instant.now()));
+        given(mediaService.getPresignedDownloadUrls(List.of(first, second)))
+                .willReturn(downloadUrls(first, second));
 
         var response = service.create(1L, 10L, new BoardPostCreateRequest("title", "content", List.of(30L, 10L)));
 
@@ -153,8 +155,10 @@ class BoardPostServiceTest {
         given(media.findAllById(List.of(10L))).willReturn(List.of(completed));
         given(posts.save(any(BoardPost.class))).willReturn(post(100L, 1L, 2L));
         given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
-        given(mediaService.getPresignedDownloadUrl(10L))
-                .willReturn(new MediaService.PresignedDownloadUrl("https://example.test/media/10", Instant.now()));
+        given(mediaService.getPresignedDownloadUrls(List.of(completed)))
+                .willReturn(Map.of(10L, new MediaService.PresignedDownloadUrl(
+                        "https://example.test/media/10", Instant.now()
+                )));
 
         var result = service.create(1L, 10L,
                 new BoardPostCreateRequest("title", "content", List.of(10L)));
@@ -182,8 +186,11 @@ class BoardPostServiceTest {
         given(postMedia.findByPostIdIn(List.of(101L, 102L))).willReturn(List.of(
                 BoardPostMedia.attach(101L, 12L, 1), BoardPostMedia.attach(101L, 11L, 0)
         ));
-        given(mediaService.getPresignedDownloadUrl(11L)).willReturn(new MediaService.PresignedDownloadUrl("url-11", Instant.now()));
-        given(mediaService.getPresignedDownloadUrl(12L)).willReturn(new MediaService.PresignedDownloadUrl("url-12", Instant.now()));
+        itda.media.domain.Media firstImage = media(11L, 20L);
+        itda.media.domain.Media secondImage = media(12L, 21L);
+        given(media.findAllById(any())).willReturn(List.of(firstImage, secondImage));
+        given(mediaService.getPresignedDownloadUrls(List.of(firstImage, secondImage)))
+                .willReturn(downloadUrls(firstImage, secondImage));
         given(reactionQueries.findForPosts(1L, List.of(101L, 102L))).willReturn(Map.of(
                 101L, BoardPostReactionSnapshot.none(),
                 102L, BoardPostReactionSnapshot.none()
@@ -206,10 +213,13 @@ class BoardPostServiceTest {
                 : List.of());
         given(posts.save(any(BoardPost.class))).willReturn(post(100L, 1L, 2L));
         given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
-        for (long id = 1; id <= 5; id++) {
-            given(mediaService.getPresignedDownloadUrl(id))
-                    .willReturn(new MediaService.PresignedDownloadUrl("url-" + id, Instant.now()));
-        }
+        given(mediaService.getPresignedDownloadUrls(any())).willAnswer(invocation -> {
+            Iterable<itda.media.domain.Media> attachments = invocation.getArgument(0);
+            java.util.Map<Long, MediaService.PresignedDownloadUrl> urls = new java.util.HashMap<>();
+            attachments.forEach(attachment -> urls.put(attachment.getId(),
+                    new MediaService.PresignedDownloadUrl("url-" + attachment.getId(), Instant.now())));
+            return urls;
+        });
 
         assertThat(service.create(1L, 10L, new BoardPostCreateRequest("title", "content")).images()).isEmpty();
         assertThat(service.create(1L, 10L, new BoardPostCreateRequest("title", "content", List.of())).images()).isEmpty();
@@ -263,8 +273,11 @@ class BoardPostServiceTest {
         given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.of(post));
         given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
         given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(links);
-        given(mediaService.getPresignedDownloadUrl(11L)).willReturn(new MediaService.PresignedDownloadUrl("url-11", Instant.now()));
-        given(mediaService.getPresignedDownloadUrl(12L)).willReturn(new MediaService.PresignedDownloadUrl("url-12", Instant.now()));
+        itda.media.domain.Media firstImage = media(11L, 1L);
+        itda.media.domain.Media secondImage = media(12L, 1L);
+        given(media.findAllById(any())).willReturn(List.of(firstImage, secondImage));
+        given(mediaService.getPresignedDownloadUrls(List.of(firstImage, secondImage)))
+                .willReturn(downloadUrls(firstImage, secondImage));
         given(actorGuard.require(1L)).willReturn(new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500"));
         given(reactionQueries.findForPost(1L, 101L))
                 .willReturn(BoardPostReactionSnapshot.none());
@@ -274,7 +287,168 @@ class BoardPostServiceTest {
                 .extracting(image -> image.mediaId()).containsExactly(11L, 12L);
         then(postMedia).should(times(2)).findByPostIdOrderByDisplayOrderAsc(101L);
         then(postMedia).should(never()).saveAll(any());
+        then(media).should(times(2)).findAllById(any());
+        then(mediaService).should(times(2)).getPresignedDownloadUrls(List.of(firstImage, secondImage));
+    }
+
+    @Test
+    void patchRejectsStaleVersionBeforeMediaLookupOrNoOpComparison() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        ReflectionTestUtils.setField(post, "version", 2L);
+        given(actorGuard.require(1L)).willReturn(
+                new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500")
+        );
+        given(posts.findByIdAndStatus(101L, PostStatus.PUBLISHED)).willReturn(Optional.of(post));
+
+        assertThatThrownBy(() -> service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, true, List.of(11L), 1L
+                )))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(itda.common.constants.ErrorCode.CONCURRENT_UPDATE_CONFLICT);
+
+        then(postMedia).shouldHaveNoInteractions();
         then(media).shouldHaveNoInteractions();
+        then(mediaService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void patchWithTheSameOrderedMediaIdsIsNoOpButStillValidatesAndSignsLoadedMedia() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        List<BoardPostMedia> existing = List.of(
+                BoardPostMedia.attach(101L, 11L, 0), BoardPostMedia.attach(101L, 12L, 1)
+        );
+        itda.media.domain.Media first = media(11L, 1L);
+        itda.media.domain.Media second = media(12L, 1L);
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(existing);
+        given(media.findAllById(List.of(11L, 12L))).willReturn(List.of(second, first));
+        given(mediaService.getPresignedDownloadUrls(List.of(first, second)))
+                .willReturn(downloadUrls(first, second));
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, true, List.of(11L, 12L), 0L
+                ));
+
+        assertThat(response.images()).extracting(image -> image.mediaId())
+                .containsExactly(11L, 12L);
+        then(posts).should(never()).flush();
+        then(postMedia).should(never()).deleteAll(any());
+        then(postMedia).should(never()).flush();
+        then(postMedia).should(never()).saveAll(any());
+        then(media).should().findAllById(List.of(11L, 12L));
+        then(mediaService).should().getPresignedDownloadUrls(List.of(first, second));
+        then(mediaService).should(never()).getPresignedDownloadUrl(any());
+    }
+
+    @Test
+    void patchReordersAttachmentsOnlyAfterTheParentOptimisticClaimAndReusesLoadedMedia() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        List<BoardPostMedia> existing = List.of(
+                BoardPostMedia.attach(101L, 11L, 0), BoardPostMedia.attach(101L, 12L, 1)
+        );
+        itda.media.domain.Media first = media(11L, 1L);
+        itda.media.domain.Media second = media(12L, 1L);
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(existing);
+        given(media.findAllById(List.of(12L, 11L))).willReturn(List.of(first, second));
+        given(mediaService.getPresignedDownloadUrls(List.of(second, first)))
+                .willReturn(downloadUrls(second, first));
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, true, List.of(12L, 11L), 0L
+                ));
+
+        InOrder orderedDml = inOrder(posts, postMedia);
+        orderedDml.verify(posts).flush();
+        orderedDml.verify(postMedia).deleteAll(existing);
+        orderedDml.verify(postMedia).flush();
+        ArgumentCaptor<List<BoardPostMedia>> replacement = ArgumentCaptor.forClass(List.class);
+        orderedDml.verify(postMedia).saveAll(replacement.capture());
+        assertThat(replacement.getValue()).extracting(BoardPostMedia::getMediaId)
+                .containsExactly(12L, 11L);
+        assertThat(replacement.getValue()).extracting(BoardPostMedia::getDisplayOrder)
+                .containsExactly(0, 1);
+        assertThat(response.images()).extracting(image -> image.mediaId()).containsExactly(12L, 11L);
+        then(media).should(times(1)).findAllById(List.of(12L, 11L));
+        then(mediaService).should().getPresignedDownloadUrls(List.of(second, first));
+        then(mediaService).should(never()).getPresignedDownloadUrl(any());
+    }
+
+    @Test
+    void patchEmptyMediaIdsDeletesEveryLinkWithoutReinsertingOrSigning() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        List<BoardPostMedia> existing = List.of(BoardPostMedia.attach(101L, 11L, 0));
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(existing);
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, true, List.of(), 0L
+                ));
+
+        InOrder orderedDml = inOrder(posts, postMedia);
+        orderedDml.verify(posts).flush();
+        orderedDml.verify(postMedia).deleteAll(existing);
+        orderedDml.verify(postMedia).flush();
+        then(postMedia).should(never()).saveAll(any());
+        assertThat(response.images()).isEmpty();
+        then(media).shouldHaveNoInteractions();
+        then(mediaService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void patchWithOmittedMediaHydratesExistingLinksOnceAndUsesCollectionSigning() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        List<BoardPostMedia> existing = List.of(
+                BoardPostMedia.attach(101L, 11L, 0), BoardPostMedia.attach(101L, 12L, 1)
+        );
+        itda.media.domain.Media first = media(11L, 1L);
+        itda.media.domain.Media second = media(12L, 1L);
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(existing);
+        given(media.findAllById(any())).willReturn(List.of(first, second));
+        given(mediaService.getPresignedDownloadUrls(List.of(first, second)))
+                .willReturn(downloadUrls(first, second));
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(true, "title", false, null, 0L));
+
+        assertThat(response.images()).extracting(image -> image.mediaId()).containsExactly(11L, 12L);
+        then(postMedia).should(times(1)).findByPostIdOrderByDisplayOrderAsc(101L);
+        then(media).should(times(1)).findAllById(any());
+        then(mediaService).should(times(1)).getPresignedDownloadUrls(List.of(first, second));
+        then(mediaService).should(never()).getPresignedDownloadUrl(any());
+    }
+
+    @Test
+    void feedRejectsMissingHydratedMediaRatherThanReturningPartialImages() {
+        BoardPostService service = service();
+        User viewer = User.register("viewer@test.com", "encoded", "viewer", "viewer#A1B2C3D4", "4113111500");
+        ReflectionTestUtils.setField(viewer, "id", 1L);
+        BoardPost post = post(101L, 20L, 200L);
+        given(users.findById(1L)).willReturn(Optional.of(viewer));
+        given(boards.existsByIdAndDeletedAtIsNull(10L)).willReturn(true);
+        given(posts.findVisibleFeed(10L, "4113111500", 1L, null, null, 21)).willReturn(List.of(post));
+        given(petDisplays.getPetDisplaySummaries(List.of(200L))).willReturn(Map.of(200L, summary(200L)));
+        given(postMedia.findByPostIdIn(List.of(101L))).willReturn(List.of(
+                BoardPostMedia.attach(101L, 11L, 0), BoardPostMedia.attach(101L, 12L, 1)
+        ));
+        given(media.findAllById(any())).willReturn(List.of(media(11L, 20L)));
+
+        assertThatThrownBy(() -> service.feed(1L, 10L, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        then(media).should(times(1)).findAllById(any());
+        then(mediaService).shouldHaveNoInteractions();
     }
 
     @Test
@@ -304,6 +478,18 @@ class BoardPostServiceTest {
         return new PetDisplaySummary(id, 1L, "pet#A1B2", "pet", null, false, PetStatus.ACTIVE, null);
     }
 
+    private Map<Long, MediaService.PresignedDownloadUrl> downloadUrls(
+            itda.media.domain.Media... attachments
+    ) {
+        Map<Long, MediaService.PresignedDownloadUrl> urls = new java.util.LinkedHashMap<>();
+        for (itda.media.domain.Media attachment : attachments) {
+            urls.put(attachment.getId(), new MediaService.PresignedDownloadUrl(
+                    "url-" + attachment.getId(), Instant.now()
+            ));
+        }
+        return urls;
+    }
+
     private BoardPostService service() {
         return new BoardPostService(posts, postMedia, boards, users, actorGuard, petDisplays, blocks,
                 media, mediaService, reactions, reactionQueries);
@@ -319,5 +505,13 @@ class BoardPostServiceTest {
     private void prepareCreate() {
         given(actorGuard.require(1L)).willReturn(new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500"));
         given(boards.findByIdForShare(10L)).willReturn(Optional.of(itda.board.domain.Board.create("board")));
+    }
+
+    private void prepareUpdate(BoardPost post) {
+        given(actorGuard.require(1L)).willReturn(
+                new LockedActivePetCommandGuard.LockedActor(1L, 2L, "4113111500")
+        );
+        given(posts.findByIdAndStatus(post.getId(), PostStatus.PUBLISHED)).willReturn(Optional.of(post));
+        given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
     }
 }

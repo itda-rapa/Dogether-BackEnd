@@ -13,6 +13,7 @@ import itda.comment.dto.CommentResponse;
 import itda.comment.dto.CommentReactionResponse;
 import itda.comment.dto.CommentUpdateRequest;
 import itda.comment.domain.CommentReactionType;
+import itda.chat.dto.EnsureDirectRoomResult;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import org.springframework.http.MediaType;
@@ -47,6 +48,39 @@ public interface BoardPostCommentSwaggerSupporter {
             @Parameter(hidden = true) CurrentUser user,
             @Parameter(description = "게시글 ID") Long postId,
             JsonNode body
+    );
+
+    @Operation(
+            summary = "댓글 작성자와 DIRECT 채팅방 연결",
+            description = "게시글 작성 Pet과 직접 작성된 root 댓글 작성 Pet 사이의 기존 DIRECT 방을 조회하거나 생성합니다. 새 방이 생성되면 Chat room origin은 BOARD_COMMENT이며, 기존 방의 origin은 변경하지 않습니다. 현재 Active Pet이 두 대상 Pet 중 하나인 경우에만 호출할 수 있으며 요청 본문은 없습니다."
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "DIRECT 채팅방 조회 또는 생성 성공",
+            useReturnTypeSchema = true,
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {"success":true,"message":"DIRECT 채팅방이 연결되었습니다.","data":{"roomId":1,"isNew":true},"error":null}
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "400",
+            description = "동일 Pet 또는 동일 User 소유 Pet 간 DIRECT 연결 불가"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "현재 Active Pet이 게시글 작성 Pet 또는 Root 댓글 작성 Pet이 아닌 경우"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "404",
+            description = "게시글·댓글이 없거나 삭제·차단된 경우 (기존 Board/Chat existence hiding 정책)"
+    )
+    ResponseEntity<ApiResponse<EnsureDirectRoomResult>> ensureDirectRoom(
+            @Parameter(hidden = true) CurrentUser user,
+            @Parameter(description = "게시글 ID") Long postId,
+            @Parameter(description = "직접 작성된 root 댓글 ID") Long commentId
     );
 
     @Operation(summary = "게시글 대댓글 작성", description = "상위 댓글 아래에 최대 3-depth까지 대댓글을 작성합니다. 허용 필드는 content뿐입니다.")

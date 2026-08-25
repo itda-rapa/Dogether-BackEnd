@@ -6,17 +6,20 @@ import itda.common.exception.BusinessException;
 import itda.common.security.CurrentUser;
 import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
+import itda.pet.dto.PetPublicProfileResponse;
 import itda.pet.dto.PetResponse;
 import itda.pet.dto.PetProfileImageRequest;
 import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.dto.PetUpdateRequest;
 import itda.pet.dto.PetUpdateRequestParser;
+import itda.pet.support.IfMatchVersionParser;
 import itda.pet.service.MyPetQueryService;
 import itda.pet.service.PetCreationResult;
 import itda.pet.service.PetCreationService;
 import itda.pet.service.PetUpdateService;
 import itda.pet.service.PetProfileImageService;
 import itda.pet.service.query.PetSearchQueryService;
+import itda.pet.service.query.PetPublicProfileQueryService;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -29,7 +32,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,24 +48,30 @@ public class PetController implements PetSwaggerSupporter {
     private final PetCreationService petCreationService;
     private final MyPetQueryService myPetQueryService;
     private final PetSearchQueryService petSearchQueryService;
+    private final PetPublicProfileQueryService petPublicProfileQueryService;
     private final PetUpdateRequestParser petUpdateRequestParser;
     private final PetUpdateService petUpdateService;
     private final PetProfileImageService petProfileImageService;
+    private final IfMatchVersionParser ifMatchVersionParser;
 
     public PetController(
             PetCreationService petCreationService,
             MyPetQueryService myPetQueryService,
             PetSearchQueryService petSearchQueryService,
+            PetPublicProfileQueryService petPublicProfileQueryService,
             PetUpdateRequestParser petUpdateRequestParser,
             PetUpdateService petUpdateService,
-            PetProfileImageService petProfileImageService
+            PetProfileImageService petProfileImageService,
+            IfMatchVersionParser ifMatchVersionParser
     ) {
         this.petCreationService = petCreationService;
         this.myPetQueryService = myPetQueryService;
         this.petSearchQueryService = petSearchQueryService;
+        this.petPublicProfileQueryService = petPublicProfileQueryService;
         this.petUpdateRequestParser = petUpdateRequestParser;
         this.petUpdateService = petUpdateService;
         this.petProfileImageService = petProfileImageService;
+        this.ifMatchVersionParser = ifMatchVersionParser;
     }
 
     @PostMapping
@@ -124,6 +136,20 @@ public class PetController implements PetSwaggerSupporter {
         ));
     }
 
+    @GetMapping("/{petId}/profile")
+    public ResponseEntity<ApiResponse<PetPublicProfileResponse>> getPublicProfile(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                petPublicProfileQueryService.getPublicProfile(
+                        currentUser.id(),
+                        petId
+                ),
+                "Pet 공개 프로필이 조회되었습니다."
+        ));
+    }
+
     @PostMapping("/{petId}/profile-image")
     public ResponseEntity<ApiResponse<PetResponse>> setInitialProfileImage(
             @AuthenticationPrincipal CurrentUser currentUser,
@@ -139,6 +165,42 @@ public class PetController implements PetSwaggerSupporter {
                         ),
                         "Pet 프로필 이미지가 설정되었습니다."
                 ));
+    }
+
+    @PutMapping("/{petId}/profile-image")
+    public ResponseEntity<ApiResponse<PetResponse>> replaceProfileImage(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId,
+            @RequestHeader(value = "If-Match", required = false)
+            List<String> ifMatchValues,
+            @RequestBody PetProfileImageRequest request
+    ) {
+        long expectedVersion = ifMatchVersionParser.parse(ifMatchValues);
+        return ResponseEntity.ok(ApiResponse.ok(
+                petProfileImageService.replaceProfileImage(
+                        currentUser.id(),
+                        petId,
+                        request.mediaId(),
+                        expectedVersion
+                ),
+                "Pet 프로필 이미지가 교체되었습니다."
+        ));
+    }
+
+    @DeleteMapping("/{petId}/profile-image")
+    public ResponseEntity<Void> deleteProfileImage(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long petId,
+            @RequestHeader(value = "If-Match", required = false)
+            List<String> ifMatchValues
+    ) {
+        long expectedVersion = ifMatchVersionParser.parse(ifMatchValues);
+        petProfileImageService.deleteProfileImage(
+                currentUser.id(),
+                petId,
+                expectedVersion
+        );
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{petId}")

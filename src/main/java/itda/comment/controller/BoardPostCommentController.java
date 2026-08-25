@@ -5,6 +5,8 @@ import itda.comment.dto.CommentRequestParser;
 import itda.comment.dto.CommentResponse;
 import itda.comment.dto.CommentReactionResponse;
 import itda.comment.domain.CommentReactionType;
+import itda.chat.dto.EnsureDirectRoomResult;
+import itda.comment.service.BoardCommentDirectRoomService;
 import itda.comment.service.BoardPostCommentService;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
@@ -26,13 +28,16 @@ import tools.jackson.databind.JsonNode;
 public class BoardPostCommentController implements BoardPostCommentSwaggerSupporter {
 
     private final BoardPostCommentService service;
+    private final BoardCommentDirectRoomService directRoomService;
     private final CommentRequestParser parser;
 
     public BoardPostCommentController(
             BoardPostCommentService service,
+            BoardCommentDirectRoomService directRoomService,
             CommentRequestParser parser
     ) {
         this.service = service;
+        this.directRoomService = directRoomService;
         this.parser = parser;
     }
 
@@ -48,6 +53,18 @@ public class BoardPostCommentController implements BoardPostCommentSwaggerSuppor
                         "댓글이 등록되었습니다."
                 )
         );
+    }
+
+    @PostMapping("/posts/{postId}/comments/{commentId}/direct-room")
+    public ResponseEntity<ApiResponse<EnsureDirectRoomResult>> ensureDirectRoom(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long postId,
+            @PathVariable Long commentId
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                directRoomService.ensureDirectRoom(user.id(), postId, commentId),
+                "DIRECT 채팅방이 연결되었습니다."
+        ));
     }
 
     @PostMapping("/comments/{parentCommentId}/replies")

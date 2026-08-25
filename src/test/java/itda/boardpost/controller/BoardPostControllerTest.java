@@ -1,8 +1,11 @@
 package itda.boardpost.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.times;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -11,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import itda.boardpost.dto.BoardPostAuthorPetResponse;
 import itda.boardpost.dto.BoardPostImageResponse;
+import itda.boardpost.dto.BoardPostUpdateRequest;
 import itda.boardpost.dto.BoardPostResponse;
 import itda.boardpost.dto.BoardPostRequestParser;
 import itda.boardpost.service.BoardPostService;
@@ -31,6 +35,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.mockito.ArgumentCaptor;
 
 @WebMvcTest(BoardPostController.class)
 @AutoConfigureMockMvc(addFilters = false)
@@ -109,6 +114,53 @@ class BoardPostControllerTest {
                         .content("{\"title\":\"changed\",\"version\":0}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("CONCURRENT_UPDATE_CONFLICT"));
+    }
+
+    @Test
+    void patchWireContractDistinguishesOmittedEmptyAndOrderedMediaIds() throws Exception {
+        given(service.update(eq(USER_ID), eq(POST_ID), any())).willReturn(response(List.of()));
+
+        mockMvc.perform(patch("/posts/{postId}", POST_ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"changed\",\"version\":0}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/posts/{postId}", POST_ID)
+                        .contentType("application/json")
+                        .content("{\"mediaIds\":[],\"version\":1}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/posts/{postId}", POST_ID)
+                        .contentType("application/json")
+                        .content("{\"mediaIds\":[3,8,5],\"version\":2}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<BoardPostUpdateRequest> requests =
+                ArgumentCaptor.forClass(BoardPostUpdateRequest.class);
+        then(service).should(times(3)).update(eq(USER_ID), eq(POST_ID), requests.capture());
+        assertThat(requests.getAllValues()).satisfiesExactly(
+                omitted -> {
+                    assertThat(omitted.mediaIdsPresent()).isFalse();
+                    assertThat(omitted.mediaIds()).isEmpty();
+                },
+                empty -> {
+                    assertThat(empty.mediaIdsPresent()).isTrue();
+                    assertThat(empty.mediaIds()).isEmpty();
+                },
+                values -> {
+                    assertThat(values.mediaIdsPresent()).isTrue();
+                    assertThat(values.mediaIds()).containsExactly(3L, 8L, 5L);
+                }
+        );
+    }
+
+    @Test
+    void patchRejectsNullMediaIdsBeforeCallingTheService() throws Exception {
+        mockMvc.perform(patch("/posts/{postId}", POST_ID)
+                        .contentType("application/json")
+                        .content("{\"mediaIds\":null,\"version\":0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+
+        then(service).shouldHaveNoInteractions();
     }
 
     private BoardPostResponse response(List<BoardPostImageResponse> images) {

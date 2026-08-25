@@ -50,7 +50,7 @@ Content-Type: application/json
 - Instant: ISO 8601 UTC, 예: `2026-08-20T09:00:00Z`
 - 좌표: WGS84 decimal degree
 - Cursor: 서버가 발급한 opaque 문자열을 Client가 해석하지 않음
-- 알 수 없는 JSON 필드는 `400 VALIDATION_FAILED`로 거절하는 것을 권장
+- JSON 필드 허용 여부와 알 수 없는 필드 처리는 각 endpoint의 runtime 계약을 따른다.
 
 ---
 
@@ -199,6 +199,39 @@ Provider 인증
 
 ## 3. Pet 삭제·이미지
 
+`PetResponse`를 반환하는 API는 `version`을 포함한다. `status`는 현재 Pet 상태
+(`ACTIVE`, `SUSPENDED`, `DELETED`)이며, 삭제된 Pet은 일반적인 본인 Pet 조회에서
+`PET_NOT_FOUND`로 은닉된다. `profileUrl`은 연결된 업로드 완료 IMAGE Media의
+조회 시점 presigned URL이고, 연결되지 않았으면 `null`이다.
+
+### `GET /pets/{petId}/profile`
+
+- 인증: 로그인 User
+- 성공: `200 ApiResponse<PetPublicProfileResponse>`, message는 `Pet 공개 프로필이 조회되었습니다.`
+- `data`는 `petId`, `publicTag`, `nickname`, `profileUrl`, `verified`, `breedName`, `sex`,
+  `neutered`, `birthDate`, `sizeCode`, `bio`, `personalityTags`, `helpfulReceivedCount`,
+  `relationship`만 반환한다. `personalityTags`는 빈 경우에도 `[]`이며, `profileUrl`은 profile Media가
+  없으면 `null`이다.
+- 공개 대상은 `status=ACTIVE`, `deletedAt=null`, 소유자 `accountStatus=ACTIVE`를 모두 만족해야 한다.
+  Pet 부재, 정지·삭제·soft-delete Pet, 비활성 소유자, 조회자→소유자 또는 소유자→조회자 Block은 모두
+  `404 PET_NOT_FOUND`로 existence hiding 한다.
+- 자기 Pet은 조회 가능하되 `relationship=null`이며 Active Pet·FriendRelationship 조회를 하지 않는다.
+  비자기 대상도 조회자의 Active Pet이 없으면 성공하고 `relationship=null`이다. 유효 Active Pet이 있을
+  때만 기존 FriendRelationship의 `NONE`, `REQUEST_SENT`, `REQUEST_RECEIVED`, `FRIEND`를 계산한다.
+- `verified`는 기존 verification badge 결과만 공개하고 `verifiedAt`은 반환하지 않는다. `helpfulReceivedCount`는
+  기존 HELPFUL 집계 기준을 변경하지 않는다.
+
+### `POST /pets/{petId}/profile-image`
+
+- 인증: Pet 소유 User
+- 성공: `201 Created`와 `PetResponse`
+- body: `{"mediaId":123}` (`mediaId`는 양의 정수)
+- 최초 1회만 연결할 수 있으며 이미 연결된 Pet은 `409 PET_PROFILE_IMAGE_ALREADY_SET`이다.
+- Media는 요청자 소유의 IMAGE이고 `UPLOADED` 또는 `COMPLETED` 상태여야 한다.
+- 오류: `400 VALIDATION_FAILED`, `403 PET_NOT_OWNED`·`MEDIA_NOT_OWNED`,
+  `404 PET_NOT_FOUND`·`MEDIA_NOT_FOUND`, `409 PET_PROFILE_IMAGE_ALREADY_SET`,
+  `422 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
+
 ### `DELETE /pets/{petId}`
 
 - 인증: Pet 소유 User
@@ -217,7 +250,12 @@ Provider 인증
 ### `PUT /pets/{petId}/profile-image`
 
 - Header: `If-Match: "{petVersion}"` 필수
-- PUT/DELETE 모두 같은 Pet version 낙관적 잠금 정책을 사용한다.
+- `If-Match`는 큰따옴표로 감싼 0 이상의 10진수 strong ETag 하나만 허용한다. 예: `If-Match: "3"`.
+- 헤더가 없거나 blank, weak ETag(`W/"3"`), wildcard(`*`), 반복 헤더, comma-separated 값,
+  부호·공백·숫자가 아닌 값·범위를 벗어난 값이면 `400 VALIDATION_FAILED`이며 service를 호출하지 않는다.
+- PUT/DELETE 모두 같은 Pet `version` 낙관적 잠금 정책을 사용한다.
+- 요청 body는 `{"mediaId":123}` 형식이며 `mediaId`는 양의 정수다. 알 수 없는 필드는 이 endpoint에서 별도 오류로 처리하지 않는다.
+- Media는 요청자 소유의 IMAGE이고 상태가 `UPLOADED` 또는 `COMPLETED`여야 한다.
 
 요청:
 
@@ -232,29 +270,45 @@ Provider 인증
 ```json
 {
   "success": true,
-  "message": "프로필 이미지가 변경되었습니다.",
+  "message": "Pet 프로필 이미지가 교체되었습니다.",
   "data": {
-    "petId": 12,
-    "profileImage": {
-      "mediaId": 501,
-      "contentType": "image/jpeg",
-      "url": "https://storage.example/presigned...",
-      "expiresAt": "2026-08-20T09:15:00Z"
-    },
-    "version": 4
+    "petId": 10,
+    "publicTag": "pet#TAG1",
+    "nickname": "초코",
+    "profileUrl": "https://storage.example/presigned...",
+    "status": "ACTIVE",
+    "version": 4,
+    "verified": true,
+    "active": true,
+    "helpfulReceivedCount": 12
   },
   "error": null
 }
 ```
 
-오류: `404 PET_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
+- 실제 Media 교체이면 Pet row의 `version`이 정확히 1 증가한다. 현재 연결과 같은
+  `mediaId`를 다시 지정하면 Media 검증을 먼저 수행한 뒤 no-op으로 처리하며 `version`은 증가하지 않는다.
+- 응답 `data`는 일반 `PetResponse`이며 `version`은 저장된 Pet version과 같다.
+- 이 요청은 Pet의 Media link만 변경한다. Media row, `deletedAt`, S3 객체와
+  `StorageDeleteJob` 생성 여부는 변경하지 않는다.
+
+오류: `400 VALIDATION_FAILED`, `403 PET_NOT_OWNED`·`MEDIA_NOT_OWNED`,
+`404 PET_NOT_FOUND`·`MEDIA_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`,
+`422 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
 
 ### `DELETE /pets/{petId}/profile-image`
 
 - Header: `If-Match: "{petVersion}"` 필수
-- 성공: `204`
-- 기존 Media link를 해제하고, 다른 유효 참조 또는 Evidence 보존 정책이 없는 경우 Media 정책에 따라 StorageDeleteJob 대상에 등록한다.
-- 오류: `409 CONCURRENT_UPDATE_CONFLICT`를 PUT과 동일하게 적용한다.
+- `If-Match` 문법과 version 검사는 PUT과 동일하다. 누락·malformed header는 `400 VALIDATION_FAILED`,
+  stale version은 `409 CONCURRENT_UPDATE_CONFLICT`다.
+- Request body는 없고, 성공은 `204 No Content`다. 응답 body와 DELETE ETag를 반환하지 않는다.
+- 실제 link 해제이면 Pet row의 `version`이 정확히 1 증가한다. 이미 link가 없으면 no-op으로
+  `version`은 증가하지 않는다.
+- 별도의 `MediaRepository` command lookup 및 Media 소유권/type/status validation 없이 Pet의
+  profile link만 해제한다.
+- 이 요청도 Pet의 Media link만 변경한다. Media row, `deletedAt`, S3 객체와
+  `StorageDeleteJob`은 변경하지 않는다. Media 물리 삭제 lifecycle은 이 API 계약에 포함하지 않는다.
+- 오류: `403 PET_NOT_OWNED`, `404 PET_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`.
 
 ---
 
@@ -430,7 +484,36 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 }
 ```
 
+### `POST /posts/{postId}/comments/{commentId}/direct-room`
+
+게시글에 직접 작성된 Root 댓글 작성자 Pet과 게시글 작성자 Pet 사이의 기존 DIRECT 채팅방을 조회하거나 생성한다. 새 DIRECT room이 생성되면 `origin=BOARD_COMMENT`로 저장하며, 기존 room 재사용 시 origin은 변경하지 않는다.
+
+- 인증: Bearer JWT
+- Request body: 없음
+- Controller 입력: `CurrentUser`, `postId`, `commentId`만 사용한다. Pet ID를 body·header·JWT claim에서 받지 않는다.
+- 대상 Comment: 요청 Post에 속한 active Root(`depth=0`, `parentCommentId=null`, `rootCommentId=null`)만 허용하며 Reply는 `404 BOARD_POST_COMMENT_NOT_FOUND`다.
+- 호출 권한: Active Pet이 Post author Pet 또는 Comment author Pet이 아니면 기존 `FORBIDDEN`(403)으로 거부하고 Chat Core를 호출하지 않는다.
+- same Pet: `CHAT_ROOM_SAME_PET_FORBIDDEN`(400)
+- same-owner Pet: `SAME_OWNER_INTERACTION_FORBIDDEN`(400)
+- Block: 양방향 Block이면 `CHAT_ROOM_NOT_FOUND`(404)로 existence hiding한다.
+- 삭제/비공개: 삭제 Post는 `BOARD_POST_NOT_FOUND`, 삭제 Comment는 `BOARD_POST_COMMENT_NOT_FOUND`로 Board visibility 계약을 따른다. 기존 room은 Chat 경로로만 접근한다.
+
+응답은 `200 ApiResponse<EnsureDirectRoomResult>`다.
+
+```json
+{
+  "success": true,
+  "message": "DIRECT 채팅방이 연결되었습니다.",
+  "data": { "roomId": 1, "isNew": true },
+  "error": null
+}
+```
+
+Board 계층은 Post/Comment identity·visibility와 호출 권한만 확인한다. DIRECT pair 정규화, 기존 room 재사용, Participant 생성, DB 중복 방지, Chat existence hiding은 기존 `ChatRoomService.ensureDirectRoom(...)`과 Chat 조회 계약의 책임이다.
+
 ### `POST /boards/{boardId}/posts`
+
+아래 `placeId` 요청·응답 계약은 기존 M3 Place 제품 계획 계약이다. Issue #124는 Place를 구현하거나 변경하지 않으며, 현재 runtime POST parser는 `title`·`content`·선택 `mediaIds`만, PATCH parser는 이 절의 `title`·`content`·`mediaIds`·`version` 계약만 받는다.
 
 `POST /boards/{boardId}/posts` 요청 예시:
 
@@ -505,6 +588,8 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 
 ### `PATCH /posts/{postId}`
 
+기존 M3 Place 제품 계획 요청 예시이며, 아래 `placeId`는 현재 Issue #124 runtime PATCH parser의 허용 필드가 아니다.
+
 ```json
 {
   "title": "야간 진료 병원 후기 수정",
@@ -517,20 +602,36 @@ Query: `cursor` optional, `size` 기본 20·최대 100.
 
 성공 응답은 생성과 같은 Post 상세에 증가한 `version`을 포함한다.
 
-PATCH 필드 의미:
+현재 Issue #124 runtime PATCH는 strict JSON이며 `title`, `content`, `mediaIds`, `version` 외 필드는 `400 VALIDATION_FAILED`다. `version`은 필수인 0 이상의 integral long이고, `title`·`content`·`mediaIds` 중 하나 이상이 필요하다. `mediaIds`는 null이 아닌 중복 없는 양의 integral long 배열로 최대 5개다. decimal, overflow, 0 이하 값, null item도 `400 VALIDATION_FAILED`다. 아래 `placeId` 항목은 기존 M3 Place 제품 계획 계약이며 Issue #124 runtime parser에는 포함되지 않는다.
 
-- 필드 생략: 기존 값 유지
+PATCH 필드 의미 (기존 M3 Place 제품 계획 계약과 현재 Issue #124 media 계약을 함께 표기):
+
+- `title`, `content` 생략: 해당 text 유지
+- `placeId` 생략: 기존 Place 연결 유지
 - `placeId: null`: Place 연결 제거
 - `placeId: 91`: Place 교체
-- `mediaIds` 생략: 기존 이미지 유지
-- `mediaIds: []`: 첨부 이미지 전체 제거
-- `mediaIds: [...]`: 전달한 순서의 목록으로 전체 교체
+- `mediaIds` 생략: 기존 이미지 링크를 그대로 유지하고 비교·교체하지 않음
+- `mediaIds: null`: `400 VALIDATION_FAILED`
+- `mediaIds: []`: 기존 링크를 모두 제거
+- `mediaIds: [501, 502]`: 검증된 이미지 링크를 전달 순서(`displayOrder` 0부터)로 전체 교체
+
+stale version 검사는 작성자·게시글 확인 뒤 Media DB 조회와 no-op 판단보다 먼저 수행하며, 불일치면 `409 CONCURRENT_UPDATE_CONFLICT`다. `mediaIds`가 present이면 같은 순서의 현재 목록인지 비교하고 command Media validation을 유지한다. 동일한 title/content와 동일 순서 목록은 no-op으로 link DML과 version 증가가 없다. 같은 집합이어도 순서가 다르면 실제 변경이다.
+
+실제 text 또는 이미지 변경은 BoardPost의 domain-specific attachment touch와 text 변경을 한 aggregate dirty update로 합쳐 `posts.flush()` 한 번으로 parent optimistic claim을 먼저 완료한다. flush 후 응답의 managed version과 DB version은 동일하고 정확히 1 증가한다. 이후 이미지 교체는 기존 `BoardPostMedia`를 delete, flush, 요청 순서로 insert한다. 따라서 `[A,B] -> [B,A]`도 unique 제약 충돌 없이 처리되며 rollback 시 parent와 link 변경은 함께 원복된다.
+
+이미지 command validation은 기존 계약을 유지한다: missing/deleted는 `MEDIA_NOT_FOUND`, 타 소유자는 `MEDIA_NOT_OWNED`, non-image는 `INVALID_MEDIA_TYPE`, 업로드 완료 전 상태는 `MEDIA_NOT_UPLOADED`다. 읽기 hydrate는 별도 경계로, 링크 Media를 batch로 모두 load한 뒤 collection signing한다. missing, soft-deleted 또는 not-downloadable Media가 하나라도 있으면 일부 images를 반환하지 않고 기존 단건 다운로드와 같은 읽기 실패로 요청 전체가 실패한다.
+
+N+1 방지: feed는 페이지 전체 `BoardPostMedia`의 distinct Media ID를 `findAllById` 한 번으로 hydrate하고 collection signing도 한 번만 수행한다. detail과 PATCH의 `mediaIds` omitted 경로도 link 집합 단위로 hydrate한다. create와 `mediaIds` present PATCH는 validation에서 이미 load한 `Media`를 링크 생성·응답 signing에 재사용한다. Board feed 작성자의 PetDisplay batch path는 fetch join된 profile asset을 collection signing해 추가 MediaRepository lookup 없이 URL을 조립한다. 이 작업은 Media entity·repository·service/controller/lifecycle 및 Media Flyway migration을 변경하지 않는다.
 
 게시글 생성·수정·목록·상세 응답에서 기존 `reactionCount`·`reactedByMe`는 LIKE 의미를 유지한다. HELPFUL 상태는 `helpfulCount`·`helpfulByMe`로 별도 제공한다.
 
-기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정 응답에는 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다. 공개 타 사용자 Pet profile endpoint, `PetSearchItemResponse`, `PetDisplaySummary` 확장은 이번 범위가 아니다.
+기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정·교체 응답에는
+`version`과 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다.
+프로필 이미지 PUT/DELETE는 Pet link만 변경하고 Media lifecycle을 변경하지 않는다. 공개 타 사용자 Pet
+profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearchItemResponse`와
+`PetDisplaySummary`는 확장하지 않는다.
 
-오류: `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`.
+오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
 
 ---
 
@@ -887,7 +988,9 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 
 - 인증: `ADMIN`, `SUPER_ADMIN`
 - Query: `from=2026-08-14`, `to=2026-08-20`
-- 생략 시 최근 7일, 최대 90일
+- `from`, `to`를 모두 생략하면 KST 오늘을 포함한 최근 7일, 최대 90일
+- 한쪽 날짜만 입력하거나 `from > to`이면 `INVALID_DATE_RANGE`
+- 날짜 범위는 KST `[from 00:00, to 다음 날 00:00)`를 UTC `Instant`로 변환해 집계
 
 응답:
 
@@ -902,7 +1005,7 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
       "zoneId": "Asia/Seoul"
     },
     "users": { "total": 10042, "newInPeriod": 214 },
-    "pets": { "total": 14310 },
+    "pets": { "total": 14310, "newInPeriod": 188 },
     "setlogs": { "total": 102301, "newInPeriod": 1322 },
     "boardPosts": { "total": 12004, "newInPeriod": 407 },
     "reports": { "createdInPeriod": 31, "open": 7 },
@@ -910,9 +1013,8 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
       "detectedUsers": 12,
       "openCases": 4,
       "signalsByType": {
-        "REPEATED_CONTACT": 9,
-        "AI_ACCOUNT_REQUEST": 2,
-        "AI_EXTORTION": 1
+        "USER_BLOCKED": 9,
+        "GREETING_EXPIRED": 3
       }
     },
     "storageCleanup": {
@@ -926,7 +1028,7 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
         "id": 81,
         "status": "OPEN",
         "subjectUserId": 701,
-        "reason": "REPEATED_CONTACT",
+        "reason": "USER_BLOCKED",
         "createdAt": "2026-08-20T08:30:00Z"
       }
     ]
@@ -937,6 +1039,18 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 
 오류: `400 INVALID_DATE_RANGE`, `400 DATE_RANGE_TOO_LARGE`, `401 UNAUTHORIZED`, `403 FORBIDDEN`.
 
+집계 기준(D-08):
+
+- User: `role=USER`이면서 탈퇴하지 않은 계정. 정지 계정은 포함한다.
+- Pet: 논리 삭제되지 않은 Pet. 정지 Pet은 포함한다.
+- Setlog: `VISIBLE`이며 Seed가 아닌 콘텐츠.
+- BoardPost: `PUBLISHED`이며 논리 삭제되지 않은 게시글.
+- Report: `createdInPeriod`는 생성 당시 상태와 무관하고, `open`은 조회 시점의 현재 `OPEN` 수다.
+- Safety: `detectedUsers`와 `signalsByType`은 기간 내 `occurredAt`, `openCases`는 현재 `OPEN`, `REVIEWING` 수다. 0건인 Signal type은 생략한다.
+- StorageCleanup: 기간과 무관한 현재 `PENDING`, `RETRY`, `FAILED` backlog다.
+- `recentItems`는 기간과 무관한 Report·SafetyCase 전체 최신 10건이며 `createdAt DESC`, `source ASC`, `id DESC`로 정렬한다.
+- 이메일, 토큰, 신고 원문, Risk metadata, Media URL은 조회하거나 반환하지 않는다.
+
 ---
 
 ## 8. Safety 관리자 API
@@ -946,8 +1060,9 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 Query:
 
 - `status`: 기본 `OPEN`
-- `signalType`, `subjectUserId`, `from`, `to`
+- `signalType`, `subjectUserId`, `targetUserId`, `from`, `to`
 - `cursor`, `size` 기본 20·최대 100
+- Queue cursor는 Case 평가로 변경되는 `lastDetectedAt`이 아니라 `(createdAt, caseId)`를 인코딩한다.
 
 응답:
 
@@ -959,14 +1074,19 @@ Query:
     "items": [
       {
         "caseId": 81,
-        "subjectUserId": 701,
-        "subjectPublicTag": "이웃#A120F8",
+        "subject": { "userId": 701, "publicTag": "이웃#A120F8" },
+        "target": { "userId": 820, "publicTag": "이웃#B920D1" },
         "status": "OPEN",
         "totalScore": 90,
         "signalCount": 3,
-        "primarySignalType": "REPEATED_CONTACT",
+        "primarySignalType": "USER_BLOCKED",
+        "evaluationPolicyVersion": 7,
         "firstDetectedAt": "2026-08-15T02:00:00Z",
-        "lastDetectedAt": "2026-08-20T08:30:00Z"
+        "lastDetectedAt": "2026-08-20T08:30:00Z",
+        "evaluatedAt": "2026-08-20T08:30:01Z",
+        "version": 2,
+        "createdAt": "2026-08-20T08:30:01Z",
+        "updatedAt": "2026-08-20T08:30:01Z"
       }
     ],
     "page": {
@@ -983,30 +1103,38 @@ Query:
 ```json
 {
   "success": true,
-  "message": "안전 검토 상세 조회 성공",
+  "message": "안전 검토 건을 조회했습니다.",
   "data": {
-    "caseId": 81,
-    "subject": {
-      "userId": 701,
-      "publicTag": "이웃#A120F8",
-      "accountStatus": "ACTIVE"
+    "safetyCase": {
+      "caseId": 81,
+      "subject": { "userId": 701, "publicTag": "이웃#A120F8" },
+      "target": { "userId": 820, "publicTag": "이웃#B920D1" },
+      "status": "OPEN",
+      "totalScore": 90,
+      "signalCount": 3,
+      "primarySignalType": "USER_BLOCKED",
+      "evaluationPolicyVersion": 7,
+      "firstDetectedAt": "2026-08-15T02:00:00Z",
+      "lastDetectedAt": "2026-08-20T08:30:00Z",
+      "evaluatedAt": "2026-08-20T08:30:01Z",
+      "version": 2,
+      "createdAt": "2026-08-20T08:30:01Z",
+      "updatedAt": "2026-08-20T08:30:01Z"
     },
-    "status": "OPEN",
-    "totalScore": 90,
-    "signals": [
+    "recentSignals": [
       {
         "signalId": 901,
-        "signalType": "FRIEND_REQUEST_REJECTED",
-        "targetUserId": 820,
+        "eventId": "1a548b88-2fd0-4be9-9418-03e11e9a6c6f",
+        "sourceType": "USER_BLOCK",
+        "sourceId": 4201,
+        "signalType": "USER_BLOCKED",
         "score": 30,
-        "occurredAt": "2026-08-15T02:00:00Z",
-        "sourceType": "FRIEND_REQUEST",
-        "sourceId": "4201"
+        "scorePolicyVersion": 1,
+        "occurredAt": "2026-08-15T02:00:00Z"
       }
     ],
-    "actions": [],
-    "createdAt": "2026-08-20T08:30:00Z",
-    "updatedAt": "2026-08-20T08:30:00Z"
+    "hasMoreSignals": false,
+    "actions": []
   },
   "error": null
 }
@@ -1028,21 +1156,30 @@ Query:
 ```json
 {
   "success": true,
-  "message": "안전 검토가 처리되었습니다.",
+  "message": "안전 검토 건을 처리했습니다.",
   "data": {
     "caseId": 81,
+    "subject": { "userId": 701, "publicTag": "이웃#A120F8" },
+    "target": { "userId": 820, "publicTag": "이웃#B920D1" },
     "status": "WARNING_RECORDED",
-    "actionId": 301,
-    "actionType": "WARNING_RECORDED",
-    "reason": "동일 사용자에게 반복 접촉한 이력이 확인되었습니다.",
-    "processedByAdminId": 3,
-    "processedAt": "2026-08-20T09:10:00Z"
+    "totalScore": 90,
+    "signalCount": 3,
+    "primarySignalType": "USER_BLOCKED",
+    "evaluationPolicyVersion": 7,
+    "firstDetectedAt": "2026-08-15T02:00:00Z",
+    "lastDetectedAt": "2026-08-20T08:30:00Z",
+    "evaluatedAt": "2026-08-20T08:30:01Z",
+    "version": 3,
+    "createdAt": "2026-08-20T08:30:01Z",
+    "updatedAt": "2026-08-20T09:10:00Z"
   },
   "error": null
 }
 ```
 
 허용 action: `DISMISSED`, `WARNING_RECORDED`.
+
+`OPEN`에서 바로 종료하거나 `REVIEWING`을 거쳐 종료할 수 있다. Action 상세 이력은 Case 상세 응답의 `actions`에서 확인한다.
 
 오류: `404 SAFETY_CASE_NOT_FOUND`, `409 SAFETY_CASE_ALREADY_CLOSED`, `400 SAFETY_ACTION_INVALID`.
 
@@ -1061,19 +1198,22 @@ GET /admin/safety/cases/81/evidence?purpose=반복접촉%20사실관계%20확인
 ```json
 {
   "success": true,
-  "message": "검토 Evidence 조회 성공",
+  "message": "안전 검토 증거를 조회했습니다.",
   "data": {
-    "auditId": 9901,
-    "caseId": 81,
     "items": [
       {
-        "resourceType": "CHAT_MESSAGE",
-        "resourceId": 9001,
-        "roomId": 31,
-        "senderPetId": 12,
-        "type": "TEXT",
-        "body": "다시 이야기하고 싶어요.",
-        "createdAt": "2026-08-20T08:20:00Z"
+        "signalId": 901,
+        "signalType": "USER_BLOCKED",
+        "sourceType": "USER_BLOCK",
+        "sourceId": 4201,
+        "occurredAt": "2026-08-20T08:20:00Z",
+        "accessStatus": "AVAILABLE",
+        "source": {
+          "subjectPublicTag": "이웃#A120F8",
+          "targetPublicTag": "이웃#B920D1",
+          "sourceStatus": "ACTIVE",
+          "sourceOccurredAt": "2026-08-20T08:20:00Z"
+        }
       }
     ],
     "page": { "nextCursor": null, "hasNext": false }
@@ -1082,7 +1222,9 @@ GET /admin/safety/cases/81/evidence?purpose=반복접촉%20사실관계%20확인
 }
 ```
 
-조회 성공·실패와 무관하게 권한이 확인된 실제 Evidence 접근 시 감사 이력을 남긴다. 응답에 JWT·이메일·AI prompt를 포함하지 않는다.
+현재 원천 요약을 지원하는 `sourceType`은 `USER_BLOCK`, `GREETING`이다. 지원하지 않거나 삭제된 원천은 `UNSUPPORTED` 또는 `SOURCE_NOT_FOUND`로 반환한다. 채팅 원문과 Media URL은 반환하지 않는다.
+
+조회 성공·실패와 무관하게 권한이 확인된 실제 Evidence 접근 시 감사 이력을 남긴다. 감사에는 목적·resource 식별자·결과만 저장하며 JWT·이메일·AI prompt·원문을 포함하지 않는다.
 
 ---
 

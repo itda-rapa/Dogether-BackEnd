@@ -24,11 +24,11 @@ public class BoardPostRequestParser {
     public BoardPostUpdateRequest parseUpdate(JsonNode body) {
         if (body == null
                 || !body.isObject()
-                || !Set.of("title", "content", "version")
+                || !Set.of("title", "content", "mediaIds", "version")
                 .containsAll(body.propertyNames())) {
             throw invalid();
         }
-        if (!body.has("title") && !body.has("content")) {
+        if (!body.has("title") && !body.has("content") && !body.has("mediaIds")) {
             throw invalid();
         }
         String title = body.has("title") ? string(body, "title") : null;
@@ -44,6 +44,8 @@ public class BoardPostRequestParser {
                 title,
                 body.has("content"),
                 content,
+                body.has("mediaIds"),
+                mediaIds(body),
                 version.longValue()
         );
     }

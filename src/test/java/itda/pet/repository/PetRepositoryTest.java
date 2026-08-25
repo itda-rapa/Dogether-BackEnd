@@ -2,6 +2,9 @@ package itda.pet.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import itda.media.domain.Media;
+import itda.media.domain.MediaType;
+import itda.media.repository.MediaRepository;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
@@ -15,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.Hibernate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -33,6 +37,9 @@ class PetRepositoryTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private MediaRepository mediaRepository;
 
     @Autowired
     private EntityManager entityManager;
@@ -187,6 +194,121 @@ class PetRepositoryTest {
     }
 
     @Nested
+    @DisplayName("Describe: 공개 프로필 ID 조회")
+    class DescribePublicProfileIdQuery {
+
+        @Test
+        @DisplayName("It: ACTIVE·미삭제 Pet과 ACTIVE owner 및 profileAsset을 조회한다")
+        void itFindsVisiblePetWithLoadedOwnerAndProfileAsset() {
+            Pet saved = petRepository.saveAndFlush(
+                    pet("몽이#A7K2", "몽이", List.of("친화적"))
+            );
+            Media profileAsset = mediaRepository.saveAndFlush(new Media(
+                    MediaType.IMAGE,
+                    "pet-profile/mongi",
+                    owner.getId(),
+                    1024L
+            ));
+            jdbcTemplate.update(
+                    "update pets set profile_asset_id = ? where id = ?",
+                    profileAsset.getId(),
+                    saved.getId()
+            );
+            entityManager.clear();
+
+            Pet found = publicProfile(saved.getId()).orElseThrow();
+
+            assertThat(found.getId()).isEqualTo(saved.getId());
+            assertThat(Hibernate.isInitialized(found.getOwner())).isTrue();
+            assertThat(Hibernate.isInitialized(found.getProfileAsset())).isTrue();
+            assertThat(found.getOwner().getId()).isEqualTo(owner.getId());
+            assertThat(found.getProfileAsset()).isNotNull();
+            assertThat(found.getProfileAsset().getId())
+                    .isEqualTo(profileAsset.getId());
+        }
+
+        @Test
+        @DisplayName("It: SUSPENDED, DELETED, 삭제 시각이 있는 ACTIVE Pet을 제외한다")
+        void itExcludesNonPublicPetStates() {
+            Pet suspended = petRepository.saveAndFlush(
+                    pet("보리#B8M3", "보리", null)
+            );
+            Pet deleted = petRepository.saveAndFlush(
+                    pet("초코#C9N4", "초코", null)
+            );
+            Pet activeWithDeletedAt = petRepository.saveAndFlush(
+                    pet("두부#D2P5", "두부", null)
+            );
+            jdbcTemplate.update(
+                    "update pets set status = 'SUSPENDED' where id = ?",
+                    suspended.getId()
+            );
+            jdbcTemplate.update("""
+                    update pets
+                       set status = 'DELETED', deleted_at = CURRENT_TIMESTAMP
+                     where id = ?
+                    """, deleted.getId());
+            jdbcTemplate.update("""
+                    update pets set deleted_at = CURRENT_TIMESTAMP where id = ?
+                    """, activeWithDeletedAt.getId());
+            entityManager.clear();
+
+            assertThat(publicProfile(suspended.getId())).isEmpty();
+            assertThat(publicProfile(deleted.getId())).isEmpty();
+            assertThat(publicProfile(activeWithDeletedAt.getId())).isEmpty();
+        }
+
+        @Test
+        @DisplayName("It: SUSPENDED 또는 WITHDRAWN owner의 Pet을 제외한다")
+        void itExcludesInactiveOwners() {
+            User suspendedOwner = userRepository.saveAndFlush(newUser());
+            User withdrawnOwner = userRepository.saveAndFlush(newUser());
+            Pet suspendedOwnerPet = petRepository.saveAndFlush(Pet.register(
+                    suspendedOwner,
+                    "마루#E3Q6",
+                    "마루",
+                    "말티즈",
+                    PetSex.UNKNOWN,
+                    false,
+                    LocalDate.of(2021, 3, 15),
+                    new BigDecimal("4.50"),
+                    PetSizeCode.SMALL,
+                    "소개",
+                    null,
+                    "돌봄 메모"
+            ));
+            Pet withdrawnOwnerPet = petRepository.saveAndFlush(Pet.register(
+                    withdrawnOwner,
+                    "나무#F4R7",
+                    "나무",
+                    "말티즈",
+                    PetSex.UNKNOWN,
+                    false,
+                    LocalDate.of(2021, 3, 15),
+                    new BigDecimal("4.50"),
+                    PetSizeCode.SMALL,
+                    "소개",
+                    null,
+                    "돌봄 메모"
+            ));
+            jdbcTemplate.update(
+                    "update users set account_status = 'SUSPENDED' where id = ?",
+                    suspendedOwner.getId()
+            );
+            jdbcTemplate.update("""
+                    update users
+                       set account_status = 'WITHDRAWN',
+                           withdrawn_at = CURRENT_TIMESTAMP
+                     where id = ?
+                    """, withdrawnOwner.getId());
+            entityManager.clear();
+
+            assertThat(publicProfile(suspendedOwnerPet.getId())).isEmpty();
+            assertThat(publicProfile(withdrawnOwnerPet.getId())).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("Describe: owner별 미삭제 Pet 조회")
     class DescribeOwnerQueries {
 
@@ -276,6 +398,14 @@ class PetRepositoryTest {
     private java.util.Optional<Pet> search(String publicTag) {
         return petRepository.findSearchableByPublicTag(
                 publicTag,
+                PetStatus.ACTIVE,
+                AccountStatus.ACTIVE
+        );
+    }
+
+    private java.util.Optional<Pet> publicProfile(Long petId) {
+        return petRepository.findPublicProfileById(
+                petId,
                 PetStatus.ACTIVE,
                 AccountStatus.ACTIVE
         );

@@ -17,6 +17,20 @@ public interface BoardPostRepository extends JpaRepository<BoardPost, Long> {
     Optional<BoardPost> findByIdAndStatus(Long id, PostStatus status);
 
     /**
+     * Reads only the immutable identity needed before the interaction pair lock.
+     * This projection must not materialize a managed BoardPost entity.
+     */
+    @Query("""
+            select post.id as postId,
+                   post.authorUserId as authorUserId,
+                   post.authorPetId as authorPetId,
+                   post.status as status
+            from BoardPost post
+            where post.id = :postId
+            """)
+    Optional<ShareIdentity> findShareIdentityById(@Param("postId") Long postId);
+
+    /**
      * Acquires the parent post share lock only while it is still published.
      * This keeps Comment creation from observing a post that a concurrent soft-delete
      * has already made unavailable.
@@ -42,6 +56,17 @@ public interface BoardPostRepository extends JpaRepository<BoardPost, Long> {
     Optional<BoardPost> findPublishedByIdForUpdate(
             @Param("postId") Long postId
     );
+
+    interface ShareIdentity {
+
+        Long getPostId();
+
+        Long getAuthorUserId();
+
+        Long getAuthorPetId();
+
+        PostStatus getStatus();
+    }
 
     @Query(value = """
             SELECT post.* FROM board_posts post

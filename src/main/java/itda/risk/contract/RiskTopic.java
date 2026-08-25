@@ -3,6 +3,7 @@ package itda.risk.contract;
 /** Risk Kafka 계약 상수. 실제 발행은 Outbox relay 작업에서 구현한다. */
 public final class RiskTopic {
     public static final String RISK_SIGNAL_TOPIC = "risk-signal-topic";
+    public static final String RISK_SIGNAL_DLT_TOPIC = "risk-signal-topic.DLT";
 
     private RiskTopic() {
     }

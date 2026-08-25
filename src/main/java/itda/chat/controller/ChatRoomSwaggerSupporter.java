@@ -17,10 +17,14 @@ import org.springframework.http.ResponseEntity;
 @SecurityRequirement(name = "bearerAuth")
 public interface ChatRoomSwaggerSupporter {
 
-    @Operation(summary = "채팅방 목록 조회", description = "내가 참여 중인 채팅방 목록을 조회하는 API")
+    @Operation(
+            summary = "채팅방 목록 조회",
+            description = "내가 참여 중인 채팅방 목록을 조회합니다. origin은 GREETING, FRIEND, BOARD_COMMENT, OPEN_CHAT 중 하나이며 게시글 Root 댓글 경로로 신규 생성된 DIRECT 방은 BOARD_COMMENT입니다."
+    )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "채팅방 목록 조회 성공",
+            useReturnTypeSchema = true,
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
@@ -53,10 +57,14 @@ public interface ChatRoomSwaggerSupporter {
             @Parameter(description = "조회 개수") Integer limit
     );
 
-    @Operation(summary = "채팅방 상세 조회", description = "채팅방 상세 정보를 조회하는 API")
+    @Operation(
+            summary = "채팅방 상세 조회",
+            description = "채팅방 상세 정보를 조회합니다. origin은 GREETING, FRIEND, BOARD_COMMENT, OPEN_CHAT 중 하나입니다."
+    )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "채팅방 상세 조회 성공",
+            useReturnTypeSchema = true,
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""

@@ -2907,7 +2907,7 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 |---|---:|---|---|---|
 | `roomId` | ㅇ | integer | format: int64 | - |
 | `status` | ㅇ | string | enum: ACTIVE, ARCHIVED | - |
-| `origin` | ㄴ | string | enum: GREETING, FRIEND | - |
+| `origin` | ㄴ | string | enum: GREETING, FRIEND, BOARD_COMMENT, OPEN_CHAT | 게시판 Root 댓글 경로의 신규 DIRECT room은 BOARD_COMMENT |
 | `counterpartPet` | ㅇ | [`PetSearchItem`](#schema-petsearchitem) | - | [`PetSearchItem`](#schema-petsearchitem) |
 | `canSend` | ㅇ | boolean | - | M1 구현은 방 상태만 본다. `ACTIVE`·`ARCHIVED`면 `true`이며 인사 답변 대기는 반영하지 않는다 |
 | `sendBlockedReason` | ㄴ | string / null | enum: GREETING_REPLY_REQUIRED, BLOCKED_USER, ACCOUNT_NOT_ACTIVE, null | **M1 구현은 항상 `null`을 반환한다.** enum 값은 예약이며 클라이언트는 이 필드로 전송 가능 여부를 판단하지 않는다 |
