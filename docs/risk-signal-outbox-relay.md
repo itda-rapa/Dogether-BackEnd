@@ -72,6 +72,6 @@ Kafka 전달 성공과 Outbox의 `SENT` 변경은 하나의 원자적 트랜잭�
 
     .\gradlew.bat kafkaTest --tests "itda.risk.service.RiskSignalOutboxRelayKafkaIntegrationTest"
 
-PostgreSQL 및 Kafka 통합 테스트는 Docker 또는 Embedded Kafka가 필요하므로 기본 `test` task와 분리했다. 이번 PR에서는 CI job을 추가하지 않으며, 병합 전 위 명령을 수동으로 실행하고 결과를 PR에 기록한다.
+PostgreSQL 및 Kafka 통합 테스트는 Docker가 필요하므로 기본 `test` task와 분리했다. 이번 PR에서는 CI job을 추가하지 않으며, 병합 전 위 명령을 수동으로 실행하고 결과를 PR에 기록한다.
 
-실제 broker 중지/재시작은 timeout 이후 늦은 성공으로 테스트가 불안정해질 수 있어 자동화하지 않았다. 대신 Spring + PostgreSQL 통합 테스트에서 첫 발행 실패를 결정적으로 주입해 `RETRY → 재선점 → SENT` 전체 상태 전이를 검증하고, Embedded Kafka E2E에서는 실제 topic/key/JSON/SENT를 검증한다.
+Kafka E2E는 Testcontainers의 실제 Apache Kafka broker를 사용한다. Producer metadata를 준비한 뒤 broker container를 pause해 timeout과 `RETRY`, attempts/backoff/lastError를 확인하고, broker를 unpause한 뒤 같은 `eventId`가 다시 발행되어 `SENT`와 `publishedAt`이 기록되는지 검증한다. timeout 뒤 첫 발행이 늦게 성공하고 명시적 재시도도 성공하면 같은 `eventId`가 두 번 전달되는 at-least-once 경계도 함께 검증한다.
