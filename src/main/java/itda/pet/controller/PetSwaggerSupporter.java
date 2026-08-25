@@ -13,6 +13,7 @@ import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.pet.dto.PetCreateRequest;
 import itda.pet.dto.PetCreateResponse;
+import itda.pet.dto.PetPublicProfileResponse;
 import itda.pet.dto.PetProfileImageRequest;
 import itda.pet.dto.PetResponse;
 import itda.pet.dto.PetSearchItemResponse;
@@ -164,6 +165,57 @@ public interface PetSwaggerSupporter {
             )
     )
     ResponseEntity<ApiResponse<PetResponse>> getMyPet(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            @Parameter(description = "Pet ID") Long petId
+    );
+
+    @Operation(
+            summary = "Pet 공개 프로필 조회",
+            description = "로그인한 사용자가 공개 가능한 Pet의 프로필을 조회합니다. "
+                    + "Pet이 없거나 ACTIVE·미삭제 상태가 아니거나, 소유자 계정이 비활성이거나, "
+                    + "조회자와 소유자 사이에 양방향 Block이 있으면 PET_NOT_FOUND로 은닉합니다. "
+                    + "자기 Pet 또는 조회자의 Active Pet이 없으면 relationship은 null입니다."
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "Pet 공개 프로필 조회 성공",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(ref = "#/components/schemas/ApiResponsePetPublicProfileResponse"),
+                    examples = @ExampleObject("""
+                            {
+                                "success":true,
+                                "message":"Pet 공개 프로필이 조회되었습니다.",
+                                "data":{
+                                    "petId":20,
+                                    "publicTag":"pet#TAG2",
+                                    "nickname":"나나",
+                                    "profileUrl":"https://storage.example/presigned...",
+                                    "verified":true,
+                                    "breedName":"푸들",
+                                    "sex":"FEMALE",
+                                    "neutered":true,
+                                    "birthDate":"2023-01-01",
+                                    "sizeCode":"SMALL",
+                                    "bio":"산책을 좋아해요",
+                                    "personalityTags":["활발함","사교적"],
+                                    "helpfulReceivedCount":12,
+                                    "relationship":"FRIEND"
+                                },
+                                "error":null
+                            }
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "404",
+            description = "공개 가능한 Pet이 없거나 양방향 Block 관계임 (PET_NOT_FOUND)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "401",
+            description = "인증 실패 (UNAUTHORIZED)"
+    )
+    ResponseEntity<ApiResponse<PetPublicProfileResponse>> getPublicProfile(
             @Parameter(hidden = true) CurrentUser currentUser,
             @Parameter(description = "Pet ID") Long petId
     );

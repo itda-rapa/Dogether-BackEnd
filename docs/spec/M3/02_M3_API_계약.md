@@ -18,6 +18,7 @@
 | POST | `/auth/oauth/exchange` | 1회용 loginCode→기존 사용자 JWT 또는 신규 사용자 signupToken |
 | POST | `/auth/oauth/signup` | 신규 OAuth 사용자 프로필 입력·가입 완료 |
 | POST | `/auth/oauth/link` | 동일 이메일 기존 계정 본인 확인 후 Provider 연결(D-02 선택 시) |
+| GET | `/pets/{petId}/profile` | 공개 가능한 Pet의 공개 프로필 조회, 200 `PetPublicProfileResponse` |
 | DELETE | `/pets/{petId}` | Pet Soft Delete |
 | POST | `/pets/{petId}/profile-image` | 최초 프로필 이미지 설정, 201 `PetResponse` |
 | PUT | `/pets/{petId}/profile-image` | `If-Match` 필수 프로필 이미지 교체, 200 `PetResponse` |
@@ -25,7 +26,13 @@
 
 기존 `PetResponse` 소비 endpoint는 `version`과 `helpfulReceivedCount`를 포함한다. `status`는
 `ACTIVE`·`SUSPENDED`·`DELETED`이며, `helpfulReceivedCount`는 삭제되지 않은 게시글과 댓글이
-받은 HELPFUL 합계이고 LIKE는 포함하지 않는다. 타 사용자 public Pet profile endpoint를 새로 만들지 않는다.
+받은 HELPFUL 합계이고 LIKE는 포함하지 않는다. `GET /pets/{petId}/profile`은 별도
+`PetPublicProfileResponse`를 사용하며 `petId`, `publicTag`, `nickname`, `profileUrl`, `verified`,
+`breedName`, `sex`, `neutered`, `birthDate`, `sizeCode`, `bio`, `personalityTags`,
+`helpfulReceivedCount`, `relationship`만 반환한다. 대상 Pet은 `ACTIVE`·미삭제이고 소유자 계정이
+`ACTIVE`여야 하며, 어느 방향이든 Block이면 `PET_NOT_FOUND`로 은닉한다. 자기 Pet 또는 조회자의
+Active Pet이 없으면 `relationship`은 `null`이고, 그 외에는 기존 FriendRelationship 값
+`NONE`·`REQUEST_SENT`·`REQUEST_RECEIVED`·`FRIEND`만 반환한다.
 
 프로필 이미지 PUT/DELETE의 `If-Match`는 큰따옴표로 감싼 0 이상의 10진수 하나만 허용한다
 (예: `If-Match: "3"`). 누락·malformed·반복 헤더는 `400 VALIDATION_FAILED`, stale version은

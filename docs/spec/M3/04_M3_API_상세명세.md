@@ -204,6 +204,23 @@ Provider 인증
 `PET_NOT_FOUND`로 은닉된다. `profileUrl`은 연결된 업로드 완료 IMAGE Media의
 조회 시점 presigned URL이고, 연결되지 않았으면 `null`이다.
 
+### `GET /pets/{petId}/profile`
+
+- 인증: 로그인 User
+- 성공: `200 ApiResponse<PetPublicProfileResponse>`, message는 `Pet 공개 프로필이 조회되었습니다.`
+- `data`는 `petId`, `publicTag`, `nickname`, `profileUrl`, `verified`, `breedName`, `sex`,
+  `neutered`, `birthDate`, `sizeCode`, `bio`, `personalityTags`, `helpfulReceivedCount`,
+  `relationship`만 반환한다. `personalityTags`는 빈 경우에도 `[]`이며, `profileUrl`은 profile Media가
+  없으면 `null`이다.
+- 공개 대상은 `status=ACTIVE`, `deletedAt=null`, 소유자 `accountStatus=ACTIVE`를 모두 만족해야 한다.
+  Pet 부재, 정지·삭제·soft-delete Pet, 비활성 소유자, 조회자→소유자 또는 소유자→조회자 Block은 모두
+  `404 PET_NOT_FOUND`로 existence hiding 한다.
+- 자기 Pet은 조회 가능하되 `relationship=null`이며 Active Pet·FriendRelationship 조회를 하지 않는다.
+  비자기 대상도 조회자의 Active Pet이 없으면 성공하고 `relationship=null`이다. 유효 Active Pet이 있을
+  때만 기존 FriendRelationship의 `NONE`, `REQUEST_SENT`, `REQUEST_RECEIVED`, `FRIEND`를 계산한다.
+- `verified`는 기존 verification badge 결과만 공개하고 `verifiedAt`은 반환하지 않는다. `helpfulReceivedCount`는
+  기존 HELPFUL 집계 기준을 변경하지 않는다.
+
 ### `POST /pets/{petId}/profile-image`
 
 - 인증: Pet 소유 User
@@ -584,7 +601,8 @@ N+1 방지: feed는 페이지 전체 `BoardPostMedia`의 distinct Media ID를 `f
 기존 `PetResponse`를 반환하는 내 Pet 생성·목록·상세·수정·초기 프로필 이미지 설정·교체 응답에는
 `version`과 `helpfulReceivedCount`가 포함된다. HELPFUL만 합산하며 삭제 target 자신의 row만 제외한다.
 프로필 이미지 PUT/DELETE는 Pet link만 변경하고 Media lifecycle을 변경하지 않는다. 공개 타 사용자 Pet
-profile endpoint, `PetSearchItemResponse`, `PetDisplaySummary` 확장은 이번 범위가 아니다.
+profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearchItemResponse`와
+`PetDisplaySummary`는 확장하지 않는다.
 
 오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
 

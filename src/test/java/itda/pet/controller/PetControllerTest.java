@@ -25,6 +25,7 @@ import itda.pet.domain.PetSex;
 import itda.pet.domain.PetSizeCode;
 import itda.pet.domain.PetStatus;
 import itda.pet.dto.PetResponse;
+import itda.pet.dto.PetPublicProfileResponse;
 import itda.pet.dto.PetSearchItemResponse;
 import itda.pet.dto.PetUpdateRequestParser;
 import itda.pet.service.ActivePetAssignmentStatus;
@@ -36,6 +37,7 @@ import itda.pet.service.PetUpdateCommand;
 import itda.pet.service.PetUpdateService;
 import itda.pet.service.PetProfileImageService;
 import itda.pet.service.query.PetSearchQueryService;
+import itda.pet.service.query.PetPublicProfileQueryService;
 import itda.pet.support.IfMatchVersionParser;
 import itda.user.domain.Role;
 import java.math.BigDecimal;
@@ -81,6 +83,9 @@ class PetControllerTest {
 
     @MockitoBean
     private PetSearchQueryService petSearchQueryService;
+
+    @MockitoBean
+    private PetPublicProfileQueryService petPublicProfileQueryService;
 
     @MockitoBean
     private PetUpdateService petUpdateService;
@@ -689,6 +694,58 @@ class PetControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("Describe: GET /pets/{petId}/profile")
+    class DescribeGetPublicProfile {
+
+        @Test
+        @DisplayName("It: 공개 가능한 14개 필드만 성공 메시지와 함께 반환한다")
+        void itReturnsPublicProfile() throws Exception {
+            given(petPublicProfileQueryService.getPublicProfile(USER_ID, PET_ID))
+                    .willReturn(publicProfile(FriendRelationship.REQUEST_SENT));
+
+            mockMvc.perform(get("/pets/{petId}/profile", PET_ID))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true))
+                    .andExpect(jsonPath("$.message").value("Pet 공개 프로필이 조회되었습니다."))
+                    .andExpect(jsonPath("$.data.petId").value(PET_ID))
+                    .andExpect(jsonPath("$.data.publicTag").value("몽이#B8M3"))
+                    .andExpect(jsonPath("$.data.nickname").value("몽이"))
+                    .andExpect(jsonPath("$.data.profileUrl").value("https://cdn/profile"))
+                    .andExpect(jsonPath("$.data.verified").value(true))
+                    .andExpect(jsonPath("$.data.breedName").value("말티즈"))
+                    .andExpect(jsonPath("$.data.sex").value("FEMALE"))
+                    .andExpect(jsonPath("$.data.neutered").value(true))
+                    .andExpect(jsonPath("$.data.birthDate").value("2020-01-02"))
+                    .andExpect(jsonPath("$.data.sizeCode").value("SMALL"))
+                    .andExpect(jsonPath("$.data.bio").value("사람을 좋아해요."))
+                    .andExpect(jsonPath("$.data.personalityTags[0]").value("친화적"))
+                    .andExpect(jsonPath("$.data.helpfulReceivedCount").value(7))
+                    .andExpect(jsonPath("$.data.relationship").value("REQUEST_SENT"))
+                    .andExpect(jsonPath("$.data.ownerUserId").doesNotExist())
+                    .andExpect(jsonPath("$.data.ownerPublicTag").doesNotExist())
+                    .andExpect(jsonPath("$.data.weightKg").doesNotExist())
+                    .andExpect(jsonPath("$.data.careNote").doesNotExist())
+                    .andExpect(jsonPath("$.data.status").doesNotExist())
+                    .andExpect(jsonPath("$.data.deletedAt").doesNotExist())
+                    .andExpect(jsonPath("$.data.verifiedAt").doesNotExist())
+                    .andExpect(jsonPath("$.data.active").doesNotExist())
+                    .andExpect(jsonPath("$.data.version").doesNotExist());
+            then(petPublicProfileQueryService).should().getPublicProfile(USER_ID, PET_ID);
+        }
+
+        @Test
+        @DisplayName("It: 공개 불가 Pet은 PET_NOT_FOUND를 그대로 반환한다")
+        void itPropagatesPetNotFound() throws Exception {
+            given(petPublicProfileQueryService.getPublicProfile(USER_ID, PET_ID))
+                    .willThrow(new BusinessException(ErrorCode.PET_NOT_FOUND));
+
+            mockMvc.perform(get("/pets/{petId}/profile", PET_ID))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.PET_NOT_FOUND.name()));
+        }
+    }
+
     private String validRequestJson() {
         return """
                 {
@@ -943,6 +1000,14 @@ class PetControllerTest {
 
     private PetResponse petResponse(boolean active) {
         return petResponse(PET_ID, PetStatus.ACTIVE, active);
+    }
+
+    private PetPublicProfileResponse publicProfile(FriendRelationship relationship) {
+        return new PetPublicProfileResponse(
+                PET_ID, "몽이#B8M3", "몽이", "https://cdn/profile", true, "말티즈",
+                PetSex.FEMALE, true, LocalDate.of(2020, 1, 2), PetSizeCode.SMALL,
+                "사람을 좋아해요.", List.of("친화적"), 7L, relationship
+        );
     }
 
     private PetResponse petResponseWithVersion(boolean active, long version) {
