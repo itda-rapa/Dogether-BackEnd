@@ -135,7 +135,16 @@ public enum ErrorCode {
     BOARD_NAME_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 게시판 이름입니다."),
 
     // KAKAO
-    KAKAO_REGION_NO_RESPONSE(HttpStatus.NOT_FOUND,"카카오 지역 조회 응답이 없습니다.");
+    KAKAO_REGION_NO_RESPONSE(HttpStatus.NOT_FOUND,"카카오 지역 조회 응답이 없습니다."),
+
+    // LOCATION
+    LOCATION_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 위치 정보입니다."),
+    LOCATION_STALE(HttpStatus.BAD_REQUEST, "수집된 지 오래된 위치 정보입니다."),
+
+    // NODE
+    NODE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 좌표에 조회가능한 네트워크 노드가 없습니다.")
+
+    ;
 
     private final HttpStatus status;
     private final String description;

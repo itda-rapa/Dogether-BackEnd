@@ -71,6 +71,10 @@ CREATE TABLE IF NOT EXISTS network_link (
     small_cost NUMERIC(23, 15),
     reverse_cost NUMERIC(10, 3),
     reverse_small_cost NUMERIC(10, 3),
+    x1 NUMERIC(15, 8),
+    y1 NUMERIC(15, 8),
+    x2 NUMERIC(15, 8),
+    y2 NUMERIC(15, 8),
 
     CONSTRAINT network_link_pkey PRIMARY KEY (id)
 );

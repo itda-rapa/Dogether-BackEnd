@@ -1,4 +1,4 @@
-package itda.map.domain;
+package itda.node.domain;
 
 import jakarta.persistence.*;
 import lombok.AccessLevel;
