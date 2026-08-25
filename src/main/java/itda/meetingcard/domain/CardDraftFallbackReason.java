@@ -10,5 +10,10 @@ package itda.meetingcard.domain;
 public enum CardDraftFallbackReason {
     TIMEOUT,
     MODEL_ERROR,
-    INSUFFICIENT_CONTEXT
+    INSUFFICIENT_CONTEXT,
+    /**
+     * AI 가 요청 자체를 거절한 경우(HTTP 422). M3 약속 제안 스케줄러가
+     * FAILED_FINAL 분류에 사용한다. 초안 흐름에서는 여전히 빈 폼으로 수렴한다.
+     */
+    INVALID_REQUEST
 }

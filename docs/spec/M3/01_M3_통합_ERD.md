@@ -20,6 +20,8 @@ meeting_cards 1 ─ 0..1 meetings
 meetings 1 ─ N meeting_reviews
 meetings 1 ─ N footprints
 
+chat_rooms 1 ─ N meeting_suggestion_scans 1 ─ N meeting_suggestions
+
 places 1 ─ N board_posts / meeting_cards / walk_sessions
 walk_sessions 1 ─ N walk_points
 
@@ -196,7 +198,51 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 - `UNIQUE(meeting_id, receiver_pet_id)`
 - 정규화 상대쌍+earned_date 중복 방지는 Service 또는 별도 pair key로 보장
 
-## 7. Safety
+## 7. 아침 약속 제안 스케줄러
+
+> 구현: V41 migration. Scan(방+날짜) → TEXT 선별 → 기존 Meeting Draft AI 호출 → 후보 Suggestion 저장.
+> 후보 목록 조회·사용자 수락/거절 UI 는 이번 범위 제외(별도 범위).
+
+### `meeting_suggestion_scans`
+
+| 컬럼 | 형식 | 설명 |
+|---|---|---|
+| id | BIGINT | PK |
+| room_id | BIGINT | FK chat_rooms, ON DELETE CASCADE |
+| source_date | DATE | 분석 대상 KST 전날 |
+| reference_date | DATE | AI 에 전달하는 실행일. 최초 Scan 생성 값 고정, retry 에서 재계산하지 않음 |
+| status | VARCHAR(20) | PENDING/PROCESSING/COMPLETED/FAILED_RETRYABLE/FAILED_FINAL |
+| attempts | INTEGER | claim 시 1씩 증가 |
+| next_retry_at | TIMESTAMPTZ | PENDING/FAILED_RETRYABLE 의 claim 자격 시각 |
+| claim_token/claimed_at | UUID/TIMESTAMPTZ | claim fencing·lease |
+| last_error | VARCHAR(500) | 최근 실패 사유 |
+| completed_at | TIMESTAMPTZ | COMPLETED/FAILED_FINAL 확정 시각 |
+
+- `UNIQUE(room_id, source_date)` — 동일 방+날짜 Scan 멱등성(DB 최종 방어선)
+- claim/lease/stale fencing 은 RiskSignal Outbox 패턴(V34/V36)과 동일
+- due/stale claim 조회용 partial index 2개(`next_retry_at`, `claimed_at`)
+
+### `meeting_suggestions`
+
+| 컬럼 | 형식 | 설명 |
+|---|---|---|
+| id | BIGINT | PK |
+| scan_id | BIGINT | FK meeting_suggestion_scans, ON DELETE CASCADE |
+| fingerprint | VARCHAR(64) | canonical 후보 의미의 SHA-256, UNIQUE |
+| card_type | VARCHAR(20) | WALK/PLAY/HOSPITAL/OTHER, nullable |
+| meet_date/meet_time | VARCHAR(100) | 정규화된 날짜/시각. 저장 전제가 combinedInstant 파싱 성공이므로 실제 저장값은 항상 canonical(ISO 날짜 / HH:mm) |
+| place_text | VARCHAR(500) | trim + 500자 제한 |
+| created_at | TIMESTAMPTZ | NOT NULL |
+
+- `UNIQUE(fingerprint)` — 후보 멱등성 최종 방어선. 같은 의미 후보가 배열 순서 변경·retry 재응답으로 다시 와도 1건
+- fingerprint = scanId + canonical type/date/time/place 정규화 값의 SHA-256 (배열 index 기반 식별 금지)
+
+### `chat_messages` 인덱스 (V41 추가)
+
+- `idx_chat_message_scheduler_text ON chat_messages (room_id, created_at DESC, id DESC) WHERE type = 'TEXT' AND sender_type = 'PET'`
+- 스케줄러 TEXT 조회(최신 30·sender 집계) 전용 partial index. 기존 `idx_chat_message_room_id` 는 유지
+
+## 8. Safety
 
 ### `risk_signal_outbox`
 
@@ -260,7 +306,7 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 - attempts, available_at, claimed_at, worker_id, claim_token, last_error_code
 - `FOR UPDATE SKIP LOCKED` claim, lease 회수와 claimToken fencing 적용
 
-## 8. 인덱스
+## 9. 인덱스
 
 - Dashboard: 각 도메인의 `(created_at)`과 상태+created_at
 - Chat history: `(room_id, id)` 및 attachment message_id

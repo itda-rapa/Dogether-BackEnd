@@ -6,15 +6,14 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
  * AI 추출을 {@link MeetingDraftAiClient} 계약으로 감싸는 어댑터.
  *
- * <p>여섯 가지 AI 응답을 모두 {@link AiDraftResult} 로 매핑하며, 어떤 경우에도 예외를 던지지 않는다.
+ * <p>AI 응답을 모두 {@link AiDraftResult} 로 매핑하며, 어떤 경우에도 예외를 던지지 않는다.
  *
- * <h3>6-outcome table</h3>
+ * <h3>Outcome table</h3>
  * <table>
  *   <tr><th>AI outcome</th><th>fallbackReason</th><th>extracted fields</th></tr>
  *   <tr><td>full or partial extraction</td><td>null</td><td>whatever came back, nulls kept</td></tr>
@@ -22,6 +21,7 @@ import org.springframework.stereotype.Component;
  *   <tr><td>unknown/unmappable meeting_type</td><td>null</td><td>cardType null, other fields kept</td></tr>
  *   <tr><td>HTTP 504 or local 5s timeout</td><td>TIMEOUT</td><td>all null</td></tr>
  *   <tr><td>HTTP 502, connection failure, malformed</td><td>MODEL_ERROR</td><td>all null</td></tr>
+ *   <tr><td>HTTP 422</td><td>INVALID_REQUEST</td><td>all null (M3 스케줄러는 FAILED_FINAL 분류)</td></tr>
  *   <tr><td>more than one array element</td><td>null</td><td>all candidates kept in order</td></tr>
  * </table>
  */
@@ -36,12 +36,9 @@ public class MeetingCardAiAdapter implements MeetingDraftAiClient {
     // 생성자가 둘이라 Spring 이 어느 쪽을 쓸지 알 수 없어 기본 생성자를 찾다가 실패한다.
     // 주입 대상을 명시한다.
     @Autowired
-    public MeetingCardAiAdapter(
-            @Value("${app.meeting-card.ai.base-url:http://127.0.0.1:8000}") String baseUrl,
-            @Value("${app.meeting-card.ai.timeout:5s}") java.time.Duration timeout,
-            @Value("${app.meeting-card.ai.zone:Asia/Seoul}") ZoneId zoneId) {
-        this.httpClient = new HttpMeetingDraftAiClient(baseUrl, timeout);
-        this.zoneId = zoneId;
+    public MeetingCardAiAdapter(MeetingDraftAiProperties properties) {
+        this.httpClient = new HttpMeetingDraftAiClient(properties.baseUrl(), properties.timeout());
+        this.zoneId = properties.zone();
     }
 
     /**
