@@ -107,11 +107,14 @@ public class MediaService {
     private PresignedUrl initMultipartUpload(User user, String path, MediaType mediaType,
                                              String contentType, long fileSize) {
         // 멀티파트 업로드를 수행하기 위해 RustFS에 요청을 전달하여 복수의 PresignedUrl를 수신
-        MultipartUploadInfo uploadInfo = multipartService.initMultipartUpload(
-                path,
-                contentType,
-                fileSize
-        );
+        MultipartUploadInfo uploadInfo;
+        try {
+            uploadInfo = multipartService.initMultipartUpload(path, contentType, fileSize);
+        } catch (StorageProviderUnavailableException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        } catch (StorageProviderRejectedException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_REJECTED);
+        }
         // INIT 상태의 Media 객체 생성
         Media media = mediaRepository.save(
                 Media.initializedMultipart(
@@ -193,7 +196,13 @@ public class MediaService {
             if (!objectExists(media.getPath())) {
                 // completeMultipartUpload()를 호출하여 S3에 업로드 완료를 알림
                 // S3에서 백엔드로부터 API 수신 시 업로드된 파일을 병합 시작
-                multipartService.completeMultipartUpload(media.getPath(), media.getUploadId(), parts);
+                try {
+                    multipartService.completeMultipartUpload(media.getPath(), media.getUploadId(), parts);
+                } catch (StorageProviderUnavailableException exception) {
+                    throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+                } catch (StorageProviderRejectedException exception) {
+                    throw new BusinessException(ErrorCode.MEDIA_STORAGE_REJECTED);
+                }
                 Map<String, Object> attributes = new HashMap<>();
                 attributes.put("parts", parts);
                 media.updateAttributes(attributes);

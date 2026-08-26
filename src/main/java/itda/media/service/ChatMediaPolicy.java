@@ -73,13 +73,15 @@ public final class ChatMediaPolicy {
         if (media.getMediaType() != MediaType.VIDEO) {
             return;
         }
+        Mp4DurationExtractor.Duration duration;
         try {
-            if (Mp4DurationExtractor.durationMillis(source)
-                    .compareTo(java.math.BigInteger.valueOf(MAX_VIDEO_DURATION_MILLIS)) > 0) {
-                throw new BusinessException(ErrorCode.MEDIA_DURATION_INVALID);
-            }
+            duration = Mp4DurationExtractor.duration(source);
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
+        }
+        // millisecond로 내림하면 상한을 극소량 초과한 영상이 통과하므로 원본 단위로 비교한다.
+        if (duration.exceedsMillis(MAX_VIDEO_DURATION_MILLIS)) {
+            throw new BusinessException(ErrorCode.MEDIA_DURATION_INVALID);
         }
     }
 

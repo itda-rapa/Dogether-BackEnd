@@ -19,6 +19,15 @@ final class Mp4DurationExtractor {
     }
 
     static BigInteger durationMillis(byte[] source) {
+        Duration duration = duration(source);
+        return duration.units().multiply(THOUSAND).divide(BigInteger.valueOf(duration.timescale()));
+    }
+
+    /**
+     * timescale 단위 원본 값을 그대로 돌려준다. millisecond로 내림한 뒤 비교하면 상한을
+     * 극소량 초과한 영상이 통과하므로, 상한 검사는 이 rational 값으로 수행해야 한다.
+     */
+    static Duration duration(byte[] source) {
         if (source == null || source.length < 8) {
             throw invalid();
         }
@@ -33,7 +42,17 @@ final class Mp4DurationExtractor {
         return parseMovieHeader(source, mvhd);
     }
 
-    private static BigInteger parseMovieHeader(byte[] source, Box mvhd) {
+    /** 재생 길이는 {@code units / timescale}초다. */
+    record Duration(BigInteger units, long timescale) {
+
+        /** {@code units/timescale > limitMillis/1000} 을 나눗셈 없이 비교한다. */
+        boolean exceedsMillis(long limitMillis) {
+            return units.multiply(THOUSAND)
+                    .compareTo(BigInteger.valueOf(timescale).multiply(BigInteger.valueOf(limitMillis))) > 0;
+        }
+    }
+
+    private static Duration parseMovieHeader(byte[] source, Box mvhd) {
         int offset = mvhd.payloadStart();
         requireRemaining(offset, mvhd.end(), 4);
         int version = unsignedByte(source[offset]);
@@ -41,22 +60,22 @@ final class Mp4DurationExtractor {
             requireRemaining(offset, mvhd.end(), 20);
             long timescale = unsignedInt(source, offset + 12);
             long duration = unsignedInt(source, offset + 16);
-            return toMillis(BigInteger.valueOf(duration), timescale);
+            return newDuration(BigInteger.valueOf(duration), timescale);
         }
         if (version == 1) {
             requireRemaining(offset, mvhd.end(), 32);
             long timescale = unsignedInt(source, offset + 20);
             BigInteger duration = unsignedLong(source, offset + 24);
-            return toMillis(duration, timescale);
+            return newDuration(duration, timescale);
         }
         throw invalid();
     }
 
-    private static BigInteger toMillis(BigInteger duration, long timescale) {
+    private static Duration newDuration(BigInteger duration, long timescale) {
         if (timescale <= 0 || duration.signum() < 0) {
             throw invalid();
         }
-        return duration.multiply(THOUSAND).divide(BigInteger.valueOf(timescale));
+        return new Duration(duration, timescale);
     }
 
     private static Box findBox(byte[] source, int from, int to, String type) {
