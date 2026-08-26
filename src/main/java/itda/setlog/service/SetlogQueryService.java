@@ -29,6 +29,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -101,10 +102,12 @@ public class SetlogQueryService {
                                 )
                                 .toList()
                 );
+        Set<Long> blockedAuthorUserIds = findBlockedAuthorUserIds(
+                userId, candidates, authorPets);
         List<Setlog> visibleSetlogs = candidates.stream()
                 .filter(setlog -> isVisibleTo(
-                        userId,
-                        authorPets.get(setlog.getAuthorPet().getId())
+                        authorPets.get(setlog.getAuthorPet().getId()),
+                        blockedAuthorUserIds
                 ))
                 .toList();
         if (visibleSetlogs.isEmpty()) {
@@ -134,15 +137,31 @@ public class SetlogQueryService {
                 .toList();
     }
 
+    /**
+     * 작성자별 개별 차단 조회 대신 batch query 한 번으로 차단된 작성자 User ID를 모은다.
+     * 공유 카드 hydration과 같은 계약을 사용해 양방향 차단을 모두 반영한다.
+     */
+    private Set<Long> findBlockedAuthorUserIds(
+            Long viewerUserId,
+            List<Setlog> setlogs,
+            Map<Long, PetDisplaySummary> authorPets
+    ) {
+        Set<Long> authorUserIds = setlogs.stream()
+                .map(setlog -> authorPets.get(setlog.getAuthorPet().getId()))
+                .filter(Objects::nonNull)
+                .map(PetDisplaySummary::ownerUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableSet());
+        return blockRelationshipQueryService.findBlockedUserIdsBetween(
+                viewerUserId, authorUserIds);
+    }
+
     private boolean isVisibleTo(
-            Long userId,
-            PetDisplaySummary authorPet
+            PetDisplaySummary authorPet,
+            Set<Long> blockedAuthorUserIds
     ) {
         return authorPet != null
-                && !blockRelationshipQueryService.existsBlockBetween(
-                        userId,
-                        authorPet.ownerUserId()
-                );
+                && !blockedAuthorUserIds.contains(authorPet.ownerUserId());
     }
 
     private Map<Long, FriendRelationship> getRelationships(

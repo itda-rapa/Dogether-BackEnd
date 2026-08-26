@@ -116,10 +116,10 @@ class SetlogQueryServiceTest {
                         null
                 )
         ));
-        given(blockRelationshipQueryService.existsBlockBetween(
+        given(blockRelationshipQueryService.findBlockedUserIdsBetween(
                 USER_ID,
-                AUTHOR_USER_ID
-        )).willReturn(false);
+                Set.of(AUTHOR_USER_ID)
+        )).willReturn(Set.of());
         given(mediaService.getPresignedDownloadUrls(anyList()))
                 .willReturn(Map.of(30L, new PresignedDownloadUrl(
                         "https://example.com/seed.mp4",
@@ -168,16 +168,18 @@ class SetlogQueryServiceTest {
                         null
                 )
         ));
-        given(blockRelationshipQueryService.existsBlockBetween(
+        given(blockRelationshipQueryService.findBlockedUserIdsBetween(
                 USER_ID,
-                AUTHOR_USER_ID
-        )).willReturn(true);
+                Set.of(AUTHOR_USER_ID)
+        )).willReturn(Set.of(AUTHOR_USER_ID));
 
         List<SetlogResponse> result =
                 setlogQueryService.getSeedSetlogs(USER_ID);
 
         assertThat(result).isEmpty();
         then(mediaService).shouldHaveNoInteractions();
+        then(blockRelationshipQueryService).should(never())
+                .existsBlockBetween(any(), any());
     }
 
     @Test
@@ -235,10 +237,10 @@ class SetlogQueryServiceTest {
                         null
                 )
         ));
-        given(blockRelationshipQueryService.existsBlockBetween(
+        given(blockRelationshipQueryService.findBlockedUserIdsBetween(
                 USER_ID,
-                AUTHOR_USER_ID
-        )).willReturn(false);
+                Set.of(AUTHOR_USER_ID)
+        )).willReturn(Set.of());
         given(mediaService.getPresignedDownloadUrls(anyList()))
                 .willReturn(Map.of(
                         31L, new PresignedDownloadUrl(
@@ -266,6 +268,11 @@ class SetlogQueryServiceTest {
                 .containsExactly(31L, 32L);
         then(mediaService).should(never()).getPresignedDownloadUrl(any());
         then(mediaService).shouldHaveNoMoreInteractions();
+        then(blockRelationshipQueryService).should()
+                .findBlockedUserIdsBetween(USER_ID, Set.of(AUTHOR_USER_ID));
+        then(blockRelationshipQueryService).should(never())
+                .existsBlockBetween(any(), any());
+        then(blockRelationshipQueryService).shouldHaveNoMoreInteractions();
     }
 
     private Setlog seedSetlog(Long setlogId, Long mediaId) {
