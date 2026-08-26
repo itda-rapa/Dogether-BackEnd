@@ -7,6 +7,7 @@ import itda.media.domain.MediaType;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public record MediaInitResponse(
         Long id,
@@ -16,6 +17,7 @@ public record MediaInitResponse(
         MediaStatus status,
         Long userId,
         String presignedUrl,
+        Map<String, String> presignedHeaders,
         String uploadId,
         List<PresignedUrlPart> presignedUrlParts,
         Instant createdAt,
@@ -33,6 +35,7 @@ public record MediaInitResponse(
                 media.getStatus(),
                 media.getUserId(),
                 presignedUrl.presignedUrl(),
+                presignedUrl.presignedHeaders(),
                 presignedUrl.uploadId(),
                 presignedUrl.presignedUrlParts(),
                 media.getCreatedAt(),

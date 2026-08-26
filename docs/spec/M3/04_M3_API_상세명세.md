@@ -641,18 +641,15 @@ profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearc
 
 - 인증: 로그인 User
 - 성공: `201`
-- M3 변경: 목적·파일명·contentType·duration metadata 추가
+- M3-009: 현재 공용 Media init 계약은 `mediaType`, `contentType`, `fileSize`만 받는다.
 
 요청:
 
 ```json
 {
-  "purpose": "CHAT_ATTACHMENT",
   "mediaType": "VIDEO",
-  "fileName": "walk-together.mp4",
   "contentType": "video/mp4",
-  "fileSize": 5242880,
-  "durationMs": 4200
+  "fileSize": 5242880
 }
 ```
 
@@ -664,22 +661,28 @@ profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearc
   "message": "Media 객체가 초기화되었습니다.",
   "data": {
     "id": 501,
-    "purpose": "CHAT_ATTACHMENT",
     "mediaType": "VIDEO",
+    "contentType": "video/mp4",
+    "path": "posts/1/501.mp4",
     "status": "INIT",
+    "userId": 1,
     "presignedUrl": "https://storage.example/upload...",
+    "presignedHeaders": {
+      "Content-Type": "video/mp4",
+      "Content-Length": "5242880"
+    },
     "uploadId": null,
     "presignedUrlParts": null,
-    "requiredHeaders": {
-      "Content-Type": "video/mp4"
-    },
-    "expiresAt": "2026-08-20T09:15:00Z"
+    "createdAt": "2026-08-20T09:00:00Z",
+    "updatedAt": "2026-08-20T09:00:00Z"
   },
   "error": null
 }
 ```
 
-Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 반환한다.
+Multipart 응답은 `presignedUrl=null`, `presignedHeaders={}`, `uploadId`와 각 part의
+`partNumber`, `presignedUrl`, `headers`를 담은 `presignedUrlParts[]`를 반환한다. 클라이언트는
+각 URL 요청에 해당 headers를 그대로 포함해야 한다.
 
 오류: `400 VALIDATION_FAILED`, `413 MEDIA_SIZE_INVALID`, `415 INVALID_MEDIA_TYPE`, `403 MEDIA_PURPOSE_FORBIDDEN`, `503 MEDIA_STORAGE_UNAVAILABLE`.
 
@@ -706,13 +709,16 @@ Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 
   "data": {
     "id": 501,
     "mediaType": "VIDEO",
-    "purpose": "CHAT_ATTACHMENT",
+    "contentType": "video/mp4",
+    "path": "posts/1/501.mp4",
     "status": "COMPLETED",
+    "userId": 1,
     "fileSize": 5242880,
     "attributes": {
-      "contentType": "video/mp4",
-      "durationMs": 4200,
-      "originalFileName": "walk-together.mp4"
+      "parts": [
+        { "partNumber": 1, "eTag": "etag-part-1" },
+        { "partNumber": 2, "eTag": "etag-part-2" }
+      ]
     },
     "createdAt": "2026-08-20T08:58:00Z",
     "modifiedAt": "2026-08-20T09:00:00Z"
@@ -721,7 +727,7 @@ Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 
 }
 ```
 
-오류: `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_STATE_CONFLICT`, `422 MEDIA_METADATA_MISMATCH`, `502 MEDIA_STORAGE_REJECTED`, `503 MEDIA_STORAGE_UNAVAILABLE`.
+오류: `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_STATE_CONFLICT`, `413 MEDIA_SIZE_INVALID`, `415 INVALID_MEDIA_TYPE`, `422 MEDIA_NOT_UPLOADED`, `422 MEDIA_DURATION_INVALID`(VIDEO만 해당, 실제 컨테이너 길이가 5초를 초과), `502 MEDIA_STORAGE_REJECTED`, `503 MEDIA_STORAGE_UNAVAILABLE`.
 
 ---
 

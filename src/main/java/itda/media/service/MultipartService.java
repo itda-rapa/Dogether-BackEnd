@@ -14,7 +14,11 @@ import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignReque
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -40,11 +44,14 @@ public class MultipartService {
         // 정의한 수 만큼 각 파트별 PresignedURL 생성 및 해당 리스트에 저장
         List<PresignedUrlPart> presignedUrlParts = new ArrayList<>();
         for (int partNumber = 1; partNumber <= numberOfParts; partNumber++) {
+            long expectedPartSize = Math.min(PART_SIZE, fileSize - (long) (partNumber - 1) * PART_SIZE);
             UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
                     .bucket(s3Properties.bucket())
                     .key(path)
                     .uploadId(uploadId)
                     .partNumber(partNumber)
+                    // 각 part 길이를 서명에 포함해 전체 선언 크기를 초과하는 업로드를 사전에 차단한다.
+                    .contentLength(expectedPartSize)
                     .build();
             //
             UploadPartPresignRequest presignRequest = UploadPartPresignRequest.builder()
@@ -55,7 +62,11 @@ public class MultipartService {
             PresignedUploadPartRequest presignedRequest = s3Presigner.presignUploadPart(presignRequest);
             String presignedUrl = presignedRequest.url().toString();
             //
-            presignedUrlParts.add(new PresignedUrlPart(partNumber, presignedUrl));
+            presignedUrlParts.add(new PresignedUrlPart(
+                    partNumber,
+                    presignedUrl,
+                    clientRequiredHeaders(presignedRequest.signedHeaders())
+            ));
         }
         return new MultipartUploadInfo(uploadId, presignedUrlParts);
     }
@@ -91,5 +102,20 @@ public class MultipartService {
                 .key(path)
                 .uploadId(uploadId)
                 .build());
+    }
+
+    private static final Set<String> CLIENT_FORBIDDEN_HEADERS = Set.of(
+            "host", "cookie", "set-cookie", "x-amz-security-token", "x-amz-signature"
+    );
+
+    private static Map<String, String> clientRequiredHeaders(Map<String, List<String>> signedHeaders) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        signedHeaders.forEach((name, values) -> {
+            if (name == null || CLIENT_FORBIDDEN_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+                return;
+            }
+            headers.put(name, String.join(",", values));
+        });
+        return Map.copyOf(headers);
     }
 }

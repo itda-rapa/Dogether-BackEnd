@@ -27,6 +27,14 @@ public interface ObjectStorage {
 
     ObjectMetadata head(String objectKey, String versionId);
 
+    /**
+     * Reads a verified object version for server-side content validation.
+     * Callers must impose a domain-specific size limit before invoking this method.
+     */
+    default byte[] read(String objectKey, String versionId) {
+        throw new UnsupportedOperationException("Object reads are not supported");
+    }
+
     /** Deletes an object. Missing objects are treated as an already successful deletion. */
     default void delete(String objectKey) {
         delete(objectKey, null);

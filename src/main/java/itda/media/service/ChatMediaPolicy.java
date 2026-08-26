@@ -13,8 +13,8 @@ import java.util.Set;
  * DIRECT와 Open Chat이 함께 사용하는 Chat 첨부 업로드 정책이다.
  *
  * <p>영상 길이는 객체 메타데이터만으로 신뢰성 있게 판별할 수 없으므로 이 정책에서
- * 클라이언트가 보낸 길이를 신뢰하지 않는다. 업로드 검증 파이프라인이 실제 컨테이너 길이를
- * 기록한 뒤 이 정책에 연결한다.</p>
+ * 클라이언트가 보낸 길이를 신뢰하지 않는다. {@code MediaService.mediaUploaded}가 실제
+ * 업로드된 객체 바이트에서 읽은 컨테이너 길이만 이 정책에 전달한다.</p>
  */
 public final class ChatMediaPolicy {
 
@@ -66,6 +66,21 @@ public final class ChatMediaPolicy {
             throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
         }
         requireValidUpload(media.getMediaType(), actualContentType, metadata.size());
+    }
+
+    /** 실제 MP4 movie header의 길이를 기준으로 5초 제한을 적용한다. */
+    public static void requireVerifiedVideoDuration(Media media, byte[] source) {
+        if (media.getMediaType() != MediaType.VIDEO) {
+            return;
+        }
+        try {
+            if (Mp4DurationExtractor.durationMillis(source)
+                    .compareTo(java.math.BigInteger.valueOf(MAX_VIDEO_DURATION_MILLIS)) > 0) {
+                throw new BusinessException(ErrorCode.MEDIA_DURATION_INVALID);
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
+        }
     }
 
     public static String normalizeContentType(String contentType, MediaType mediaType) {

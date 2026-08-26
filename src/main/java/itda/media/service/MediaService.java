@@ -13,6 +13,7 @@ import itda.media.repository.MediaRepository;
 import itda.media.storage.ObjectMetadata;
 import itda.media.storage.ObjectNotFoundException;
 import itda.media.storage.ObjectStorage;
+import itda.media.storage.PresignedUpload;
 import itda.media.storage.StorageProviderRejectedException;
 import itda.media.storage.StorageProviderUnavailableException;
 import itda.user.domain.User;
@@ -21,12 +22,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
-import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -85,21 +83,13 @@ public class MediaService {
             String contentType,
             Long fileSize
     ) {
-        // RustFS의 버킷정보 및 initMedia()에서 정의한 Path 정보와 MediaType 정보를 전달
-        PutObjectRequest putObjectRequest = PutObjectRequest.builder()
-                .bucket(s3Properties.bucket()) // RustFS에 저장할 버킷명
-                .key(path) // 경로 및 이름을 정의한 저장될 파일명
-                .contentType(contentType) // 파일의 MIME 타입
-                .build();
-        // RustFS에 전달할 PresignedURL에 대한 요청을 생성하기 위해 PutObjectRequest 객체 생성
-        // PresignedUrl의 유효기간에 관한 설정도 추가
-        PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                .signatureDuration(Duration.ofSeconds(s3Properties.presignedUrlExpirationSeconds()))
-                .putObjectRequest(putObjectRequest)
-                .build();
-        // S3Presigner 객체를 통해 RustFS에 요청을 전달하여 PresignedUrl를 수신
-        PresignedPutObjectRequest presignedRequest = s3Presigner.presignPutObject(presignRequest);
-        String presignedUrl = presignedRequest.url().toString();
+        // Content-Length를 서명에 포함해 선언한 크기와 다른 단일 PUT을 스토리지 단계에서 차단한다.
+        PresignedUpload upload = objectStorage.presignPut(
+                path,
+                contentType,
+                fileSize,
+                Duration.ofSeconds(s3Properties.presignedUrlExpirationSeconds())
+        );
         // INIT 상태의 Media 객체 생성
         Media media = mediaRepository.save(
                 Media.initialized(
@@ -111,7 +101,7 @@ public class MediaService {
                 )
         );
         // PresinedUrl을 Client에게 반환
-        return PresignedUrl.forSingleUpload(media, presignedUrl);
+        return PresignedUrl.forSingleUpload(media, upload.url(), upload.headers());
     }
 
     private PresignedUrl initMultipartUpload(User user, String path, MediaType mediaType,
@@ -186,13 +176,13 @@ public class MediaService {
         User user = userRepository.findByIdOrThrow(userId);
 
         Media media = mediaRepository.findByIdAndDeletedAtIsNullOrThrow(mediaId);
-        // Media가 본인 소유가 아니면 다운로드 차단
+        // Media가 본인 소유가 아니면 업로드 완료 처리를 차단한다.
         if (!media.getUserId().equals(user.getId())) {
-            throw new IllegalArgumentException("You are not authorized to update this media");
+            throw new BusinessException(ErrorCode.MEDIA_NOT_OWNED);
         }
-        // Media가 INIT 상태 인 경우에만 허용
+        // multipart 완료 이후 HEAD 일시 장애가 발생해도 INIT 상태에서 객체 HEAD로 복구한다.
         if (media.getStatus() != MediaStatus.INIT) {
-            throw new IllegalArgumentException("Media is not in INIT status");
+            throw new BusinessException(ErrorCode.MEDIA_STATE_CONFLICT);
         }
         // 멀티파트 upload는 적어도 한 개의 완료 part가 있어야 한다.
         if (media.getUploadId() != null) {
@@ -200,12 +190,14 @@ public class MediaService {
                 rejectUpload(media, null);
                 throw new BusinessException(ErrorCode.MEDIA_STATE_CONFLICT);
             }
-            // completeMultipartUpload()를 호출하여 S3에 업로드 완료를 알림
-            // S3에서 백엔드로부터 API 수신 시 업로드된 파일을 병합 시작
-            multipartService.completeMultipartUpload(media.getPath(), media.getUploadId(), parts);
-            Map<String, Object> attributes = new HashMap<>();
-            attributes.put("parts", parts);
-            media.updateAttributes(attributes);
+            if (!objectExists(media.getPath())) {
+                // completeMultipartUpload()를 호출하여 S3에 업로드 완료를 알림
+                // S3에서 백엔드로부터 API 수신 시 업로드된 파일을 병합 시작
+                multipartService.completeMultipartUpload(media.getPath(), media.getUploadId(), parts);
+                Map<String, Object> attributes = new HashMap<>();
+                attributes.put("parts", parts);
+                media.updateAttributes(attributes);
+            }
         }
         ObjectMetadata metadata;
         try {
@@ -222,10 +214,38 @@ public class MediaService {
             rejectUpload(media, metadata);
             throw exception;
         }
+        if (media.getMediaType() == MediaType.VIDEO) {
+            verifyVideoDuration(media, metadata);
+        }
         // 실제 object metadata 검증에 성공한 경우에만 재생 가능 상태로 전이한다.
         media.markUploadVerified(metadata, Instant.now());
         // Media 객체 저장
         return mediaRepository.save(media);
+    }
+
+    /**
+     * 클라이언트가 주장하는 길이를 신뢰하지 않고 실제 저장된 MP4 movie header를 읽어
+     * D-05가 확정한 5초 상한을 적용한다. Storage 일시 장애는 FAILED로 전이하지 않고
+     * 그대로 호출자에게 전달해 안전하게 재시도할 수 있게 한다.
+     */
+    private void verifyVideoDuration(Media media, ObjectMetadata metadata) {
+        byte[] content;
+        try {
+            content = objectStorage.read(media.getPath(), metadata.versionId());
+        } catch (ObjectNotFoundException exception) {
+            rejectUpload(media, metadata);
+            throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
+        } catch (StorageProviderUnavailableException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        } catch (StorageProviderRejectedException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_REJECTED);
+        }
+        try {
+            ChatMediaPolicy.requireVerifiedVideoDuration(media, content);
+        } catch (BusinessException exception) {
+            rejectUpload(media, metadata);
+            throw exception;
+        }
     }
 
     private void rejectUpload(Media media, ObjectMetadata metadata) {
@@ -252,6 +272,23 @@ public class MediaService {
             return objectStorage.head(path);
         } catch (ObjectNotFoundException exception) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
+        } catch (StorageProviderUnavailableException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        } catch (StorageProviderRejectedException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_REJECTED);
+        }
+    }
+
+    /**
+     * 완료 요청 재시도에서 이미 병합된 객체가 있으면 CompleteMultipartUpload를 반복하지 않는다.
+     * 스토리지 장애는 숨기지 않고 호출자에게 503으로 전달해 안전하게 재시도할 수 있게 한다.
+     */
+    private boolean objectExists(String path) {
+        try {
+            objectStorage.head(path);
+            return true;
+        } catch (ObjectNotFoundException exception) {
+            return false;
         } catch (StorageProviderUnavailableException exception) {
             throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
         } catch (StorageProviderRejectedException exception) {
