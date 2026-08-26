@@ -157,6 +157,30 @@ paths:
         '404':
           description: Google OAuth 비활성화
 
+  /oauth2/authorization/naver:
+    get:
+      tags: [Auth]
+      summary: Naver OAuth 브라우저 인증 시작
+      operationId: startNaverOAuthAuthorization
+      description: |
+        JSON API가 아닌 browser navigation endpoint다. enabled일 때 Naver OIDC authorization URL로
+        302를 반환한다. scope는 정확히 `openid` 하나이며 state·PKCE S256을 사용하고 nonce는 사용하지 않는다.
+        시작 응답은 동일 browser callback을 위해 short-lived `__Host-dogether_oauth_browser_binding`
+        cookie를 `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` 및 Domain 없이 설정한다. disabled이면 404다.
+      security: []
+      responses:
+        '302':
+          description: Naver authorization endpoint로 redirect
+          headers:
+            Location:
+              required: true
+              schema: { type: string, format: uri }
+            Set-Cookie:
+              description: Authorization start sets the short-lived browser correlation cookie; safe error redirects do not.
+              schema: { type: string }
+        '404':
+          description: Naver OAuth 비활성화
+
   /login/oauth2/code/google:
     get:
       tags: [Auth]
@@ -195,12 +219,53 @@ paths:
         '404':
           description: Google OAuth 비활성화
 
+  /login/oauth2/code/naver:
+    get:
+      tags: [Auth]
+      summary: Naver OAuth 브라우저 callback
+      operationId: completeNaverOAuthCallback
+      description: |
+        JSON API가 아닌 Naver OIDC callback endpoint다. 성공은 allowlist된 success callback URL에
+        `loginCode`와 `provider=NAVER`만 붙여 302한다. 실패는 error callback URL에 allowlist된
+        `errorCode`만 붙여 302한다. Naver ID Token은 JWKS RS256 서명, issuer, configured client ID를
+        하나뿐인 audience를 검증하며, `azp`가 있으면 같은 client ID여야 한다. 이는 OIDC가 다중 audience를
+        금지해서가 아니라 Dogether가 추가 Naver audience를 신뢰하도록 구성하지 않았기 때문이다. nonce는
+        검증하지 않는다. code 교환에는 authorization 단계에서 사용한 configured backend `redirect_uri`를 동일하게 전달한다.
+        이는 RFC 6749 redirect URI binding과 실제 OIDC smoke 결과에 따른 것이며, Naver legacy `/oauth2.0/token` sample을 현재 `/oauth2/token` OIDC 명세와 동일시하지 않는다. 검증된 exchange access token으로 Naver userinfo의 성공 `response.email`을 조회·검증해
+        가입 및 동일 이메일 충돌 판단에 사용하며, Google `email_verified=true`와 같은 ownership claim으로 간주하지 않는다. authorization을 시작한
+        동일 browser correlation cookie가 없거나 일치하지 않으면 `OAUTH_STATE_INVALID`로 302하며
+        transaction을 소비하지 않는다. Location에는 JWT, provider token, Naver userinfo signup email, providerSubject,
+        raw provider response를 포함하지 않는다.
+      security: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: code
+          in: query
+          required: false
+          schema: { type: string }
+        - name: error
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '302':
+          description: Front success 또는 error callback URL로 redirect
+          headers:
+            Location:
+              required: true
+              schema: { type: string, format: uri }
+        '404':
+          description: Naver OAuth 비활성화
+
   /auth/oauth/exchange:
     post:
       tags: [Auth]
       summary: OAuth loginCode 교환
       operationId: exchangeOAuthLoginCode
-      description: Google callback의 1회용 loginCode를 교환한다. 기존 OAuth 계정은 JWT를, 신규 계정은 프로필 완료용 signupToken을 받는다. 미연결 기존 User와 동일 email이면 자동 연결·신규 User 생성 없이 409을 반환하며 loginCode는 소비하지 않는다.
+      description: Google 또는 Naver callback의 1회용 loginCode를 교환한다. 기존 OAuth 계정은 JWT를, 신규 계정은 프로필 완료용 signupToken을 받는다. 미연결 기존 User와 동일 email이면 자동 연결·신규 User 생성 없이 409을 반환하며 loginCode는 소비하지 않는다.
       security: []
       requestBody:
         required: true
@@ -1611,7 +1676,7 @@ components:
         provider:
           type: string
           enum: [GOOGLE, NAVER]
-          description: runtime은 GOOGLE만 지원하며 NAVER는 400 OAUTH_PROVIDER_UNSUPPORTED다.
+          description: Google 또는 Naver callback에서 발급된 loginCode의 provider다.
         loginCode:
           type: string
           minLength: 1

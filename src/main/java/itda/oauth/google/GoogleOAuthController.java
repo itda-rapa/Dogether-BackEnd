@@ -3,7 +3,6 @@ package itda.oauth.google;
 import itda.oauth.domain.OAuthProvider;
 import itda.oauth.service.IssuedOAuthLoginCode;
 import itda.oauth.service.OAuthLoginCodeIssuer;
-import itda.oauth.service.OAuthOpaqueTokenGenerator;
 import itda.oauth.service.OAuthVerifiedIdentity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -12,13 +11,10 @@ import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
-import java.time.Duration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,26 +26,24 @@ import org.springframework.web.util.UriComponentsBuilder;
 @RestController
 public class GoogleOAuthController {
 
-    private static final String BROWSER_BINDING_COOKIE = "__Host-dogether_oauth_browser_binding";
-
     private final GoogleOAuthProperties properties;
     private final OAuthAuthorizationTransactionStore transactionStore;
     private final GoogleOidcClient googleOidcClient;
     private final OAuthLoginCodeIssuer loginCodeIssuer;
-    private final OAuthOpaqueTokenGenerator tokenGenerator;
+    private final OAuthBrowserBindingCookie browserBindingCookie;
 
     public GoogleOAuthController(
             GoogleOAuthProperties properties,
             OAuthAuthorizationTransactionStore transactionStore,
             GoogleOidcClient googleOidcClient,
             OAuthLoginCodeIssuer loginCodeIssuer,
-            OAuthOpaqueTokenGenerator tokenGenerator
+            OAuthBrowserBindingCookie browserBindingCookie
     ) {
         this.properties = properties;
         this.transactionStore = transactionStore;
         this.googleOidcClient = googleOidcClient;
         this.loginCodeIssuer = loginCodeIssuer;
-        this.tokenGenerator = tokenGenerator;
+        this.browserBindingCookie = browserBindingCookie;
     }
 
     @GetMapping("/oauth2/authorization/google")
@@ -77,9 +71,10 @@ public class GoogleOAuthController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         try {
-            String browserBinding = browserBindingOrNew(request);
+            String browserBinding = browserBindingCookie.bindingOrNew(request);
             OAuthAuthorizationTransactionStore.CreatedTransaction transaction = transactionStore.create(browserBinding);
-            return redirect(googleOidcClient.authorizationUri(transaction), browserBindingCookie(browserBinding));
+            return redirect(googleOidcClient.authorizationUri(transaction), browserBindingCookie.cookie(browserBinding,
+                    properties.transactionTtl().plus(properties.transactionGraceTtl())));
         } catch (OAuthCallbackException exception) {
             return errorRedirect(exception.failure());
         } catch (DataAccessException exception) {
@@ -116,7 +111,7 @@ public class GoogleOAuthController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         try {
-            String browserBinding = browserBinding(request);
+            String browserBinding = browserBindingCookie.binding(request);
             if (!OAuthAuthorizationTransactionStore.isValidBrowserBinding(browserBinding)) {
                 return errorRedirect(OAuthCallbackFailure.OAUTH_STATE_INVALID);
             }
@@ -158,36 +153,7 @@ public class GoogleOAuthController {
         return redirect(location);
     }
 
-    private String browserBindingOrNew(HttpServletRequest request) {
-        String existing = browserBinding(request);
-        return OAuthAuthorizationTransactionStore.isValidBrowserBinding(existing) ? existing : tokenGenerator.generate();
-    }
-
-    private String browserBinding(HttpServletRequest request) {
-        Cookie[] cookies = request.getCookies();
-        if (cookies == null) {
-            return null;
-        }
-        for (Cookie cookie : cookies) {
-            if (BROWSER_BINDING_COOKIE.equals(cookie.getName())) {
-                return cookie.getValue();
-            }
-        }
-        return null;
-    }
-
-    private ResponseCookie browserBindingCookie(String binding) {
-        Duration maxAge = properties.transactionTtl().plus(properties.transactionGraceTtl());
-        return ResponseCookie.from(BROWSER_BINDING_COOKIE, binding)
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("Lax")
-                .path("/")
-                .maxAge(maxAge)
-                .build();
-    }
-
-    private ResponseEntity<Void> redirect(URI location, ResponseCookie cookie) {
+    private ResponseEntity<Void> redirect(URI location, org.springframework.http.ResponseCookie cookie) {
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(location)
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())

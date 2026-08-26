@@ -158,7 +158,7 @@ public class AuthService {
             OAuthProvider provider,
             String loginCode
     ) {
-        if (provider != OAuthProvider.GOOGLE) {
+        if (provider != OAuthProvider.GOOGLE && provider != OAuthProvider.NAVER) {
             throw new BusinessException(ErrorCode.OAUTH_PROVIDER_UNSUPPORTED);
         }
         try {

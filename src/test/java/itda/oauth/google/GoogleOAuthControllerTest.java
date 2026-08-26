@@ -230,6 +230,11 @@ class GoogleOAuthControllerTest {
     @TestConfiguration(proxyBeanMethods = false)
     static class OAuthPropertiesConfiguration {
         @Bean
+        OAuthBrowserBindingCookie oauthBrowserBindingCookie(OAuthOpaqueTokenGenerator tokenGenerator) {
+            return new OAuthBrowserBindingCookie(tokenGenerator);
+        }
+
+        @Bean
         GoogleOAuthProperties googleOAuthProperties() {
             return new GoogleOAuthProperties(true, "client-id", "client-secret",
                     "https://api.example.com/login/oauth2/code/google",

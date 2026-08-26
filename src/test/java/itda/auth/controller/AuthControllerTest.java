@@ -356,6 +356,33 @@ class AuthControllerTest {
                     .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
             then(authService).should().signupOAuth("signup-token", "사용자", "1168010100");
         }
+
+        @Test
+        @DisplayName("NAVER existing and new identities retain the common exchange and signup response contract")
+        void naverOAuthUsesTheSameExchangeAndSignupContract() throws Exception {
+            given(authService.exchangeOAuth(OAuthProvider.NAVER, "existing-code"))
+                    .willReturn(new OAuthExchangeResult.ExistingUser<>(tokens()));
+            given(authService.exchangeOAuth(OAuthProvider.NAVER, "new-code"))
+                    .willReturn(new OAuthExchangeResult.SignupRequired<>("naver-signup-token", ACCESS_TOKEN_EXPIRES_AT));
+            given(authService.signupOAuth("naver-signup-token", "네이버", "1168010100")).willReturn(tokens());
+
+            mockMvc.perform(post("/auth/oauth/exchange").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"provider\":\"NAVER\",\"loginCode\":\"existing-code\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.accessToken").value("access-token"));
+            mockMvc.perform(post("/auth/oauth/exchange").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"provider\":\"NAVER\",\"loginCode\":\"new-code\"}"))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.data.signupToken").value("naver-signup-token"));
+            mockMvc.perform(post("/auth/oauth/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"signupToken\":\"naver-signup-token\",\"nickname\":\" 네이버 \",\"neighborhoodCode\":\" 1168010100 \"}"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
+
+            then(authService).should().exchangeOAuth(OAuthProvider.NAVER, "existing-code");
+            then(authService).should().exchangeOAuth(OAuthProvider.NAVER, "new-code");
+            then(authService).should().signupOAuth("naver-signup-token", "네이버", "1168010100");
+        }
     }
 
     @Nested

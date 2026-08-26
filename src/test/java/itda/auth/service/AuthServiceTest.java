@@ -1,6 +1,7 @@
 package itda.auth.service;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -17,6 +18,10 @@ import itda.common.security.service.TokenProvider;
 import itda.email.EmailVerificationService;
 import itda.email.EmailVerificationPurpose;
 import itda.neighborhood.repository.NeighborhoodRepository;
+import itda.oauth.domain.OAuthProvider;
+import itda.oauth.service.OAuthExchangeResult;
+import itda.oauth.service.OAuthExchangeService;
+import itda.oauth.service.OAuthSignupService;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import itda.user.service.PublicTagGenerator;
@@ -49,6 +54,10 @@ class AuthServiceTest {
     private UserRegistrationService userRegistrationService;
     @Mock
     private EmailVerificationService emailVerificationService;
+    @Mock
+    private OAuthExchangeService oauthExchangeService;
+    @Mock
+    private OAuthSignupService oauthSignupService;
 
     private AuthService authService;
 
@@ -61,8 +70,23 @@ class AuthServiceTest {
                 tokenProvider,
                 publicTagGenerator,
                 userRegistrationService,
-                emailVerificationService
+                emailVerificationService,
+                oauthExchangeService,
+                oauthSignupService
         );
+    }
+
+    @Test
+    void exchangeOAuthAllowsNaverProvider() {
+        OAuthExchangeResult<AuthTokensResponse> expected = new OAuthExchangeResult.SignupRequired<>(
+                "signup-token", Instant.parse("2026-08-26T00:00:00Z"));
+        given(oauthExchangeService.<AuthTokensResponse>exchange(any(), any())).willReturn(expected);
+
+        OAuthExchangeResult<AuthTokensResponse> actual = authService.exchangeOAuth(OAuthProvider.NAVER, "login-code");
+
+        assertThat(actual).isSameAs(expected);
+        then(oauthExchangeService).should().exchange(
+                org.mockito.ArgumentMatchers.eq(new itda.oauth.service.OAuthExchangeCommand(OAuthProvider.NAVER, "login-code")), any());
     }
 
     @Test

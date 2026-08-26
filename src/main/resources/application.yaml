@@ -76,6 +76,18 @@ app:
       transaction-grace-ttl: ${GOOGLE_OAUTH_TRANSACTION_GRACE_TTL:1m}
       connect-timeout: ${GOOGLE_OAUTH_CONNECT_TIMEOUT:3s}
       read-timeout: ${GOOGLE_OAUTH_READ_TIMEOUT:5s}
+    naver:
+      enabled: ${NAVER_OAUTH_ENABLED:false}
+      client-id: ${NAVER_OAUTH_CLIENT_ID:}
+      client-secret: ${NAVER_OAUTH_CLIENT_SECRET:}
+      redirect-uri: ${NAVER_OAUTH_REDIRECT_URI:}
+      success-callback-uri: ${NAVER_OAUTH_SUCCESS_CALLBACK_URI:}
+      error-callback-uri: ${NAVER_OAUTH_ERROR_CALLBACK_URI:}
+      allowed-callback-urls: ${NAVER_OAUTH_ALLOWED_CALLBACK_URLS:}
+      transaction-ttl: ${NAVER_OAUTH_TRANSACTION_TTL:5m}
+      transaction-grace-ttl: ${NAVER_OAUTH_TRANSACTION_GRACE_TTL:1m}
+      connect-timeout: ${NAVER_OAUTH_CONNECT_TIMEOUT:3s}
+      read-timeout: ${NAVER_OAUTH_READ_TIMEOUT:5s}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   websocket:

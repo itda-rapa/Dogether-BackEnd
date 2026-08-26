@@ -64,10 +64,14 @@ class SecurityConfigTest {
     }
 
     @Test
-    void anonymousGoogleBrowserEndpointsPassSecurityBeforeTheirDisabledEndpointHandling() throws Exception {
+    void anonymousProviderBrowserEndpointsPassSecurityBeforeTheirDisabledEndpointHandling() throws Exception {
         mockMvc.perform(get("/oauth2/authorization/google"))
                 .andExpect(status().isNotFound());
         mockMvc.perform(get("/login/oauth2/code/google"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/oauth2/authorization/naver"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/login/oauth2/code/naver"))
                 .andExpect(status().isNotFound());
     }
 
