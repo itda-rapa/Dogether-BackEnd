@@ -14,6 +14,7 @@ import itda.common.exception.BusinessException;
 import itda.friend.domain.FriendRelationship;
 import itda.friend.service.query.FriendRelationshipQueryService;
 import itda.media.domain.Media;
+import itda.media.domain.MediaStatus;
 import itda.media.service.MediaService;
 import itda.media.service.MediaService.PresignedDownloadUrl;
 import itda.pet.domain.Pet;
@@ -23,12 +24,14 @@ import itda.pet.service.query.ActivePetQueryService;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
 import itda.setlog.domain.Setlog;
+import itda.setlog.domain.SetlogStatus;
 import itda.setlog.dto.SetlogListResponse;
 import itda.setlog.dto.SetlogSource;
 import itda.setlog.repository.SetlogReactionRepository;
 import itda.setlog.repository.SetlogRepository;
 import itda.setlog.support.SetlogCursorCodec;
 import itda.user.domain.User;
+import itda.user.domain.AccountStatus;
 import itda.user.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
@@ -216,6 +219,61 @@ class SetlogReadServiceTest {
         assertThat(result.items().getFirst().source())
                 .isEqualTo(SetlogSource.USER);
         assertThat(result.items().getFirst().canInteract()).isFalse();
+    }
+
+    @Test
+    void detailRevalidatesVisibilityAndIssuesFreshMediaUrl() {
+        activeUser(true);
+        ActivePetContext activePet = new ActivePetContext(
+                9L, USER_ID, "내개#ABCD", "내개", null, true
+        );
+        given(activePetQueryService.requireActivePet(USER_ID)).willReturn(activePet);
+        Setlog setlog = setlog(30L, 130L, 230L, "2026-08-11T03:00:00Z");
+        given(setlog.isSeed()).willReturn(false);
+        given(setlog.getCaption()).willReturn("새 URL로 상세 보기");
+        given(setlog.getCuteCount()).willReturn(2);
+        given(setlog.getLikeCount()).willReturn(1);
+        given(setlogRepository.findVisibleDetailById(
+                30L, USER_ID, SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED),
+                PetStatus.ACTIVE, AccountStatus.ACTIVE
+        )).willReturn(Optional.of(setlog));
+        given(petDisplayQueryService.getPetDisplaySummaries(List.of(130L)))
+                .willReturn(Map.of(130L, petSummary(130L, 2L)));
+        given(friendRelationshipQueryService.getRelationships(9L, List.of(130L)))
+                .willReturn(Map.of(130L, FriendRelationship.FRIEND));
+        given(setlogReactionRepository
+                .findAllBySetlog_IdInAndReactorPet_Id(List.of(30L), 9L))
+                .willReturn(List.of());
+        given(mediaService.getPresignedDownloadUrl(230L)).willReturn(url("fresh-detail"));
+
+        var result = service.getSetlog(USER_ID, 30L);
+
+        assertThat(result.setlogId()).isEqualTo(30L);
+        assertThat(result.source()).isEqualTo(SetlogSource.USER);
+        assertThat(result.mediaUrl()).isEqualTo("https://example.com/fresh-detail.mp4");
+        assertThat(result.authorPet().relationship()).isEqualTo(FriendRelationship.FRIEND);
+        then(mediaService).should().getPresignedDownloadUrl(230L);
+        then(mediaService).should(never()).getPresignedDownloadUrls(anyList());
+    }
+
+    @Test
+    void detailUnavailableByVisibilityPolicyDoesNotIssueMediaUrl() {
+        activeUser(false);
+        given(setlogRepository.findVisibleDetailById(
+                30L, USER_ID, SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED),
+                PetStatus.ACTIVE, AccountStatus.ACTIVE
+        )).willReturn(Optional.empty());
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.getSetlog(USER_ID, 30L)
+        );
+
+        assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.SETLOG_NOT_FOUND);
+        then(mediaService).shouldHaveNoInteractions();
+        then(petDisplayQueryService).shouldHaveNoInteractions();
     }
 
     @Test

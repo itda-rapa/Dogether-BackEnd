@@ -99,6 +99,16 @@ public class SetlogController implements SetlogSwaggerSupporter {
         );
     }
 
+    @GetMapping("/{setlogId}")
+    public ResponseEntity<ApiResponse<SetlogResponse>> getSetlog(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable Long setlogId
+    ) {
+        SetlogResponse setlog = setlogReadService.getSetlog(
+                currentUser.id(), setlogId);
+        return ResponseEntity.ok(ApiResponse.ok(setlog, "셋로그 상세 조회 성공"));
+    }
+
     @DeleteMapping("/{setlogId}")
     public ResponseEntity<Void> deleteSetlog(
             @AuthenticationPrincipal CurrentUser currentUser,

@@ -375,6 +375,23 @@ class SetlogControllerTest {
     }
 
     @Test
+    @DisplayName("GET /setlogs/{setlogId}는 상세 응답을 반환한다")
+    void getSetlogReturnsDetail() throws Exception {
+        given(setlogReadService.getSetlog(USER_ID, SETLOG_ID))
+                .willReturn(setlogResponse());
+
+        mockMvc.perform(get("/setlogs/{setlogId}", SETLOG_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("셋로그 상세 조회 성공"))
+                .andExpect(jsonPath("$.data.setlogId").value(SETLOG_ID))
+                .andExpect(jsonPath("$.data.mediaUrl")
+                        .value("https://example.com/seed.mp4"));
+
+        then(setlogReadService).should().getSetlog(USER_ID, SETLOG_ID);
+    }
+
+    @Test
     @DisplayName("PUT 반응 API는 reacted=true와 최신 카운트를 반환한다")
     void addReactionReturnsReactedTrue() throws Exception {
         given(setlogReactionService.addReaction(

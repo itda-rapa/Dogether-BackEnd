@@ -136,6 +136,45 @@ public interface SetlogRepository extends JpaRepository<Setlog, Long> {
             Pageable pageable
     );
 
+    /**
+     * 상세 화면 진입용 단건 조회. 피드와 같은 표시 가능·양방향 차단 정책을 적용해,
+     * 접근할 수 없는 Setlog의 기존 카드 정보나 Media URL이 다시 노출되지 않게 한다.
+     */
+    @Query("""
+            select setlog
+              from Setlog setlog
+              join fetch setlog.authorPet authorPet
+              join fetch authorPet.owner author
+              join fetch setlog.media media
+             where setlog.id = :setlogId
+               and setlog.status = :status
+               and media.status in :mediaStatuses
+               and media.deletedAt is null
+               and authorPet.status = :petStatus
+               and authorPet.deletedAt is null
+               and author.accountStatus = :accountStatus
+               and not exists (
+                   select userBlock.id
+                     from UserBlock userBlock
+                    where userBlock.blockerUserId = :viewerUserId
+                      and userBlock.blockedUserId = author.id
+               )
+               and not exists (
+                   select userBlock.id
+                     from UserBlock userBlock
+                    where userBlock.blockerUserId = author.id
+                      and userBlock.blockedUserId = :viewerUserId
+               )
+            """)
+    Optional<Setlog> findVisibleDetailById(
+            @Param("setlogId") Long setlogId,
+            @Param("viewerUserId") Long viewerUserId,
+            @Param("status") SetlogStatus status,
+            @Param("mediaStatuses") List<MediaStatus> mediaStatuses,
+            @Param("petStatus") PetStatus petStatus,
+            @Param("accountStatus") AccountStatus accountStatus
+    );
+
     @Query("""
             select setlog
               from Setlog setlog

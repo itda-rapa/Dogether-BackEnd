@@ -193,6 +193,29 @@ public interface SetlogSwaggerSupporter {
             Integer size
     );
 
+    @Operation(
+            summary = "셋로그 상세 조회",
+            description = "공유 카드 상세 route용 단건 조회입니다. 피드와 동일하게 표시 가능 상태와 양방향 차단 관계를 조회 시점에 재검증하고, Media URL은 새로 발급합니다."
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "셋로그 상세 조회 성공",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = SetlogResponse.class))
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "404",
+            description = "셋로그 없음, 표시 불가 상태 또는 양방향 차단으로 접근 불가"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "비활성 계정 또는 Active Pet 불일치"
+    )
+    ResponseEntity<ApiResponse<SetlogResponse>> getSetlog(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            @Parameter(description = "셋로그 ID") Long setlogId
+    );
+
     @Operation(summary = "셋로그 삭제", description = "작성자가 자신의 사용자 셋로그를 논리 삭제하고 스토리지 객체 삭제를 예약합니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "삭제 성공")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "소유한 시드 셋로그")
