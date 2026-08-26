@@ -135,9 +135,16 @@ public enum ErrorCode {
     MEETING_CARD_NOT_OPEN(HttpStatus.CONFLICT, "취소된 약속 카드에는 위치를 제출할 수 없습니다."),
     MEETING_VERIFICATION_REQUEST_CONFLICT(
             HttpStatus.CONFLICT,
-            "같은 요청 식별자로 이미 다른 내용의 위치 제출이 접수되었습니다."
+            "같은 요청 식별자로 이미 다른 카드·반려견·내용의 위치 제출이 접수되었습니다."
     ),
-    MEETING_TIME_WINDOW_EXCEEDED(HttpStatus.CONFLICT, "양쪽 위치 제출 시각 간격이 허용 범위를 초과했습니다."),
+    MEETING_VERIFICATION_CODE_REQUIRED(
+            HttpStatus.CONFLICT,
+            "위치 정확도가 낮아 확인 코드 절차가 필요합니다. GPS 재제출 대신 확인 코드를 진행해주세요."
+    ),
+    MEETING_TIME_WINDOW_EXCEEDED(
+            HttpStatus.CONFLICT,
+            "양쪽 서버 수신시각 간격 또는 약속 시각 대비 GPS 측위 시각이 허용 범위를 초과했습니다."
+    ),
     MEETING_DISTANCE_EXCEEDED(HttpStatus.CONFLICT, "두 위치 사이의 거리가 허용 범위를 초과했습니다."),
     MEETING_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 만남입니다."),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),

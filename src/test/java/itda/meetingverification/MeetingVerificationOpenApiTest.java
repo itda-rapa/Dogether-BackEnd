@@ -1,5 +1,6 @@
 package itda.meetingverification;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -32,6 +33,8 @@ class MeetingVerificationOpenApiTest {
                 .andExpect(jsonPath(path + ".post.responses['403']").exists())
                 .andExpect(jsonPath(path + ".post.responses['404']").exists())
                 .andExpect(jsonPath(path + ".post.responses['409']").exists())
+                .andExpect(jsonPath(path + ".post.responses['409'].description")
+                        .value(containsString("CODE_REQUIRED")))
                 .andExpect(jsonPath(requestSchema + ".required")
                         .value(hasItems("clientRequestId", "latitude", "longitude",
                                 "accuracyMeters", "capturedAt")));
@@ -46,11 +49,14 @@ class MeetingVerificationOpenApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(example + ".cardId").value(51))
                 .andExpect(jsonPath(example + ".submittedPetId").value(12))
+                .andExpect(jsonPath(example + ".status").value("GPS_CONFIRMED"))
                 .andExpect(jsonPath(example + ".counterpartSubmitted").value(true))
                 .andExpect(jsonPath(example + ".meetingId").value(61))
                 .andExpect(jsonPath(example + ".confirmed").value(true))
                 .andExpect(jsonPath(example + ".verificationMethod").value("GPS"))
-                .andExpect(jsonPath(example + ".confirmedAt").exists());
+                .andExpect(jsonPath(example + ".confirmedAt").exists())
+                .andExpect(jsonPath(example + ".codeRequired").value(false))
+                .andExpect(jsonPath(example + ".distanceMeters").value(42.7));
     }
 
     @Test

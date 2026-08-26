@@ -47,11 +47,14 @@ public interface MeetingVerificationSwaggerSupporter {
                                 "data":{
                                     "cardId":51,
                                     "submittedPetId":12,
+                                    "status":"GPS_CONFIRMED",
                                     "counterpartSubmitted":true,
                                     "meetingId":61,
                                     "confirmed":true,
                                     "verificationMethod":"GPS",
-                                    "confirmedAt":"2026-08-20T09:02:00Z"
+                                    "confirmedAt":"2026-08-20T09:02:00Z",
+                                    "codeRequired":false,
+                                    "distanceMeters":42.7
                                 },
                                 "error":null
                             }
@@ -65,17 +68,17 @@ public interface MeetingVerificationSwaggerSupporter {
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "403",
-            description = "활성 Pet이 없거나 유효하지 않음, 또는 약속 카드 참여자가 아님",
+            description = "활성 Pet이 없거나 유효하지 않음, 또는 같은 소유자 반려견",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE)
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "404",
-            description = "약속 카드 없음",
+            description = "약속 카드 없음·비DIRECT 카드·비참여자·대상 inactive/deleted",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE)
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "409",
-            description = "취소 카드·요청 충돌·거리/시간 초과·이미 확정",
+            description = "취소 카드·요청 충돌·거리/시간 초과·이미 확정·CODE_REQUIRED GPS 재제출 차단",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE)
     )
     ResponseEntity<ApiResponse<MeetingVerificationResult>> submit(
@@ -96,13 +99,15 @@ public interface MeetingVerificationSwaggerSupporter {
                                 "message":"만남 확인 상태 조회 성공",
                                 "data":{
                                     "cardId":51,
+                                    "status":"WAITING_COUNTERPART",
                                     "mySubmitted":true,
                                     "counterpartSubmitted":false,
                                     "meetingId":null,
                                     "confirmed":false,
                                     "verificationMethod":null,
                                     "confirmedAt":null,
-                                    "codeRequired":false
+                                    "codeRequired":false,
+                                    "distanceMeters":null
                                 },
                                 "error":null
                             }
@@ -111,12 +116,12 @@ public interface MeetingVerificationSwaggerSupporter {
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "404",
-            description = "약속 카드 없음",
+            description = "약속 카드 없음·비DIRECT 카드·비참여자",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE)
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "403",
-            description = "참여자 아님",
+            description = "활성 Pet 없음",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE)
     )
     ResponseEntity<ApiResponse<MeetingVerificationStatusResponse>> getStatus(

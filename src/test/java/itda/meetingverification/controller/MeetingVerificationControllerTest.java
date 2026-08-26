@@ -12,6 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import itda.common.constants.ErrorCode;
 import itda.common.security.CurrentUser;
+import itda.meetingverification.domain.MeetingVerificationApiStatus;
+import itda.meetingverification.domain.MeetingVerificationMethod;
 import itda.meetingverification.dto.MeetingVerificationResult;
 import itda.meetingverification.service.MeetingVerificationService;
 import itda.user.domain.Role;
@@ -31,7 +33,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * 위치 제출 요청의 필수 필드 검증을 컨트롤러 경계에서 확인한다.
+ * 위치 제출 요청의 필수 필드 검증과 응답 메시지·신규 필드를 컨트롤러 경계에서 확인한다.
  *
  * <p>latitude/longitude/accuracyMeters 는 wrapper + {@code @NotNull} 이므로 JSON 필드 누락은
  * 400 {@code VALIDATION_FAILED} 로 막고, 실제 {@code 0.0} 값 자체는 Service 까지 전달된다.
@@ -39,7 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @WebMvcTest(MeetingVerificationController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@DisplayName("MeetingVerificationController — 요청 필수값 검증")
+@DisplayName("MeetingVerificationController — 요청 필수값 검증·응답")
 class MeetingVerificationControllerTest {
 
     private static final long USER_ID = 1L;
@@ -148,7 +150,8 @@ class MeetingVerificationControllerTest {
     void zeroCoordinatesPassValidationAndReachService() throws Exception {
         given(meetingVerificationService.submit(eq(USER_ID), eq(CARD_ID), any()))
                 .willReturn(new MeetingVerificationResult(
-                        CARD_ID, 12L, false, null, false, null, null));
+                        CARD_ID, 12L, MeetingVerificationApiStatus.WAITING_COUNTERPART,
+                        false, null, false, null, null, false, null));
 
         mockMvc.perform(post("/meeting-cards/{cardId}/meeting-verifications", CARD_ID)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -164,5 +167,84 @@ class MeetingVerificationControllerTest {
                 .andExpect(status().isOk());
 
         verify(meetingVerificationService).submit(eq(USER_ID), eq(CARD_ID), any());
+    }
+
+    @Test
+    @DisplayName("LOW_ACCURACY 제출은 codeRequired=true 와 전용 메시지를 반환한다")
+    void lowAccuracyResponseUsesCodeRequiredMessage() throws Exception {
+        given(meetingVerificationService.submit(eq(USER_ID), eq(CARD_ID), any()))
+                .willReturn(new MeetingVerificationResult(
+                        CARD_ID, 12L, MeetingVerificationApiStatus.CODE_REQUIRED,
+                        false, null, false, null, null, true, null));
+
+        mockMvc.perform(post("/meeting-cards/{cardId}/meeting-verifications", CARD_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "clientRequestId": "b0bbdc4d-4174-4abe-b837-e364866a9308",
+                                  "latitude": 37.5665,
+                                  "longitude": 126.978,
+                                  "accuracyMeters": 60.0,
+                                  "capturedAt": "2026-08-20T09:00:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("위치 정확도가 낮아 확인 코드가 필요합니다."))
+                .andExpect(jsonPath("$.data.codeRequired").value(true))
+                .andExpect(jsonPath("$.data.confirmed").value(false))
+                .andExpect(jsonPath("$.data.meetingId").isEmpty());
+    }
+
+    @Test
+    @DisplayName("일반 GPS 대기는 codeRequired=false 와 기존 대기 메시지를 유지한다")
+    void waitingResponseUsesWaitingMessage() throws Exception {
+        given(meetingVerificationService.submit(eq(USER_ID), eq(CARD_ID), any()))
+                .willReturn(new MeetingVerificationResult(
+                        CARD_ID, 12L, MeetingVerificationApiStatus.WAITING_COUNTERPART,
+                        false, null, false, null, null, false, null));
+
+        mockMvc.perform(post("/meeting-cards/{cardId}/meeting-verifications", CARD_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "clientRequestId": "b0bbdc4d-4174-4abe-b837-e364866a9308",
+                                  "latitude": 37.5665,
+                                  "longitude": 126.978,
+                                  "accuracyMeters": 24.5,
+                                  "capturedAt": "2026-08-20T09:00:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("상대방의 확인을 기다리고 있습니다."))
+                .andExpect(jsonPath("$.data.codeRequired").value(false))
+                .andExpect(jsonPath("$.data.confirmed").value(false));
+    }
+
+    @Test
+    @DisplayName("GPS 확정 응답은 distanceMeters 와 codeRequired=false 를 포함한다")
+    void confirmedResponseIncludesDistanceMeters() throws Exception {
+        Instant confirmedAt = Instant.parse("2026-08-20T09:02:00Z");
+        given(meetingVerificationService.submit(eq(USER_ID), eq(CARD_ID), any()))
+                .willReturn(new MeetingVerificationResult(
+                        CARD_ID, 12L, MeetingVerificationApiStatus.GPS_CONFIRMED,
+                        true, 61L, true, MeetingVerificationMethod.GPS,
+                        confirmedAt, false, 42.7));
+
+        mockMvc.perform(post("/meeting-cards/{cardId}/meeting-verifications", CARD_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "clientRequestId": "b0bbdc4d-4174-4abe-b837-e364866a9308",
+                                  "latitude": 37.5665,
+                                  "longitude": 126.978,
+                                  "accuracyMeters": 24.5,
+                                  "capturedAt": "2026-08-20T09:00:00Z"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("만남이 확인되었습니다."))
+                .andExpect(jsonPath("$.data.confirmed").value(true))
+                .andExpect(jsonPath("$.data.codeRequired").value(false))
+                .andExpect(jsonPath("$.data.distanceMeters").value(42.7));
     }
 }

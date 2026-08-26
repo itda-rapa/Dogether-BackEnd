@@ -1423,11 +1423,14 @@ Query:
   "data": {
     "cardId": 51,
     "submittedPetId": 12,
+    "status": "WAITING_COUNTERPART",
     "counterpartSubmitted": false,
     "meetingId": null,
     "confirmed": false,
     "verificationMethod": null,
-    "confirmedAt": null
+    "confirmedAt": null,
+    "codeRequired": false,
+    "distanceMeters": null
   },
   "error": null
 }
@@ -1442,11 +1445,14 @@ GPS 확정 응답:
   "data": {
     "cardId": 51,
     "submittedPetId": 12,
+    "status": "GPS_CONFIRMED",
     "counterpartSubmitted": true,
     "meetingId": 61,
     "confirmed": true,
     "verificationMethod": "GPS",
-    "confirmedAt": "2026-08-20T09:02:00Z"
+    "confirmedAt": "2026-08-20T09:02:00Z",
+    "codeRequired": false,
+    "distanceMeters": 42.7
   },
   "error": null
 }
@@ -1454,36 +1460,46 @@ GPS 확정 응답:
 
 정확도 부족 응답:
 
-Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하지 않고 `LOW_ACCURACY`로 분류한다. Meeting은 이 결과를 받아 해당 Pet 의 제출을 `CODE_REQUIRED`로 저장하고 Meeting 을 생성하지 않는다. 좌표 범위 밖·비수·음수 accuracy·허용 미래 시각 초과만 `LOCATION_INVALID`, 수집 허용 시간보다 오래된 위치만 `LOCATION_STALE`다. Location의 거리 utility는 두 좌표 사이의 미터 거리만 반환하고 100m 제한과 양쪽 제출 간격 제한은 Meeting이 판정한다.
+Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하지 않고 `LOW_ACCURACY`로 분류한다. Meeting은 이 결과를 받아 해당 Pet 의 제출을 `CODE_REQUIRED`로 저장하고 Meeting 을 생성하지 않는다. 이때 `codeRequired=true` 이고 Meeting 관련 값(`meetingId`·`verificationMethod`·`confirmedAt`·`distanceMeters`)은 모두 null 이다. 좌표 범위 밖·비수·음수 accuracy·허용 미래 시각 초과만 `LOCATION_INVALID`, 수집 허용 시간보다 오래된 위치만 `LOCATION_STALE`다. Location의 거리 utility는 두 좌표 사이의 미터 거리만 반환하고 100m 제한·양쪽 제출 간격·약속 시간창 제한은 Meeting이 판정한다.
 
 ```json
 {
   "success": true,
-  "message": "상대방의 확인을 기다리고 있습니다.",
+  "message": "위치 정확도가 낮아 확인 코드가 필요합니다.",
   "data": {
     "cardId": 51,
     "submittedPetId": 12,
+    "status": "CODE_REQUIRED",
     "counterpartSubmitted": false,
     "meetingId": null,
     "confirmed": false,
     "verificationMethod": null,
-    "confirmedAt": null
+    "confirmedAt": null,
+    "codeRequired": true,
+    "distanceMeters": null
   },
   "error": null
 }
 ```
 
-`confirmed=false` 일 때 `meetingId`·`verificationMethod`·`confirmedAt` 은 항상 null 이다. Confirmation Code 발급·입력·검증은 이번 범위에서 제외한다.
+`status` 는 사용자용 API 상태(`NOT_SUBMITTED`·`WAITING_COUNTERPART`·`GPS_CONFIRMED`·`CODE_REQUIRED`·`CODE_CONFIRMED`·`REJECTED`·`EXPIRED`)다. `confirmed=false` 일 때 `meetingId`·`verificationMethod`·`confirmedAt`·`distanceMeters` 은 항상 null 이다. `codeRequired` 는 이번 제출이 LOW_ACCURACY(CODE_REQUIRED)여서 확인 코드가 필요한지 나타내며 GET status 의 `codeRequired` 와 의미가 일치한다. Confirmation Code 발급·입력·검증은 이번 범위에서 제외한다.
+
+GPS 확정 조건: DIRECT 카드만 허용하며, 같은 소유자의 두 Pet 은 불가하다. 양쪽 제출 모두 `card.meetAt ± 1시간`(경계 포함) 안에 있어야 하고, 양쪽 서버 수신시각(`submittedAt`) 차이가 5분 이내여야 하며, 두 위치 거리가 100m 이내여야 한다. 상대 제출 상태가 정확히 `SUBMITTED` 일 때만 GPS 판정한다.
+
+재시도·멱등: 권한·Chat 접근·카드 OPEN 검증을 통과한 뒤에만 immutable request ledger 를 조회한다. 같은 `clientRequestId` + 같은 카드·Pet·payload 는 서버 수신 deadline 경과 여부와 무관하게 Location 재평가·verification 갱신·Meeting 재생성 없이 기존 결과(replay)로 수렴하고, 같은 `clientRequestId` 인데 카드·Pet·payload 가 다르면 `409 MEETING_VERIFICATION_REQUEST_CONFLICT` 다. 새 `clientRequestId` 만 서버 수신 deadline·GPS 판정 대상이다. 현재 최신 verification 의 terminal/`CODE_REQUIRED` 상태가 과거 ledger 최초 상태보다 우선해, `EXPIRED`/`CODE_REQUIRED` 로 전이된 뒤에는 동일 요청 replay 도 그 상태로 수렴한다.
+
+CODE_REQUIRED 종결: LOW_ACCURACY 로 `CODE_REQUIRED` 가 된 Pet 은 새 `clientRequestId` GPS 로 `SUBMITTED`/`CODE_REQUIRED` 를 갱신할 수 없다(`409 MEETING_VERIFICATION_CODE_REQUIRED`). 기존 `CODE_REQUIRED` verification 과 raw GPS null 은 유지되고, 이후 확정 경로는 Confirmation Code 흐름(#149)만 사용한다.
 
 오류:
 
-- `404 MEETING_CARD_NOT_FOUND`
-- `403 MEETING_NOT_PARTICIPANT`
+- `404 MEETING_CARD_NOT_FOUND`(카드 없음·비DIRECT 카드·비참여자·대상 inactive/deleted — existence hiding)
+- `403 ACTIVE_PET_REQUIRED`, `403 SAME_OWNER_INTERACTION_FORBIDDEN`(같은 소유자 두 Pet)
 - `409 MEETING_CARD_NOT_OPEN`
 - `400 LOCATION_INVALID`, `400 LOCATION_STALE`
-- `409 MEETING_TIME_WINDOW_EXCEEDED`(양쪽 제출 시각 간격 초과)
+- `409 MEETING_TIME_WINDOW_EXCEEDED`(양쪽 서버 수신시각 간격 또는 약속 시각 대비 GPS 측위 시각 초과)
 - `409 MEETING_DISTANCE_EXCEEDED`(거리 초과)
-- `409 MEETING_VERIFICATION_REQUEST_CONFLICT`(같은 clientRequestId 다른 내용)
+- `409 MEETING_VERIFICATION_REQUEST_CONFLICT`(같은 clientRequestId 다른 카드·Pet·내용)
+- `409 MEETING_VERIFICATION_CODE_REQUIRED`(LOW_ACCURACY 로 CODE_REQUIRED 된 Pet 의 새 GPS 제출 — GPS 재제출이 아니라 확인 코드 흐름으로 진행)
 - `409 MEETING_ALREADY_CONFIRMED`(GPS 외 방식으로 이미 확정)
 
 ### `GET /meeting-cards/{cardId}/meeting-verification`
@@ -1496,19 +1512,23 @@ Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하�
   "message": "만남 확인 상태 조회 성공",
   "data": {
     "cardId": 51,
+    "status": "WAITING_COUNTERPART",
     "mySubmitted": true,
     "counterpartSubmitted": false,
     "meetingId": null,
     "confirmed": false,
     "verificationMethod": null,
     "confirmedAt": null,
-    "codeRequired": false
+    "codeRequired": false,
+    "distanceMeters": null
   },
   "error": null
 }
 ```
 
-오류: `404 MEETING_CARD_NOT_FOUND`, `403 MEETING_NOT_PARTICIPANT`.
+`status` 의 의미는 POST 응답과 같다. `distanceMeters` 는 GPS 확정 Meeting 의 실제 계산 거리이고, 미확정 또는 CODE Meeting 이면 null 이다. Meeting 이 존재하면 `confirmed=true`, `mySubmitted=true`, `counterpartSubmitted=true` 가 함께 성립한다.
+
+오류: `404 MEETING_CARD_NOT_FOUND`(카드 없음·비DIRECT 카드·비참여자), `403 ACTIVE_PET_REQUIRED`.
 
 ### `POST /meeting-cards/{cardId}/confirmation-code/verify`
 

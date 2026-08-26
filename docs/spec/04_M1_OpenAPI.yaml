@@ -27,6 +27,7 @@ tags:
   - name: Friend
   - name: Chat
   - name: MeetingCard
+  - name: MeetingVerification
   - name: Block
   - name: Report
   - name: Admin
@@ -1341,7 +1342,7 @@ paths:
       tags: [MeetingCard]
       summary: 약속 카드 취소
       operationId: cancelMeetingCard
-      description: 참여 Pet 양쪽 모두 취소할 수 있다.
+      description: 참여 Pet 양쪽 모두 취소할 수 있다. 확정 Meeting 이 있는 카드는 취소할 수 없다.
       parameters:
         - $ref: '#/components/parameters/CardId'
       responses:
@@ -1359,6 +1360,62 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /meeting-cards/{cardId}/meeting-verifications:
+    post:
+      tags: [MeetingVerification]
+      summary: 만남 위치 제출·판정
+      operationId: submitMeetingVerification
+      description: |
+        위치를 제출하고 양쪽 제출이 모이면 GPS 확정을 시도한다. DIRECT 카드만 허용하며,
+        같은 소유자의 두 Pet 은 확정할 수 없다. raw 위경도는 응답에 노출하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingVerificationSubmitCommand'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 위치 제출 성공(대기 또는 확정)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingVerificationResultEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /meeting-cards/{cardId}/meeting-verification:
+    get:
+      tags: [MeetingVerification]
+      summary: 만남 확인 상태 조회
+      operationId: getMeetingVerificationStatus
+      description: 현재 사용자 기준 만남 확인 상태를 조회한다. 좌표는 반환하지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 상태 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingVerificationStatusEnvelope'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /me/blocks:
     post:
@@ -2484,6 +2541,86 @@ components:
           type: string
           format: date-time
 
+    MeetingVerificationSubmitCommand:
+      type: object
+      required: [clientRequestId, latitude, longitude, accuracyMeters, capturedAt]
+      properties:
+        clientRequestId:
+          type: string
+          format: uuid
+        latitude:
+          type: number
+        longitude:
+          type: number
+        accuracyMeters:
+          type: number
+        capturedAt:
+          type: string
+          format: date-time
+
+    MeetingVerificationResult:
+      type: object
+      required: [cardId, submittedPetId, status, counterpartSubmitted, meetingId, confirmed, verificationMethod, confirmedAt, codeRequired, distanceMeters]
+      properties:
+        cardId:
+          type: integer
+          format: int64
+        submittedPetId:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/MeetingVerificationApiStatus'
+        counterpartSubmitted:
+          type: boolean
+        meetingId:
+          type: [integer, 'null']
+          format: int64
+        confirmed:
+          type: boolean
+        verificationMethod:
+          type: [string, 'null']
+          enum: [GPS, CODE, null]
+        confirmedAt:
+          type: [string, 'null']
+          format: date-time
+        codeRequired:
+          type: boolean
+        distanceMeters:
+          type: [number, 'null']
+
+    MeetingVerificationStatusResponse:
+      type: object
+      required: [cardId, status, mySubmitted, counterpartSubmitted, meetingId, confirmed, verificationMethod, confirmedAt, codeRequired, distanceMeters]
+      properties:
+        cardId:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/MeetingVerificationApiStatus'
+        mySubmitted:
+          type: boolean
+        counterpartSubmitted:
+          type: boolean
+        meetingId:
+          type: [integer, 'null']
+          format: int64
+        confirmed:
+          type: boolean
+        verificationMethod:
+          type: [string, 'null']
+          enum: [GPS, CODE, null]
+        confirmedAt:
+          type: [string, 'null']
+          format: date-time
+        codeRequired:
+          type: boolean
+        distanceMeters:
+          type: [number, 'null']
+
+    MeetingVerificationApiStatus:
+      type: string
+      enum: [NOT_SUBMITTED, WAITING_COUNTERPART, GPS_CONFIRMED, CODE_REQUIRED, CODE_CONFIRMED, REJECTED, EXPIRED]
+
     BlockCreateRequest:
       type: object
       required: [targetPetId]
@@ -2899,6 +3036,22 @@ components:
         success: { type: boolean, const: true }
         message: { type: string }
         data: { $ref: '#/components/schemas/MeetingCard' }
+        error: { type: 'null' }
+    MeetingVerificationResultEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/MeetingVerificationResult' }
+        error: { type: 'null' }
+    MeetingVerificationStatusEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/MeetingVerificationStatusResponse' }
         error: { type: 'null' }
     BlockEnvelope:
       type: object

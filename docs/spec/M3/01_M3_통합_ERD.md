@@ -16,6 +16,7 @@ chat_messages 1 ─ 0..N chat_message_attachments N ─ 1 media
 chat_messages N ─ 0..1 setlogs
 
 meeting_cards 1 ─ N meeting_verifications
+meeting_cards 1 ─ N meeting_verification_requests
 meeting_cards 1 ─ 0..1 meetings
 meetings 1 ─ N meeting_reviews
 meetings 1 ─ N footprints
@@ -163,19 +164,40 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 
 ### `meeting_verifications`
 
+Pet 별 최신 제출 1행. 같은 Pet 의 새 제출은 이 행을 대체한다.
+
 | 컬럼 | 형식 | 설명 |
 |---|---|---|
 | id | BIGSERIAL | PK |
-| meeting_card_id | BIGINT | FK |
+| meeting_card_id | BIGINT | composite FK → meeting_participants |
 | participant_pet_id/user_id | BIGINT | 제출자 snapshot |
-| latitude/longitude | NUMERIC | 정책에 따른 보존 |
-| accuracy_meters | NUMERIC | NOT NULL |
-| captured_at/submitted_at | TIMESTAMPTZ | NOT NULL |
-| status | VARCHAR(30) | SUBMITTED/CODE_REQUIRED/ACCEPTED/REJECTED |
-| client_request_id | UUID | 멱등키 |
+| latitude/longitude | NUMERIC | raw 보관. SUBMITTED 만 필수, 나머지 상태는 null(scrub) |
+| accuracy_meters | NUMERIC | raw 보관. SUBMITTED 만 필수 |
+| captured_at | TIMESTAMPTZ | GPS 측위시각. SUBMITTED 만 필수 |
+| submitted_at | TIMESTAMPTZ | 서버 수신시각. 양쪽 제출 간격 정본 |
+| status | VARCHAR(30) | SUBMITTED/CODE_REQUIRED/ACCEPTED/REJECTED/EXPIRED |
+| client_request_id | UUID | 최신 제출이 사용한 멱등키(영구 정본은 meeting_verification_requests) |
 
 - `UNIQUE(meeting_card_id, participant_pet_id)`
-- `UNIQUE(client_request_id)`
+- `FOREIGN KEY(meeting_card_id, participant_pet_id) → meeting_participants(meeting_card_id, pet_id)`
+- CHECK: `SUBMITTED` 에만 raw 좌표 필수, `CODE_REQUIRED/ACCEPTED/REJECTED/EXPIRED` 는 raw null
+
+### `meeting_verification_requests`
+
+immutable request 멱등 원장. 행을 대체하지 않으므로 과거 request ID 의 멱등성을 보존한다.
+raw 좌표는 보관하지 않고 서버 비밀키 HMAC-SHA-256 fingerprint 만 남긴다.
+
+| 컬럼 | 형식 | 설명 |
+|---|---|---|
+| client_request_id | UUID | PK, 전역 UNIQUE |
+| meeting_card_id | BIGINT | FK |
+| participant_pet_id | BIGINT | FK, 제출자 snapshot |
+| fingerprint | VARCHAR(64) | canonical payload 의 HMAC-SHA-256 hex. raw 좌표 없음 |
+| status | VARCHAR(30) | SUBMITTED/CODE_REQUIRED |
+| created_at | TIMESTAMPTZ | NOT NULL |
+
+- `PRIMARY KEY(client_request_id)`
+- synthetic ID·배열 순번 없음
 
 ### `meeting_confirmation_codes`
 
@@ -186,7 +208,8 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 ### `meetings`
 
 - card_id UNIQUE, confirmed_at, verification_method(GPS/CODE)
-- 참여자·장소·시각 snapshot
+- `distance_meters`: GPS 확정의 실제 계산 거리(non-null), CODE 확정은 null
+- 정본은 meetingCardId / verificationMethod / confirmedAt / distanceMeters 만 둔다. 참여자·장소·시각 snapshot 은 이번 범위에서 추가하지 않는다.
 
 ### `meeting_reviews`
 

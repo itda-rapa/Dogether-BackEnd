@@ -35,7 +35,9 @@ public class MeetingVerificationController implements MeetingVerificationSwagger
                 meetingVerificationService.submit(currentUser.id(), cardId, command);
         String message = result.confirmed()
                 ? "만남이 확인되었습니다."
-                : "상대방의 확인을 기다리고 있습니다.";
+                : result.codeRequired()
+                        ? "위치 정확도가 낮아 확인 코드가 필요합니다."
+                        : "상대방의 확인을 기다리고 있습니다.";
         return ResponseEntity.ok(ApiResponse.ok(result, message));
     }
 

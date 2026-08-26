@@ -27,6 +27,12 @@ app:
   meeting-verification:
     distance-limit-meters: 100
     submission-interval: 5m
+    meeting-time-window: 1h
+    hmac-secret: test-meeting-verification-hmac-secret-at-least-32-bytes
+    expiry:
+      enabled: false
+      delay: 60s
+      batch-size: 50
   setlog-upload:
     require-version-id: false
   jwt:

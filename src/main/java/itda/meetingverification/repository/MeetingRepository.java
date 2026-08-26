@@ -8,4 +8,6 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
 
     /** 카드당 0..1(uk_meeting_card). */
     Optional<Meeting> findByMeetingCardId(Long meetingCardId);
+
+    boolean existsByMeetingCardId(Long meetingCardId);
 }
