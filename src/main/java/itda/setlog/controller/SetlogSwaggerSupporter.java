@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.common.dto.ApiResponse;
@@ -191,6 +192,76 @@ public interface SetlogSwaggerSupporter {
             String cursor,
             @Parameter(description = "조회 개수(기본 20, 최대 100)")
             Integer size
+    );
+
+    @Operation(
+            summary = "셋로그 상세 조회",
+            description = "공유 카드 상세 route용 단건 조회입니다. 피드와 동일하게 표시 가능 상태와 양방향 차단 관계를 조회 시점에 재검증하고, Media URL은 새로 발급합니다."
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "셋로그 상세 조회 성공",
+            headers = @Header(
+                    name = "Cache-Control",
+                    description = "접근 민감 응답의 재사용을 막기 위한 no-store 정책",
+                    schema = @Schema(type = "string", example = "no-store")
+            ),
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {
+                                "success":true,
+                                "message":"셋로그 상세 조회 성공",
+                                "data":{
+                                    "setlogId":1,
+                                    "source":"USER",
+                                    "authorPet":{
+                                        "petId":12,
+                                        "publicTag":"몽이#4A2F",
+                                        "nickname":"몽이",
+                                        "profileUrl":null,
+                                        "verified":true,
+                                        "relationship":"FRIEND"
+                                    },
+                                    "mediaUrl":"https://example.com/setlogs/1.mp4",
+                                    "mediaUrlExpiresAt":"2026-08-05T00:10:00Z",
+                                    "caption":"오늘 산책 완료",
+                                    "cuteCount":2,
+                                    "likeCount":1,
+                                    "myReactions":["LIKE"],
+                                    "canInteract":true,
+                                    "createdAt":"2026-08-05T00:00:00Z"
+                                },
+                                "error":null
+                            }
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "404",
+            description = "셋로그 없음, 표시 불가 상태 또는 양방향 차단으로 접근 불가",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {
+                                "success":false,
+                                "message":"해당 요청이 실패되었습니다.",
+                                "data":null,
+                                "error":{
+                                    "code":"SETLOG_NOT_FOUND",
+                                    "message":"셋로그를 찾을 수 없습니다."
+                                }
+                            }
+                            """)
+            )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "비활성 계정 또는 저장된 Active Pet 상태 불일치"
+    )
+    ResponseEntity<ApiResponse<SetlogResponse>> getSetlog(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            @Parameter(description = "셋로그 ID") Long setlogId
     );
 
     @Operation(summary = "셋로그 삭제", description = "작성자가 자신의 사용자 셋로그를 논리 삭제하고 스토리지 객체 삭제를 예약합니다.")
