@@ -26,6 +26,7 @@ public class MediaController implements MediaSwaggerSupporter {
     ) {
         PresignedUrl result = mediaService.initMedia(
                 request.mediaType(),
+                request.contentType(),
                 request.fileSize(),
                 user.id(),
                 "posts"

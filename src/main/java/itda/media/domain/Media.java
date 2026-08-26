@@ -11,6 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Map;
+import itda.media.storage.ObjectMetadata;
 
 @Entity
 @Table(name = "media")
@@ -74,6 +75,7 @@ public class Media extends BaseEntity {
         this.status = MediaStatus.INIT;
         this.userId = userId;
         this.fileSize = fileSize;
+        this.contentType = mediaType.contentType();
     }
     // 멀티파트 업로드 시 생성하는 Media 객체
     public Media(
@@ -89,12 +91,39 @@ public class Media extends BaseEntity {
         this.userId = userId;
         this.fileSize = fileSize;
         this.uploadId = uploadId;
+        this.contentType = mediaType.contentType();
+    }
+
+    public static Media initialized(
+            MediaType mediaType, String path, Long userId, Long fileSize, String contentType
+    ) {
+        Media media = new Media(mediaType, path, userId, fileSize);
+        media.contentType = contentType;
+        return media;
+    }
+
+    public static Media initializedMultipart(
+            MediaType mediaType, String path, Long userId, Long fileSize, String uploadId, String contentType
+    ) {
+        Media media = new Media(mediaType, path, userId, fileSize, uploadId);
+        media.contentType = contentType;
+        return media;
     }
     public void updateStatus(MediaStatus status) {
         this.status = status;
     }
     public void updateAttributes(Map<String, Object> attributes) {
         this.attributes = attributes;
+    }
+
+    public void markUploadVerified(ObjectMetadata metadata, Instant verifiedAt) {
+        this.fileSize = metadata.size();
+        this.contentType = metadata.contentType();
+        this.etag = metadata.etag();
+        this.objectVersionId = metadata.versionId();
+        this.storageLastModified = metadata.lastModified();
+        this.verifiedAt = verifiedAt;
+        this.status = MediaStatus.COMPLETED;
     }
 
     public static Media verifiedVideo(

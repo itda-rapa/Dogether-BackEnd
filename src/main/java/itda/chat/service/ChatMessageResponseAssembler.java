@@ -66,6 +66,7 @@ public class ChatMessageResponseAssembler {
                 mediaService.getMediaDownloadsByIds(
                         attachments.values().stream()
                                 .map(ChatMessageAttachment::getMediaId)
+                                .distinct()
                                 .toList()
                 );
         Map<Long, ShareableSetlogView> setlogViews = setlogViewsOf(messages);

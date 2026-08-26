@@ -224,7 +224,7 @@ Google 인증
 - Media는 요청자 소유의 IMAGE이고 `UPLOADED` 또는 `COMPLETED` 상태여야 한다.
 - 오류: `400 VALIDATION_FAILED`, `403 PET_NOT_OWNED`·`MEDIA_NOT_OWNED`,
   `404 PET_NOT_FOUND`·`MEDIA_NOT_FOUND`, `409 PET_PROFILE_IMAGE_ALREADY_SET`,
-  `422 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
+  `415 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
 
 ### `DELETE /pets/{petId}`
 
@@ -288,7 +288,7 @@ Google 인증
 
 오류: `400 VALIDATION_FAILED`, `403 PET_NOT_OWNED`·`MEDIA_NOT_OWNED`,
 `404 PET_NOT_FOUND`·`MEDIA_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`,
-`422 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
+`415 INVALID_MEDIA_TYPE`·`MEDIA_NOT_UPLOADED`.
 
 ### `DELETE /pets/{petId}/profile-image`
 
@@ -625,7 +625,7 @@ N+1 방지: feed는 페이지 전체 `BoardPostMedia`의 distinct Media ID를 `f
 profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearchItemResponse`와
 `PetDisplaySummary`는 확장하지 않는다.
 
-오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `422 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
+오류: `400 VALIDATION_FAILED`, `404 BOARD_POST_NOT_FOUND`, `404 PLACE_NOT_FOUND`, `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `415 INVALID_MEDIA_TYPE`, `409 CONCURRENT_UPDATE_CONFLICT`.
 
 ---
 
@@ -635,18 +635,15 @@ profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearc
 
 - 인증: 로그인 User
 - 성공: `201`
-- M3 변경: 목적·파일명·contentType·duration metadata 추가
+- M3-009: 현재 공용 Media init 계약은 `mediaType`, `contentType`, `fileSize`만 받는다.
 
 요청:
 
 ```json
 {
-  "purpose": "CHAT_ATTACHMENT",
   "mediaType": "VIDEO",
-  "fileName": "walk-together.mp4",
   "contentType": "video/mp4",
-  "fileSize": 5242880,
-  "durationMs": 4200
+  "fileSize": 5242880
 }
 ```
 
@@ -658,22 +655,28 @@ profile endpoint는 별도 `PetPublicProfileResponse`로 제공하며, `PetSearc
   "message": "Media 객체가 초기화되었습니다.",
   "data": {
     "id": 501,
-    "purpose": "CHAT_ATTACHMENT",
     "mediaType": "VIDEO",
+    "contentType": "video/mp4",
+    "path": "posts/1/501.mp4",
     "status": "INIT",
+    "userId": 1,
     "presignedUrl": "https://storage.example/upload...",
+    "presignedHeaders": {
+      "Content-Type": "video/mp4",
+      "Content-Length": "5242880"
+    },
     "uploadId": null,
     "presignedUrlParts": null,
-    "requiredHeaders": {
-      "Content-Type": "video/mp4"
-    },
-    "expiresAt": "2026-08-20T09:15:00Z"
+    "createdAt": "2026-08-20T09:00:00Z",
+    "updatedAt": "2026-08-20T09:00:00Z"
   },
   "error": null
 }
 ```
 
-Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 반환한다.
+Multipart 응답은 `presignedUrl=null`, `presignedHeaders={}`, `uploadId`와 각 part의
+`partNumber`, `presignedUrl`, `headers`를 담은 `presignedUrlParts[]`를 반환한다. 클라이언트는
+각 URL 요청에 해당 headers를 그대로 포함해야 한다.
 
 오류: `400 VALIDATION_FAILED`, `413 MEDIA_SIZE_INVALID`, `415 INVALID_MEDIA_TYPE`, `403 MEDIA_PURPOSE_FORBIDDEN`, `503 MEDIA_STORAGE_UNAVAILABLE`.
 
@@ -700,13 +703,16 @@ Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 
   "data": {
     "id": 501,
     "mediaType": "VIDEO",
-    "purpose": "CHAT_ATTACHMENT",
+    "contentType": "video/mp4",
+    "path": "posts/1/501.mp4",
     "status": "COMPLETED",
+    "userId": 1,
     "fileSize": 5242880,
     "attributes": {
-      "contentType": "video/mp4",
-      "durationMs": 4200,
-      "originalFileName": "walk-together.mp4"
+      "parts": [
+        { "partNumber": 1, "eTag": "etag-part-1" },
+        { "partNumber": 2, "eTag": "etag-part-2" }
+      ]
     },
     "createdAt": "2026-08-20T08:58:00Z",
     "modifiedAt": "2026-08-20T09:00:00Z"
@@ -715,7 +721,7 @@ Multipart 응답은 `presignedUrl=null`, `uploadId`와 `presignedUrlParts[]`를 
 }
 ```
 
-오류: `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_STATE_CONFLICT`, `422 MEDIA_METADATA_MISMATCH`, `502 MEDIA_STORAGE_REJECTED`, `503 MEDIA_STORAGE_UNAVAILABLE`.
+오류: `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_STATE_CONFLICT`, `413 MEDIA_SIZE_INVALID`, `415 INVALID_MEDIA_TYPE`, `422 MEDIA_NOT_UPLOADED`, `422 MEDIA_DURATION_INVALID`(VIDEO만 해당, 실제 컨테이너 길이가 5초를 초과), `502 MEDIA_STORAGE_REJECTED`, `503 MEDIA_STORAGE_UNAVAILABLE`.
 
 ---
 
@@ -864,6 +870,7 @@ SETLOG_SHARE 응답:
 - `400 CHAT_MESSAGE_TYPE_INVALID`
 - `400 CHAT_MESSAGE_PAYLOAD_INVALID`
 - `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_NOT_READY`
+- `415 INVALID_MEDIA_TYPE`, `413 MEDIA_SIZE_INVALID`
 - `404 SETLOG_NOT_FOUND`, `403 SETLOG_SHARE_FORBIDDEN`
 
 ### `GET /chat/rooms/{roomId}/messages`
@@ -906,6 +913,9 @@ Query:
   "error": null
 }
 ```
+
+삭제·미완료 Media는 과거 메시지의 `attachment.mediaId`, `attachment.mediaType`을 유지한다.
+이때 `contentType`, `fileSize`, `url`, `expiresAt`은 모두 `null`이며 Presigned URL은 DB나 Kafka에 저장하지 않는다.
 
 삭제·차단된 Setlog 예시:
 
@@ -959,7 +969,8 @@ Topic: `chat-message-topic`, key=`roomId`.
 ```json
 {
   "schemaVersion": 2,
-  "eventId": "550e8400-e29b-41d4-a716-446655440001",
+  "eventId": "1a548b88-2fd0-4be9-9418-03e11e9a6c6f",
+  "clientMessageId": "550e8400-e29b-41d4-a716-446655440001",
   "messageId": 9001,
   "roomId": 31,
   "senderUserId": 7,
@@ -972,7 +983,7 @@ Topic: `chat-message-topic`, key=`roomId`.
 }
 ```
 
-Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에 포함된 안전한 summary를 사용한다. Presigned URL을 Kafka에 넣지 않는다.
+`eventId`는 서버가 생성한 Kafka/Outbox 이벤트 멱등 키이고, `clientMessageId`는 클라이언트 재전송 멱등 키다. Consumer는 `eventId`로 멱등 처리한다. Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에 포함된 안전한 summary를 사용한다. Presigned URL을 Kafka에 넣지 않는다.
 
 ---
 

@@ -8,12 +8,50 @@ import itda.common.security.CurrentUser;
 import itda.media.domain.Media;
 import itda.media.domain.MediaStatus;
 import itda.media.domain.MediaType;
+import itda.media.dto.uploaddto.MediaUploadedRequest;
 import itda.media.service.MediaService;
 import itda.user.domain.Role;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class MediaControllerTest {
+
+    @Test
+    void uploadedResponseUsesVerifiedCompletedMediaShape() {
+        MediaService mediaService = mock(MediaService.class);
+        Media media = mock(Media.class);
+        Instant createdAt = Instant.parse("2026-08-26T00:00:00Z");
+        Instant modifiedAt = Instant.parse("2026-08-26T00:01:00Z");
+        given(media.getId()).willReturn(7L);
+        given(media.getMediaType()).willReturn(MediaType.IMAGE);
+        given(media.getContentType()).willReturn("image/png");
+        given(media.getPath()).willReturn("posts/1/uuid.png");
+        given(media.getStatus()).willReturn(MediaStatus.COMPLETED);
+        given(media.getUserId()).willReturn(1L);
+        given(media.getFileSize()).willReturn(1024L);
+        given(media.getAttributes()).willReturn(Map.of("parts", List.of()));
+        given(media.getCreatedAt()).willReturn(createdAt);
+        given(media.getUpdatedAt()).willReturn(modifiedAt);
+        given(mediaService.mediaUploaded(7L, List.of(), 1L)).willReturn(media);
+        MediaController controller = new MediaController(mediaService);
+
+        var response = controller.mediaUploaded(
+                new CurrentUser(1L, "owner@example.com", Role.USER),
+                new MediaUploadedRequest(7L, List.of())
+        );
+
+        assertThat(response.data())
+                .extracting(
+                        "id", "mediaType", "contentType", "path", "status", "userId", "fileSize",
+                        "createdAt", "modifiedAt"
+                )
+                .containsExactly(
+                        7L, MediaType.IMAGE, "image/png", "posts/1/uuid.png", MediaStatus.COMPLETED,
+                        1L, 1024L, createdAt, modifiedAt
+                );
+    }
 
     @Test
     void presignedDownloadResponseIsNoStore() {

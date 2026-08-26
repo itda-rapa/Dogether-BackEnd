@@ -108,7 +108,8 @@ DIRECT WebSocket:
 
 Open Chat:
 
-- Kafka `chat-message-topic`, key=`roomId`, eventId=`clientMessageId`
+- Kafka `chat-message-topic`, key=`roomId`, `eventId`는 서버가 발급하는 전역 Outbox 이벤트 멱등 키다.
+- `clientMessageId`는 클라이언트 재전송 멱등 키로 event payload에 별도 포함하며 `eventId`와 같지 않다.
 - Subscribe `/topic/chat/{roomId}`
 
 ## 5. Admin·Safety
