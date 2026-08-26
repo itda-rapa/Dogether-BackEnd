@@ -317,7 +317,10 @@ class AuthControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"provider\":\"GOOGLE\",\"loginCode\":\"login-code\"}"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.accessToken").value("access-token"));
+                    .andExpect(jsonPath("$.data.accessToken").value("access-token"))
+                    .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"))
+                    .andExpect(jsonPath("$.data.accessTokenExpiresAt")
+                            .value(ACCESS_TOKEN_EXPIRES_AT.toString()));
             then(authService).should().exchangeOAuth(OAuthProvider.GOOGLE, "login-code");
         }
 
@@ -334,6 +337,8 @@ class AuthControllerTest {
                     .andExpect(status().isAccepted())
                     .andExpect(jsonPath("$.data.profileCompletionRequired").value(true))
                     .andExpect(jsonPath("$.data.signupToken").value("signup-token"))
+                    .andExpect(jsonPath("$.data.signupTokenExpiresAt")
+                            .value(ACCESS_TOKEN_EXPIRES_AT.toString()))
                     .andExpect(jsonPath("$.data.password").doesNotExist());
         }
 

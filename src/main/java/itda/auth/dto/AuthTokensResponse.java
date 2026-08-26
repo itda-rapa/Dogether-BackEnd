@@ -7,7 +7,7 @@ public record AuthTokensResponse(
         String accessToken,
         String refreshToken,
         Instant accessTokenExpiresAt
-) {
+) implements OAuthExchangeResponse {
 
     public static AuthTokensResponse from(IssuedTokens tokens) {
         return new AuthTokensResponse(

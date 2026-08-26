@@ -3,6 +3,7 @@ package itda.auth.controller;
 import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
 import itda.auth.dto.OAuthExchangeRequest;
+import itda.auth.dto.OAuthExchangeResponse;
 import itda.auth.dto.OAuthSignupRequest;
 import itda.auth.dto.OAuthSignupRequiredResponse;
 import itda.auth.dto.PasswordResetRequest;
@@ -99,21 +100,21 @@ public class AuthController implements AuthSwaggerSupporter {
     }
 
     @PostMapping("/oauth/exchange")
-    public ResponseEntity<ApiResponse<?>> exchangeOAuth(
+    public ResponseEntity<ApiResponse<OAuthExchangeResponse>> exchangeOAuth(
             @Valid @RequestBody OAuthExchangeRequest request
     ) {
         OAuthExchangeResult<AuthTokensResponse> result = authService.exchangeOAuth(
                 request.provider(), request.loginCode()
         );
         if (result instanceof OAuthExchangeResult.ExistingUser<AuthTokensResponse> existingUser) {
-            return ResponseEntity.ok(ApiResponse.<Object>ok(
+            return ResponseEntity.ok(ApiResponse.<OAuthExchangeResponse>ok(
                     existingUser.value(), "OAuth 로그인이 완료되었습니다."
             ));
         }
 
         OAuthExchangeResult.SignupRequired<AuthTokensResponse> signupRequired =
                 (OAuthExchangeResult.SignupRequired<AuthTokensResponse>) result;
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.<Object>ok(
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.<OAuthExchangeResponse>ok(
                 new OAuthSignupRequiredResponse(
                         signupRequired.profileCompletionRequired(),
                         signupRequired.signupToken(),

@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
 import itda.auth.dto.OAuthExchangeRequest;
+import itda.auth.dto.OAuthExchangeResponse;
 import itda.auth.dto.OAuthSignupRequest;
 import itda.auth.dto.PasswordResetRequest;
 import itda.auth.dto.RefreshRequest;
@@ -169,7 +170,7 @@ public interface AuthSwaggerSupporter {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "비활성화된 계정")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "동일 이메일 계정 연결 정책 결정 필요")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "만료되었거나 이미 사용된 loginCode")
-    ResponseEntity<ApiResponse<?>> exchangeOAuth(OAuthExchangeRequest request);
+    ResponseEntity<ApiResponse<OAuthExchangeResponse>> exchangeOAuth(OAuthExchangeRequest request);
 
     @Operation(
             summary = "OAuth 회원가입 완료",

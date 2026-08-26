@@ -6,5 +6,5 @@ public record OAuthSignupRequiredResponse(
         boolean profileCompletionRequired,
         String signupToken,
         Instant signupTokenExpiresAt
-) {
+) implements OAuthExchangeResponse {
 }
