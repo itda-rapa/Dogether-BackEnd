@@ -14,10 +14,10 @@
 
 | Method | Path | 설명 |
 |---|---|---|
-| GET | `/oauth2/authorization/{provider}` | OAuth 시작·Redirect |
+| GET | `/oauth2/authorization/google` | 브라우저 Google OAuth 시작·302 Redirect |
+| GET | `/login/oauth2/code/google` | Google browser callback·Front URL로 302 Redirect |
 | POST | `/auth/oauth/exchange` | 1회용 loginCode→기존 사용자 JWT 또는 신규 사용자 signupToken |
 | POST | `/auth/oauth/signup` | 신규 OAuth 사용자 프로필 입력·가입 완료 |
-| POST | `/auth/oauth/link` | 동일 이메일 기존 계정 본인 확인 후 Provider 연결(D-02 선택 시) |
 | GET | `/pets/{petId}/profile` | 공개 가능한 Pet의 공개 프로필 조회, 200 `PetPublicProfileResponse` |
 | DELETE | `/pets/{petId}` | Pet Soft Delete |
 | POST | `/pets/{petId}/profile-image` | 최초 프로필 이미지 설정, 201 `PetResponse` |
@@ -41,6 +41,19 @@ Active Pet이 없으면 `relationship`은 `null`이고, 그 외에는 기존 Fri
 `version`을 유지한다. 이미 비어 있는 DELETE는 별도의 MediaRepository command lookup 및 Media 소유권/type/status validation 없이 no-op으로 `version`을
 유지하고, 실제 link 교체·제거만 `version`을 1 증가시킨다.
 두 mutation은 Pet link만 변경하며 Media row/`deletedAt`/S3/`StorageDeleteJob`을 변경하지 않는다.
+
+OAuth의 두 GET은 브라우저 navigation 전용이며 `ApiResponse` JSON을 반환하지 않는다. Google만
+runtime 지원하고, 시작 성공은 Google authorize URL로 `302`, callback의 성공은 allowlist된 success
+callback URL로 `302`다. callback success query는 `loginCode`, `provider=GOOGLE`만 포함하며 JWT나
+provider token, verified email, providerSubject, raw provider response는 포함하지 않는다. callback 실패도
+error callback URL로 `errorCode`만 붙여 `302`하며 허용 값은 `INTERNAL_ERROR`, `OAUTH_STATE_INVALID`,
+`OAUTH_STATE_EXPIRED`, `OAUTH_AUTHORIZATION_DENIED`, `OAUTH_IDENTITY_VERIFICATION_FAILED`,
+`OAUTH_PROVIDER_UNAVAILABLE`다.
+시작·callback은 OAuth 비활성화 시 `404`다. JSON endpoint의 status는 exchange 기존 계정 `200
+AuthTokensResponse`, 신규 계정 `202 OAuthSignupRequiredResponse`, 동일 이메일 미연결 `409`, signup
+완료 `201 AuthTokensResponse`다. 동일 이메일 미연결의 `409`은 자동 연결·신규 User 생성을 하지 않고
+loginCode를 소비하지 않는 현재 안전 경계이며, 최종 account-link 정책은 아니다. `/auth/oauth/link`는
+구현되어 있지 않다.
 
 ## 3. 게시판
 

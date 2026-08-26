@@ -4,6 +4,9 @@
 > 범위: M3 신규 기능과 M2 보완 중 API·DB 계약이 바뀌는 항목  
 > 상태: 2026-08-20 노동훈 피드백 반영 v2. `결정 대기`는 G1 합의 후 확정
 
+> OAuth 구현 반영: Google Authorization Code + OIDC browser redirect 및 JSON 교환/가입 계약을 현재
+> runtime에 맞췄다. Naver runtime과 `/auth/oauth/link`는 이 문서 세트의 구현 범위가 아니다.
+
 ## 문서 기준과 우선순위
 
 업무 범위·담당자·완료 조건은 먼저 작성된 다음 두 문서를 정본으로 고정한다.
