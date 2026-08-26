@@ -5,7 +5,6 @@ import itda.chat.domain.ChatMessageAttachment;
 import itda.chat.domain.MessageType;
 import itda.chat.dto.response.ChatMessageAttachmentResponse;
 import itda.chat.dto.response.ChatMessageResponse;
-import itda.chat.dto.response.SetlogMediaResponse;
 import itda.chat.dto.response.SharedSetlogResponse;
 import itda.chat.repository.ChatMessageAttachmentRepository;
 import itda.media.service.MediaService;
@@ -31,6 +30,7 @@ public class ChatMessageResponseAssembler {
     private final ChatMessageAttachmentRepository attachmentRepository;
     private final MediaService mediaService;
     private final SetlogQueryService setlogQueryService;
+    private final SharedSetlogResponseMapper sharedSetlogResponseMapper;
 
     /**
      * 단일 메시지 변환(전송 응답·실시간 이벤트). 이미 알려진 발신자 닉네임을 받는다.
@@ -163,32 +163,7 @@ public class ChatMessageResponseAssembler {
             return null;
         }
         ShareableSetlogView view = views.getOrDefault(setlogId, ShareableSetlogView.unavailable(setlogId));
-        return toSharedSetlogResponse(view);
-    }
-
-    private SharedSetlogResponse toSharedSetlogResponse(ShareableSetlogView view) {
-        if (!view.available()) {
-            return SharedSetlogResponse.unavailable(view.setlogId());
-        }
-        SetlogMediaResponse media = view.mediaId() == null
-                ? null
-                : new SetlogMediaResponse(
-                        view.mediaId(),
-                        view.mediaType(),
-                        view.mediaUrl(),
-                        view.mediaUrlExpiresAt()
-                );
-        return new SharedSetlogResponse(
-                view.setlogId(),
-                true,
-                null,
-                view.authorPetId(),
-                view.authorPetNickname(),
-                view.caption(),
-                media,
-                view.reactionCount(),
-                "/setlogs/" + view.setlogId()
-        );
+        return sharedSetlogResponseMapper.toResponse(view);
     }
 
     private Map<Long, ChatMessageAttachment> attachmentsOf(List<ChatMessage> messages) {

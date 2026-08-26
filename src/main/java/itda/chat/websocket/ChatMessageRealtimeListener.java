@@ -3,9 +3,9 @@ package itda.chat.websocket;
 import itda.chat.event.ChatMessageCommittedEvent;
 import itda.chat.domain.RoomType;
 import itda.chat.dto.response.ChatMessageResponse;
-import itda.chat.dto.response.SetlogMediaResponse;
 import itda.chat.dto.response.SharedSetlogResponse;
 import itda.chat.service.ChatRealtimeRecipientQueryService;
+import itda.chat.service.SharedSetlogResponseMapper;
 import itda.setlog.dto.ShareableSetlogView;
 import itda.setlog.service.SetlogQueryService;
 import java.util.List;
@@ -24,6 +24,7 @@ public class ChatMessageRealtimeListener {
 
     private final ChatRealtimeRecipientQueryService recipientQueryService;
     private final SetlogQueryService setlogQueryService;
+    private final SharedSetlogResponseMapper sharedSetlogResponseMapper;
     private final ChatRealtimePublisher publisher;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -83,17 +84,8 @@ public class ChatMessageRealtimeListener {
         return new ChatMessageResponse(
                 message.messageId(), message.roomId(), message.senderType(), message.senderPetId(),
                 message.senderPetNickname(), message.type(), message.body(), message.attachment(),
-                toSharedSetlogResponse(view), message.meetingCardId(), message.clientMessageId(), message.createdAt());
-    }
-
-    private SharedSetlogResponse toSharedSetlogResponse(ShareableSetlogView view) {
-        if (!view.available()) {
-            return SharedSetlogResponse.unavailable(view.setlogId());
-        }
-        SetlogMediaResponse media = view.mediaId() == null ? null : new SetlogMediaResponse(
-                view.mediaId(), view.mediaType(), view.mediaUrl(), view.mediaUrlExpiresAt());
-        return new SharedSetlogResponse(
-                view.setlogId(), true, null, view.authorPetId(), view.authorPetNickname(), view.caption(), media,
-                view.reactionCount(), "/setlogs/" + view.setlogId());
+                sharedSetlogResponseMapper.toResponse(view), message.meetingCardId(), message.clientMessageId(),
+                message.createdAt()
+        );
     }
 }

@@ -16,6 +16,7 @@ import itda.chat.dto.response.SetlogMediaResponse;
 import itda.chat.dto.response.SharedSetlogResponse;
 import itda.chat.event.ChatMessageCommittedEvent;
 import itda.chat.service.ChatRealtimeRecipientQueryService;
+import itda.chat.service.SharedSetlogResponseMapper;
 import itda.setlog.dto.ShareableSetlogView;
 import itda.setlog.service.SetlogQueryService;
 import java.util.List;
@@ -32,6 +33,7 @@ class ChatMessageRealtimeListenerTest {
         ChatMessageRealtimeListener listener = new ChatMessageRealtimeListener(
                 recipientQueryService,
                 setlogQueryService,
+                new SharedSetlogResponseMapper(),
                 publisher
         );
         ChatMessageResponse message = new ChatMessageResponse(
@@ -56,6 +58,7 @@ class ChatMessageRealtimeListenerTest {
         ChatMessageRealtimeListener listener = new ChatMessageRealtimeListener(
                 recipientQueryService,
                 setlogQueryService,
+                new SharedSetlogResponseMapper(),
                 publisher
         );
         ChatMessageResponse message = new ChatMessageResponse(
@@ -81,7 +84,7 @@ class ChatMessageRealtimeListenerTest {
         when(setlogQueryService.findShareableSetlogViews(List.of(77L), 2L)).thenReturn(java.util.Map.of(
                 77L, ShareableSetlogView.unavailable(77L)));
         ChatMessageRealtimeListener listener = new ChatMessageRealtimeListener(
-                recipientQueryService, setlogQueryService, publisher);
+                recipientQueryService, setlogQueryService, new SharedSetlogResponseMapper(), publisher);
         ChatMessageResponse message = new ChatMessageResponse(
                 456L, 123L, "PET", 11L, "Mong", "SETLOG_SHARE", null, null,
                 new SharedSetlogResponse(77L, true, null, 11L, "Mong", "산책",
@@ -96,6 +99,32 @@ class ChatMessageRealtimeListenerTest {
         ChatMessageCreatedWsEvent blocked = payloads.getAllValues().get(1);
         assertThat(allowed.message().sharedSetlog().media().url()).isEqualTo("https://storage.example/visible");
         assertThat(blocked.message().sharedSetlog())
+                .extracting("available", "caption", "media", "detailPath")
+                .containsExactly(false, null, null, null);
+    }
+
+    @Test
+    void setlogShareIsRedactedWhenViewerAwareLookupFailsBeforePublishing() {
+        ChatRealtimeRecipientQueryService recipientQueryService = mock(ChatRealtimeRecipientQueryService.class);
+        SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
+        ChatRealtimePublisher publisher = mock(ChatRealtimePublisher.class);
+        when(recipientQueryService.findActiveRecipientUserIds(123L, 11L)).thenReturn(List.of(1L));
+        doThrow(new IllegalStateException("setlog query unavailable"))
+                .when(setlogQueryService)
+                .findShareableSetlogViews(List.of(77L), 1L);
+        ChatMessageRealtimeListener listener = new ChatMessageRealtimeListener(
+                recipientQueryService, setlogQueryService, new SharedSetlogResponseMapper(), publisher);
+        ChatMessageResponse message = new ChatMessageResponse(
+                456L, 123L, "PET", 11L, "Mong", "SETLOG_SHARE", null, null,
+                new SharedSetlogResponse(77L, true, null, 11L, "Mong", "산책",
+                        new SetlogMediaResponse(501L, "IMAGE", "https://storage.example/sender", Instant.now()),
+                        3, "/setlogs/77"), null, "client-1", null);
+
+        listener.onMessageCommitted(new ChatMessageCommittedEvent(RoomType.DIRECT, message));
+
+        ArgumentCaptor<ChatMessageCreatedWsEvent> payload = ArgumentCaptor.forClass(ChatMessageCreatedWsEvent.class);
+        verify(publisher).publishToUser(eq(1L), payload.capture());
+        assertThat(payload.getValue().message().sharedSetlog())
                 .extracting("available", "caption", "media", "detailPath")
                 .containsExactly(false, null, null, null);
     }
