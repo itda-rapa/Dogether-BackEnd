@@ -63,7 +63,9 @@ public class MultipartService {
                     .uploadPartRequest(uploadPartRequest)
                     .build();
             //
-            PresignedUploadPartRequest presignedRequest = s3Presigner.presignUploadPart(presignRequest);
+            // Presigner도 SDK 예외를 던질 수 있으므로 create/complete/abort와 같은 오류 계약을 적용한다.
+            PresignedUploadPartRequest presignedRequest =
+                    call("presignUploadPart", () -> s3Presigner.presignUploadPart(presignRequest));
             String presignedUrl = presignedRequest.url().toString();
             //
             presignedUrlParts.add(new PresignedUrlPart(
