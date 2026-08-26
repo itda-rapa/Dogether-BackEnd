@@ -209,6 +209,19 @@ class HttpMeetingDraftAiClientContractTest {
     }
 
     @Test
+    @DisplayName("422 는 INVALID_REQUEST 로 매핑된다")
+    void status422MapsToInvalidRequest() {
+        respondWith(422, "");
+
+        assertThatThrownBy(() -> client().call(sampleRequest()))
+                .isInstanceOf(HttpMeetingDraftAiClient.HttpMeetingDraftAiClientException.class)
+                .extracting(e ->
+                        ((HttpMeetingDraftAiClient.HttpMeetingDraftAiClientException) e)
+                                .getFallbackReason())
+                .isEqualTo(CardDraftFallbackReason.INVALID_REQUEST);
+    }
+
+    @Test
     @DisplayName("깨진 JSON 은 예외로 올라오고 어댑터가 MODEL_ERROR 로 접는다")
     void malformedJsonThrows() {
         respondWith(200, "{ this is not json");

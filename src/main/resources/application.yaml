@@ -44,6 +44,18 @@ app:
     ai:
       base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
       timeout: ${AI_TIMEOUT:5s}
+  meeting-suggestion:
+    # 아침 DIRECT 대화 약속 후보 제안 스케줄러. 기본값은 Risk Outbox/Storage Cleanup
+    # 패턴을 따랐으며 제품 정책이 아니다. 운영에서 환경 변수로 덮어쓴다.
+    enabled: ${MEETING_SUGGESTION_ENABLED:false}
+    zone: ${MEETING_SUGGESTION_ZONE:Asia/Seoul}
+    scheduler-cron: ${MEETING_SUGGESTION_SCHEDULER_CRON:0 0 7 * * *}
+    retry-delay-ms: ${MEETING_SUGGESTION_RETRY_DELAY_MS:60000}
+    batch-size: ${MEETING_SUGGESTION_BATCH_SIZE:10}
+    lease: ${MEETING_SUGGESTION_LEASE:1m}
+    max-attempts: ${MEETING_SUGGESTION_MAX_ATTEMPTS:10}
+    base-backoff: ${MEETING_SUGGESTION_BASE_BACKOFF:5s}
+    max-backoff: ${MEETING_SUGGESTION_MAX_BACKOFF:10m}
   setlog-upload:
     require-version-id: ${SETLOG_UPLOAD_REQUIRE_VERSION_ID:true}
   jwt:

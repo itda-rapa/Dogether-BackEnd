@@ -372,7 +372,7 @@ CREATE TABLE card_drafts (
     CONSTRAINT ck_card_draft_fallback_reason
         CHECK (
             fallback_reason IS NULL
-            OR fallback_reason IN ('TIMEOUT', 'MODEL_ERROR', 'INSUFFICIENT_CONTEXT')
+            OR fallback_reason IN ('TIMEOUT', 'MODEL_ERROR', 'INSUFFICIENT_CONTEXT', 'INVALID_REQUEST')
         )
 );
 

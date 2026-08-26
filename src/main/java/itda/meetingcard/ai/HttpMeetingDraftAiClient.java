@@ -57,6 +57,10 @@ class HttpMeetingDraftAiClient {
                         (req, resp) -> {
                             throw HttpMeetingDraftAiClientException.modelError("HTTP 502");
                         })
+                .onStatus(status -> status.value() == 422,
+                        (req, resp) -> {
+                            throw HttpMeetingDraftAiClientException.invalidRequest();
+                        })
                 .body(new ParameterizedListTypeReference());
     }
 
@@ -91,6 +95,15 @@ class HttpMeetingDraftAiClient {
         static HttpMeetingDraftAiClientException modelError(String detail) {
             return new HttpMeetingDraftAiClientException(
                     "AI model error: " + detail, itda.meetingcard.domain.CardDraftFallbackReason.MODEL_ERROR);
+        }
+
+        /**
+         * AI 가 요청을 거절한 경우(HTTP 422). 재시도해도 같은 응답이므로
+         * M3 스케줄러는 FAILED_FINAL 로 분류한다.
+         */
+        static HttpMeetingDraftAiClientException invalidRequest() {
+            return new HttpMeetingDraftAiClientException(
+                    "AI rejected request (422)", itda.meetingcard.domain.CardDraftFallbackReason.INVALID_REQUEST);
         }
     }
 }
