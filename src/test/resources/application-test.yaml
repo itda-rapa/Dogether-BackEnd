@@ -33,6 +33,9 @@ app:
       enabled: false
       delay: 60s
       batch-size: 50
+  meeting-confirmation-code:
+    ttl: 5m
+    max-attempts: 5
   setlog-upload:
     require-version-id: false
   jwt:

@@ -162,9 +162,21 @@ Open Chat:
 | GET | `/places/{placeId}` | 장소 상세 |
 | POST | `/meeting-cards/{cardId}/meeting-verifications` | 위치 제출·판정 |
 | GET | `/meeting-cards/{cardId}/meeting-verification` | 상대 대기·결과 조회 |
-| POST | `/meeting-cards/{cardId}/confirmation-code/verify` | 4자리 코드 확인 |
+| POST | `/meeting-cards/{cardId}/confirmation-codes` | LOW_ACCURACY fallback 4자리 코드 발급(평문은 이 응답 한 번만) |
+| POST | `/meeting-cards/{cardId}/confirmation-codes/verify` | 상대 Pet의 4자리 코드 검증 |
+| POST | `/meeting-cards/{cardId}/confirmation-codes/confirm` | 코드 생성자의 최종 확인 및 CODE Meeting 확정 |
 | POST | `/meetings/{meetingId}/reviews` | 만남 후기·발자국 |
 | GET | `/footprints` | 내 Active Pet 발자국 |
+
+- Confirmation Code의 새 mutation(최초 발급·재발급·verify·issuer-confirm)은
+  `receivedAt >= meetAt + meetingTimeWindow`에서 `409 MEETING_TIME_WINDOW_EXCEEDED`다.
+  GPS #148의 경계 정책은 변경하지 않는다. Code는 유효한 TTL이 필요한 fallback이므로
+  종료 시각에 새 workflow를 시작하지 않으며 `expiresAt > now`을 보정 없이 만족한다.
+- 최초 발급은 두 참여자 모두 가능하지만, 기존 Code cycle의 재발급은 최초
+  `issuerPetId`와 같은 Pet만 가능한다. 다른 참여자는
+  `403 MEETING_CODE_REISSUE_ISSUER_FORBIDDEN`이며 issuer는 재발급 후에도 바뀌지 않는다.
+- Code API에는 `clientRequestId`를 추가하지 않고, 기존 Code 행·Meeting 상태로
+  재조회와 동시 요청을 수렴시킨다.
 
 ## 8. Walk
 

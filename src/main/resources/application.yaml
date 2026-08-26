@@ -128,6 +128,9 @@ app:
       enabled: ${MEETING_VERIFICATION_EXPIRY_ENABLED:true}
       delay: ${MEETING_VERIFICATION_EXPIRY_DELAY:60s}
       batch-size: ${MEETING_VERIFICATION_EXPIRY_BATCH_SIZE:50}
+  meeting-confirmation-code:
+    ttl: ${MEETING_CONFIRMATION_CODE_TTL:5m}
+    max-attempts: ${MEETING_CONFIRMATION_CODE_MAX_ATTEMPTS:5}
   s3:
     # Credentials use the AWS SDK default chain, including AWS_ACCESS_KEY_ID /
     # AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) and IAM workload roles.

@@ -51,10 +51,12 @@ public interface MeetingVerificationRepository extends JpaRepository<MeetingVeri
             @Param("activePetId") long activePetId);
 
     /**
-     * 만료 대상 후보 카드 선점. {@code meet_at < :cutoff} 이고 SUBMITTED 제출이 있는 카드를
-     * batch 로 {@code FOR UPDATE SKIP LOCKED} 잠근다. GPS submit 의 Pair → Card 경계와 같은
-     * 카드 행 잠금을 공유해 EXPIRED 전이와 최종 GPS 제출을 직렬화한다. 여러 worker 가 같은
-     * 카드를 중복 선점하지 않는다. 잠긴 카드 행은 이 트랜잭션이 끝날 때까지 유지된다.
+     * 만료 대상 후보 카드 선점. {@code meet_at < :cutoff} 이고 SUBMITTED 또는 CODE_REQUIRED
+     * 제출이 있는 카드 중 아직 Meeting(GPS/CODE)이 없는 카드를 batch 로
+     * {@code FOR UPDATE SKIP LOCKED} 잠근다. GPS submit · Confirmation Code 의 Pair → Card
+     * 경계와 같은 카드 행 잠금을 공유해 EXPIRED 전이와 최종 제출을 직렬화한다. 여러 worker 가
+     * 같은 카드를 중복 선점하지 않는다. 잠긴 카드 행은 이 트랜잭션이 끝날 때까지 유지된다.
+     * 확정 Meeting 이 있는 카드는 재응답을 유지해야 하므로 만료 대상에서 제외한다.
      */
     @Query(value = """
             SELECT c.id
@@ -64,7 +66,12 @@ public interface MeetingVerificationRepository extends JpaRepository<MeetingVeri
                    SELECT 1
                      FROM meeting_verifications v
                     WHERE v.meeting_card_id = c.id
-                      AND v.status = 'SUBMITTED'
+                      AND v.status IN ('SUBMITTED', 'CODE_REQUIRED')
+               )
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM meetings m
+                    WHERE m.meeting_card_id = c.id
                )
              ORDER BY c.id
              LIMIT :batchSize
@@ -74,9 +81,10 @@ public interface MeetingVerificationRepository extends JpaRepository<MeetingVeri
                                           @Param("batchSize") int batchSize);
 
     /**
-     * 한 카드의 SUBMITTED 제출만 EXPIRED 로 전이하고 raw 위치를 scrub 한다. 호출부가 해당
-     * 카드 행을 잠근 뒤 실행하므로 GPS submit 과 직렬화된다. CODE_REQUIRED/ACCEPTED/REJECTED
-     * 는 건드리지 않는다.
+     * 한 카드의 미확정 SUBMITTED·CODE_REQUIRED 제출을 EXPIRED 로 전이하고 raw 위치를 scrub
+     * 한다. CODE_REQUIRED 는 raw 가 이미 null 이므로 null 대입은 no-op 이다. 호출부가 해당
+     * 카드 행을 잠근 뒤 실행하므로 GPS submit · Confirmation Code 와 직렬화된다.
+     * ACCEPTED/REJECTED/EXPIRED 는 건드리지 않는다.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
@@ -88,9 +96,29 @@ public interface MeetingVerificationRepository extends JpaRepository<MeetingVeri
                    captured_at = NULL,
                    updated_at = now()
              WHERE meeting_card_id = :cardId
-               AND status = 'SUBMITTED'
+               AND status IN ('SUBMITTED', 'CODE_REQUIRED')
             """, nativeQuery = true)
-    int expireSubmittedByCard(@Param("cardId") long cardId);
+    int expireUnconfirmedByCard(@Param("cardId") long cardId);
+
+    /**
+     * CODE Meeting 확정 시 아직 종결되지 않은 SUBMITTED·CODE_REQUIRED 제출을 ACCEPTED 로
+     * 전이하고 raw 위치를 scrub 한다. CODE_REQUIRED 는 raw 가 이미 null 이므로 no-op 이다.
+     * 호출부가 카드 행을 잠근 뒤, Meeting INSERT 와 같은 transaction 에서 실행한다.
+     * ACCEPTED/REJECTED/EXPIRED 등 이미 terminal 인 상태는 덮어쓰지 않는다.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            UPDATE meeting_verifications
+               SET status = 'ACCEPTED',
+                   latitude = NULL,
+                   longitude = NULL,
+                   accuracy_meters = NULL,
+                   captured_at = NULL,
+                   updated_at = now()
+             WHERE meeting_card_id = :cardId
+               AND status IN ('SUBMITTED', 'CODE_REQUIRED')
+            """, nativeQuery = true)
+    int acceptUnconfirmedByCard(@Param("cardId") long cardId);
 
     /** GET status 단일 snapshot 의 읽기 전용 projection. raw 좌표는 포함하지 않는다. */
     interface MeetingStatusProjection {
