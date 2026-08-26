@@ -78,6 +78,29 @@ class ChatMessageResponseAssemblerTest {
                 .containsExactly(202L, "VIDEO", null, null, null, null);
     }
 
+    @Test
+    void batchHydrationDeduplicatesMediaIdsBeforeMediaLookup() {
+        ChatMessageAttachmentRepository attachmentRepository = mock(ChatMessageAttachmentRepository.class);
+        MediaService mediaService = mock(MediaService.class);
+        SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
+        ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
+                attachmentRepository, mediaService, setlogQueryService);
+        ChatMessage first = mediaMessage(11L, MessageType.IMAGE);
+        ChatMessage second = mediaMessage(12L, MessageType.IMAGE);
+        ChatMessageAttachment firstAttachment = attachment(first, 101L, AttachmentType.IMAGE);
+        ChatMessageAttachment secondAttachment = attachment(second, 101L, AttachmentType.IMAGE);
+
+        when(attachmentRepository.findAllByMessageIdIn(List.of(11L, 12L)))
+                .thenReturn(List.of(firstAttachment, secondAttachment));
+        when(mediaService.getMediaDownloadsByIds(anyCollection())).thenReturn(Map.of());
+
+        assembler.toResponses(List.of(first, second), Map.of(), 1L, "나");
+
+        ArgumentCaptor<Collection<Long>> mediaIds = ArgumentCaptor.forClass(Collection.class);
+        verify(mediaService).getMediaDownloadsByIds(mediaIds.capture());
+        assertThat(mediaIds.getValue()).containsExactly(101L);
+    }
+
     private ChatMessage mediaMessage(long id, MessageType type) {
         ChatRoom room = mock(ChatRoom.class);
         ChatMessage message = mock(ChatMessage.class);
