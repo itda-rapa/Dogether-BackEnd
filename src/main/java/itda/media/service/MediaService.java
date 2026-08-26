@@ -47,15 +47,17 @@ public class MediaService {
     // 파일 업로드를 수행하는 메서드
     public PresignedUrl initMedia(
             MediaType mediaType,
+            String contentType,
             Long fileSize,
             Long userId,
             String subPath
     ){
         User user = userRepository.findByIdOrThrow(userId);
+        String normalizedContentType = ChatMediaPolicy.requireValidUpload(mediaType, contentType, fileSize);
 
         // 해당 MediaType의 확장자를 반환
         // MediaType : IMAGE인 경우 filename : UUID.jpg
-        String filename = UUID.randomUUID() + mediaType.fileExtension();
+        String filename = UUID.randomUUID() + mediaType.fileExtension(normalizedContentType);
         // Object Storage 상 미디어파일 저장경로 생성
         // ex ) RustFS 상 users/1/posts/UUID.jpg로 저장
         String path = "users/%s/%s/%s".formatted(
@@ -66,21 +68,23 @@ public class MediaService {
         // 파일크기에 따라서 단일업로드 / 멀티파트 업로드 결정
         if (fileSize != null
                 && fileSize > MULTIPART_THRESHOLD)
-            return initMultipartUpload(user, path, mediaType, fileSize);
-        return initSingleUpload(user,path,mediaType,fileSize);
+            return initMultipartUpload(user, path, mediaType, normalizedContentType, fileSize);
+        return initSingleUpload(user, path, mediaType, normalizedContentType, fileSize);
     }
 
     private PresignedUrl initSingleUpload(
             User user,
             String path,
             MediaType mediaType,
+            String contentType,
             Long fileSize
     ) {
         // RustFS의 버킷정보 및 initMedia()에서 정의한 Path 정보와 MediaType 정보를 전달
         PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                 .bucket(s3Properties.bucket()) // RustFS에 저장할 버킷명
                 .key(path) // 경로 및 이름을 정의한 저장될 파일명
-                .contentType(mediaType.contentType()) // 파일의 MIME 타입
+                .contentType(contentType) // 파일의 MIME 타입
+                .contentLength(fileSize)
                 .build();
         // RustFS에 전달할 PresignedURL에 대한 요청을 생성하기 위해 PutObjectRequest 객체 생성
         // PresignedUrl의 유효기간에 관한 설정도 추가
@@ -93,32 +97,35 @@ public class MediaService {
         String presignedUrl = presignedRequest.url().toString();
         // INIT 상태의 Media 객체 생성
         Media media = mediaRepository.save(
-                new Media(
+                Media.initialized(
                         mediaType,
                         path,
                         user.getId(),
-                        fileSize
+                        fileSize,
+                        contentType
                 )
         );
         // PresinedUrl을 Client에게 반환
         return PresignedUrl.forSingleUpload(media, presignedUrl);
     }
 
-    private PresignedUrl initMultipartUpload(User user, String path, MediaType mediaType, long fileSize) {
+    private PresignedUrl initMultipartUpload(User user, String path, MediaType mediaType,
+                                             String contentType, long fileSize) {
         // 멀티파트 업로드를 수행하기 위해 RustFS에 요청을 전달하여 복수의 PresignedUrl를 수신
         MultipartUploadInfo uploadInfo = multipartService.initMultipartUpload(
                 path,
-                mediaType.contentType(),
+                contentType,
                 fileSize
         );
         // INIT 상태의 Media 객체 생성
         Media media = mediaRepository.save(
-                new Media(
+                Media.initializedMultipart(
                         mediaType,
                         path,
                         user.getId(),
                         fileSize,
-                        uploadInfo.uploadId()
+                        uploadInfo.uploadId(),
+                        contentType
                 )
         );
         return PresignedUrl.forMultipartUpload(media, uploadInfo.uploadId(), uploadInfo.presignedUrlParts());
@@ -138,9 +145,7 @@ public class MediaService {
         if (!isPlayable(media)) {
             throw new BusinessException(ErrorCode.MEDIA_NOT_READY);
         }
-        if (media.getMediaType() != expectedType) {
-            throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
-        }
+        ChatMediaPolicy.requireValidPlayableMedia(media, expectedType);
         return media;
     }
 

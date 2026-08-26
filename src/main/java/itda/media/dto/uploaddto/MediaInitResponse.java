@@ -11,6 +11,7 @@ import java.util.List;
 public record MediaInitResponse(
         Long id,
         MediaType mediaType,
+        String contentType,
         String path,
         MediaStatus status,
         Long userId,
@@ -27,6 +28,7 @@ public record MediaInitResponse(
         return new MediaInitResponse(
                 media.getId(),
                 media.getMediaType(),
+                media.getContentType(),
                 media.getPath(),
                 media.getStatus(),
                 media.getUserId(),

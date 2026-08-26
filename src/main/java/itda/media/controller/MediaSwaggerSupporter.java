@@ -29,6 +29,7 @@ public interface MediaSwaggerSupporter {
             examples = @ExampleObject("""
                     {
                         "mediaType":"IMAGE",
+                        "contentType":"image/png",
                         "fileSize":1048576
                     }
                     """)

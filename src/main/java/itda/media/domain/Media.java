@@ -74,6 +74,7 @@ public class Media extends BaseEntity {
         this.status = MediaStatus.INIT;
         this.userId = userId;
         this.fileSize = fileSize;
+        this.contentType = mediaType.contentType();
     }
     // 멀티파트 업로드 시 생성하는 Media 객체
     public Media(
@@ -89,6 +90,23 @@ public class Media extends BaseEntity {
         this.userId = userId;
         this.fileSize = fileSize;
         this.uploadId = uploadId;
+        this.contentType = mediaType.contentType();
+    }
+
+    public static Media initialized(
+            MediaType mediaType, String path, Long userId, Long fileSize, String contentType
+    ) {
+        Media media = new Media(mediaType, path, userId, fileSize);
+        media.contentType = contentType;
+        return media;
+    }
+
+    public static Media initializedMultipart(
+            MediaType mediaType, String path, Long userId, Long fileSize, String uploadId, String contentType
+    ) {
+        Media media = new Media(mediaType, path, userId, fileSize, uploadId);
+        media.contentType = contentType;
+        return media;
     }
     public void updateStatus(MediaStatus status) {
         this.status = status;

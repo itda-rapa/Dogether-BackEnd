@@ -870,6 +870,7 @@ SETLOG_SHARE 응답:
 - `400 CHAT_MESSAGE_TYPE_INVALID`
 - `400 CHAT_MESSAGE_PAYLOAD_INVALID`
 - `404 MEDIA_NOT_FOUND`, `403 MEDIA_NOT_OWNED`, `409 MEDIA_NOT_READY`
+- `415 INVALID_MEDIA_TYPE`, `413 MEDIA_SIZE_INVALID`
 - `404 SETLOG_NOT_FOUND`, `403 SETLOG_SHARE_FORBIDDEN`
 
 ### `GET /chat/rooms/{roomId}/messages`
@@ -912,6 +913,9 @@ Query:
   "error": null
 }
 ```
+
+삭제·미완료 Media는 과거 메시지의 `attachment.mediaId`, `attachment.mediaType`을 유지한다.
+이때 `contentType`, `fileSize`, `url`, `expiresAt`은 모두 `null`이며 Presigned URL은 DB나 Kafka에 저장하지 않는다.
 
 삭제·차단된 Setlog 예시:
 
@@ -965,7 +969,8 @@ Topic: `chat-message-topic`, key=`roomId`.
 ```json
 {
   "schemaVersion": 2,
-  "eventId": "550e8400-e29b-41d4-a716-446655440001",
+  "eventId": "1a548b88-2fd0-4be9-9418-03e11e9a6c6f",
+  "clientMessageId": "550e8400-e29b-41d4-a716-446655440001",
   "messageId": 9001,
   "roomId": 31,
   "senderUserId": 7,
@@ -978,7 +983,7 @@ Topic: `chat-message-topic`, key=`roomId`.
 }
 ```
 
-Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에 포함된 안전한 summary를 사용한다. Presigned URL을 Kafka에 넣지 않는다.
+`eventId`는 서버가 생성한 Kafka/Outbox 이벤트 멱등 키이고, `clientMessageId`는 클라이언트 재전송 멱등 키다. Consumer는 `eventId`로 멱등 처리한다. Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에 포함된 안전한 summary를 사용한다. Presigned URL을 Kafka에 넣지 않는다.
 
 ---
 
