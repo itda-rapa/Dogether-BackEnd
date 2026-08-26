@@ -43,6 +43,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -59,7 +60,10 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
@@ -99,7 +103,7 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
         postId = jdbc.queryForObject("""
                 insert into board_posts
                     (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status, version)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED', 0)
+                values (?, ?, ?, '4113165000', 'title', 'content', 'PUBLISHED', 0)
                 returning id
                 """, Long.class, boardId, authorId, authorPetId);
         commentId = jdbc.queryForObject("""
@@ -615,7 +619,7 @@ class BoardCommentDirectRoomPostgreSqlIntegrationTest {
         return jdbc.queryForObject("""
                 insert into users
                     (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code, version)
-                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500', 0)
+                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000', 0)
                 returning id
                 """, Long.class, nickname + suffix + "@test.com", nickname, nickname + "#" + suffix.toUpperCase());
     }

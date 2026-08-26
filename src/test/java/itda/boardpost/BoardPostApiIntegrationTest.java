@@ -179,7 +179,7 @@ class BoardPostApiIntegrationTest {
         jdbc.update("update users set active_pet_id = ? where id = ?", otherPet, other);
 
         long postId = createPost(authorId, "제목", "내용");
-        jdbc.update("update users set neighborhood_code = ? where id = ?", "4113111600", authorId);
+        jdbc.update("update users set neighborhood_code = ? where id = ?", "4113351000", authorId);
         jdbc.update("update users set active_pet_id = ? where id = ?", secondPet, authorId);
 
         mockMvc.perform(get("/posts/{postId}", postId).with(user(principal(authorId))))
@@ -292,7 +292,7 @@ class BoardPostApiIntegrationTest {
     @Test
     void detailHidesPublishedPostFromViewerInOtherNeighborhood() throws Exception {
         long postId = createPost(authorId, "title", "content");
-        long other = createUser("otherRegion", "4113111600");
+        long other = createUser("otherRegion", "4113351000");
         mockMvc.perform(get("/posts/{postId}", postId).with(user(principal(other))))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_POST_NOT_FOUND"));
     }
@@ -302,7 +302,7 @@ class BoardPostApiIntegrationTest {
         long sameArea = createUser("same", "4113111500");
         long samePet = createPet(sameArea, "같은견");
         jdbc.update("update users set active_pet_id = ? where id = ?", samePet, sameArea);
-        long otherArea = createUser("far", "4113111600");
+        long otherArea = createUser("far", "4113351000");
         long farPet = createPet(otherArea, "먼견");
         jdbc.update("update users set active_pet_id = ? where id = ?", farPet, otherArea);
         long visible = createPost(authorId, "보임", "내용");

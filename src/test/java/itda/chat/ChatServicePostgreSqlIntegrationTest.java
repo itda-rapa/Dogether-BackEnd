@@ -26,6 +26,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * Drives ChatRoomService and ChatMessageService against a real PostgreSQL instance.
@@ -47,7 +48,10 @@ class ChatServicePostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private ChatRoomService chatRoomService;
@@ -80,7 +84,7 @@ class ChatServicePostgreSqlIntegrationTest {
         jdbcTemplate.update("""
                 insert into users (id, email, password_hash, nickname, public_tag,
                                    role, account_status, neighborhood_code)
-                values (?, ?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                values (?, ?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000')
                 """, creatorPetId, "owner" + creatorPetId + "@test.com",
                 "보호자" + creatorPetId, "owner" + creatorPetId + "#0001");
         jdbcTemplate.update("""

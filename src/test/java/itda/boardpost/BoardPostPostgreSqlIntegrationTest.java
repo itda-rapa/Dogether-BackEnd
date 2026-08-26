@@ -47,6 +47,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -61,7 +62,10 @@ class BoardPostPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardPostRepository posts;
@@ -80,7 +84,7 @@ class BoardPostPostgreSqlIntegrationTest {
         long boardId = jdbc.queryForObject("insert into boards (name) values (?) returning id", Long.class, unique("board"));
         long userId = jdbc.queryForObject("""
                 insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
-                values (?, 'encoded', '작성자', ?, 'USER', 'ACTIVE', '4113111500') returning id
+                values (?, 'encoded', '작성자', ?, 'USER', 'ACTIVE', '4113165000') returning id
                 """, Long.class, unique("user") + "@example.com", publicTag("작성자", 8));
         long petId = jdbc.queryForObject("""
                 insert into pets (owner_user_id, public_tag, nickname, status)
@@ -89,11 +93,11 @@ class BoardPostPostgreSqlIntegrationTest {
 
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', ' ', '내용', 'PUBLISHED')
+                values (?, ?, ?, '4113165000', ' ', '내용', 'PUBLISHED')
                 """, boardId, userId, petId)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status, deleted_at)
-                values (?, ?, ?, '4113111500', '제목', '내용', 'PUBLISHED', now())
+                values (?, ?, ?, '4113165000', '제목', '내용', 'PUBLISHED', now())
                 """, boardId, userId, petId)).isInstanceOf(DataIntegrityViolationException.class);
 
         String feedIndex = jdbc.queryForObject("""
@@ -111,19 +115,19 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void databaseEnforcesEveryForeignKeyAndContentStatusInvariants() {
         long board = createBoard();
-        Author author = createAuthor("constraints", "4113111500");
+        Author author = createAuthor("constraints", "4113165000");
         Object[] base = {board, author.userId(), author.petId()};
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED')
+                values (?, ?, ?, '4113165000', 'title', 'content', 'PUBLISHED')
                 """, 999999999L, author.userId(), author.petId())).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED')
+                values (?, ?, ?, '4113165000', 'title', 'content', 'PUBLISHED')
                 """, board, 999999999L, author.petId())).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED')
+                values (?, ?, ?, '4113165000', 'title', 'content', 'PUBLISHED')
                 """, board, author.userId(), 999999999L)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
@@ -131,30 +135,30 @@ class BoardPostPostgreSqlIntegrationTest {
                 """, base)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', ' ', 'PUBLISHED')
+                values (?, ?, ?, '4113165000', 'title', ' ', 'PUBLISHED')
                 """, base)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', ?, 'PUBLISHED')
+                values (?, ?, ?, '4113165000', 'title', ?, 'PUBLISHED')
                 """, board, author.userId(), author.petId(), "가".repeat(5001))).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'DRAFT')
+                values (?, ?, ?, '4113165000', 'title', 'content', 'DRAFT')
                 """, base)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'DELETED')
+                values (?, ?, ?, '4113165000', 'title', 'content', 'DELETED')
                 """, base)).isInstanceOf(DataIntegrityViolationException.class);
         jdbc.update("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', ?, 'PUBLISHED')
+                values (?, ?, ?, '4113165000', 'title', ?, 'PUBLISHED')
                 """, board, author.userId(), author.petId(), "가".repeat(5000));
     }
 
     @Test
     void postServiceAcceptsMaximumUnicodeCodePointTitleAndContent() {
         long board = createBoard();
-        Author author = createAuthor("unicode", "4113111500");
+        Author author = createAuthor("unicode", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         BoardPostResponse result = postService.create(author.userId(), board,
                 new BoardPostCreateRequest("😀".repeat(120), "가".repeat(5000)));
@@ -165,7 +169,7 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void feedReturnsEmptyPageAndValidatesBoardCursorSizeAndLimitPlusOne() {
         long board = createBoard();
-        long viewer = createUser("feedViewer", "4113111500");
+        long viewer = createUser("feedViewer", "4113165000");
         assertThat(postService.feed(viewer, board, null, null).items()).isEmpty();
         assertThat(postService.feed(viewer, board, null, null).page().hasNext()).isFalse();
         assertBusiness(() -> postService.feed(viewer, 999999999L, null, null), "BOARD_NOT_FOUND");
@@ -173,10 +177,10 @@ class BoardPostPostgreSqlIntegrationTest {
         assertBusiness(() -> postService.feed(viewer, board, null, 0), "VALIDATION_FAILED");
         assertBusiness(() -> postService.feed(viewer, board, null, 101), "VALIDATION_FAILED");
 
-        Author author = createAuthor("feedAuthor", "4113111500");
+        Author author = createAuthor("feedAuthor", "4113165000");
         Instant now = Instant.parse("2026-08-10T01:00:00Z");
         for (int index = 0; index < 21; index++) {
-            insertPost(board, author, "4113111500", "post" + index, "PUBLISHED", now.plusSeconds(index), null);
+            insertPost(board, author, "4113165000", "post" + index, "PUBLISHED", now.plusSeconds(index), null);
         }
         var page = postService.feed(viewer, board, null, 20);
         assertThat(page.items()).hasSize(20);
@@ -196,7 +200,7 @@ class BoardPostPostgreSqlIntegrationTest {
         )).isTrue();
 
         long boardWithDeletedPost = createBoard();
-        Author author = createAuthor("deletedHistory", "4113111500");
+        Author author = createAuthor("deletedHistory", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         long postId = postService.create(
                 author.userId(),
@@ -230,39 +234,39 @@ class BoardPostPostgreSqlIntegrationTest {
     void nativeFeedAppliesBoardRegionPublishedBilateralBlockCursorAndNullableTimestamp() {
         long board = createBoard();
         long otherBoard = createBoard();
-        long viewer = createUser("viewer", "4113111500");
-        Author visible = createAuthor("visible", "4113111500");
-        Author tieLow = createAuthor("low", "4113111500");
-        Author tieHigh = createAuthor("high", "4113111500");
-        Author viewerBlocked = createAuthor("blocked", "4113111500");
-        Author authorBlockedViewer = createAuthor("blocksViewer", "4113111500");
-        Author otherRegion = createAuthor("otherRegion", "4113111600");
+        long viewer = createUser("viewer", "4113165000");
+        Author visible = createAuthor("visible", "4113165000");
+        Author tieLow = createAuthor("low", "4113165000");
+        Author tieHigh = createAuthor("high", "4113165000");
+        Author viewerBlocked = createAuthor("blocked", "4113165000");
+        Author authorBlockedViewer = createAuthor("blocksViewer", "4113165000");
+        Author otherRegion = createAuthor("otherRegion", "4113351000");
         Instant tie = Instant.parse("2026-08-10T00:00:00Z");
 
-        long lowId = insertPost(board, tieLow, "4113111500", "low", "PUBLISHED", tie, null);
-        long highId = insertPost(board, tieHigh, "4113111500", "high", "PUBLISHED", tie, null);
-        long visibleId = insertPost(board, visible, "4113111500", "visible", "PUBLISHED", tie.plusSeconds(1), null);
-        insertPost(otherBoard, visible, "4113111500", "other board", "PUBLISHED", tie.plusSeconds(10), null);
-        insertPost(board, viewerBlocked, "4113111500", "blocked", "PUBLISHED", tie.plusSeconds(2), null);
-        insertPost(board, authorBlockedViewer, "4113111500", "blocks viewer", "PUBLISHED", tie.plusSeconds(3), null);
-        insertPost(board, otherRegion, "4113111600", "other", "PUBLISHED", tie.plusSeconds(4), null);
-        insertPost(board, visible, "4113111500", "deleted", "DELETED", tie.plusSeconds(5), tie.plusSeconds(5));
+        long lowId = insertPost(board, tieLow, "4113165000", "low", "PUBLISHED", tie, null);
+        long highId = insertPost(board, tieHigh, "4113165000", "high", "PUBLISHED", tie, null);
+        long visibleId = insertPost(board, visible, "4113165000", "visible", "PUBLISHED", tie.plusSeconds(1), null);
+        insertPost(otherBoard, visible, "4113165000", "other board", "PUBLISHED", tie.plusSeconds(10), null);
+        insertPost(board, viewerBlocked, "4113165000", "blocked", "PUBLISHED", tie.plusSeconds(2), null);
+        insertPost(board, authorBlockedViewer, "4113165000", "blocks viewer", "PUBLISHED", tie.plusSeconds(3), null);
+        insertPost(board, otherRegion, "4113351000", "other", "PUBLISHED", tie.plusSeconds(4), null);
+        insertPost(board, visible, "4113165000", "deleted", "DELETED", tie.plusSeconds(5), tie.plusSeconds(5));
         jdbc.update("insert into user_blocks (blocker_user_id, blocked_user_id) values (?, ?)", viewer, viewerBlocked.userId());
         jdbc.update("insert into user_blocks (blocker_user_id, blocked_user_id) values (?, ?)", authorBlockedViewer.userId(), viewer);
 
-        List<BoardPost> first = posts.findVisibleFeed(board, "4113111500", viewer, null, null, 10);
+        List<BoardPost> first = posts.findVisibleFeed(board, "4113165000", viewer, null, null, 10);
         assertThat(first).extracting(BoardPost::getId).containsExactly(visibleId, highId, lowId);
 
-        List<BoardPost> afterTieHigh = posts.findVisibleFeed(board, "4113111500", viewer, tie, highId, 10);
+        List<BoardPost> afterTieHigh = posts.findVisibleFeed(board, "4113165000", viewer, tie, highId, 10);
         assertThat(afterTieHigh).extracting(BoardPost::getId).containsExactly(lowId);
     }
 
     @Test
     void concurrentManagedUpdatesProduceOneActualOptimisticVersionConflict() throws Exception {
         long board = createBoard();
-        Author author = createAuthor("version", "4113111500");
+        Author author = createAuthor("version", "4113165000");
         BoardPost created = posts.saveAndFlush(BoardPost.publish(
-                board, author.userId(), author.petId(), "4113111500", "original", "content"
+                board, author.userId(), author.petId(), "4113165000", "original", "content"
         ));
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         CountDownLatch bothRead = new CountDownLatch(2);
@@ -370,10 +374,10 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void mediaPatchPreservesSameOrderButReplacesReorderedLinksWithoutUniqueConstraintCollision() {
         long boardId = createBoard();
-        Author author = createAuthor("media-patch", "4113111500");
+        Author author = createAuthor("media-patch", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         BoardPost post = posts.saveAndFlush(BoardPost.publish(
-                boardId, author.userId(), author.petId(), "4113111500", "title", "content"
+                boardId, author.userId(), author.petId(), "4113165000", "title", "content"
         ));
         long first = createUploadedImage(author.userId());
         long second = createUploadedImage(author.userId());
@@ -407,10 +411,10 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void concurrentSameVersionMediaPatchThroughTheActorGuardHasOneSuccessAndOneConflict() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("guarded-media-race", "4113111500");
+        Author author = createAuthor("guarded-media-race", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         BoardPost post = posts.saveAndFlush(BoardPost.publish(
-                boardId, author.userId(), author.petId(), "4113111500", "title", "content"
+                boardId, author.userId(), author.petId(), "4113165000", "title", "content"
         ));
         long original = createUploadedImage(author.userId());
         long firstReplacement = createUploadedImage(author.userId());
@@ -462,10 +466,10 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void rollbackAfterMediaReplacementRestoresTheParentVersionAndOriginalLinksAtomically() {
         long boardId = createBoard();
-        Author author = createAuthor("media-rollback", "4113111500");
+        Author author = createAuthor("media-rollback", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         BoardPost post = posts.saveAndFlush(BoardPost.publish(
-                boardId, author.userId(), author.petId(), "4113111500", "original", "content"
+                boardId, author.userId(), author.petId(), "4113165000", "original", "content"
         ));
         long original = createUploadedImage(author.userId());
         long replacement = createUploadedImage(author.userId());
@@ -491,12 +495,12 @@ class BoardPostPostgreSqlIntegrationTest {
     void boardFeedHydratesAllImagesWithOneBatchMediaLookupAndAConstantStatementCount() {
         long onePostBoard = createBoard();
         long manyPostBoard = createBoard();
-        long viewer = createUser("n-plus-one-viewer", "4113111500");
-        Author author = createAuthor("n-plus-one-author", "4113111500");
+        long viewer = createUser("n-plus-one-viewer", "4113165000");
+        Author author = createAuthor("n-plus-one-author", "4113165000");
         Instant now = Instant.parse("2026-08-24T00:00:00Z");
-        long onePost = insertPost(onePostBoard, author, "4113111500", "one", "PUBLISHED", now, null);
-        long firstMany = insertPost(manyPostBoard, author, "4113111500", "first", "PUBLISHED", now, null);
-        long secondMany = insertPost(manyPostBoard, author, "4113111500", "second", "PUBLISHED", now.plusSeconds(1), null);
+        long onePost = insertPost(onePostBoard, author, "4113165000", "one", "PUBLISHED", now, null);
+        long firstMany = insertPost(manyPostBoard, author, "4113165000", "first", "PUBLISHED", now, null);
+        long secondMany = insertPost(manyPostBoard, author, "4113165000", "second", "PUBLISHED", now.plusSeconds(1), null);
         long firstMedia = createUploadedImage(author.userId());
         long secondMedia = createUploadedImage(author.userId());
         long thirdMedia = createUploadedImage(author.userId());
@@ -523,7 +527,7 @@ class BoardPostPostgreSqlIntegrationTest {
 
     @Test
     void petDisplayBatchSignsFetchJoinedProfileAssetsWithoutAnyMediaRepositoryLookup() {
-        long owner = createUser("profile-batch-owner", "4113111500");
+        long owner = createUser("profile-batch-owner", "4113165000");
         long firstPet = jdbc.queryForObject("""
                 insert into pets (owner_user_id, public_tag, nickname, status)
                 values (?, ?, 'first', 'ACTIVE') returning id
@@ -621,7 +625,7 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void createFirstThenBoardDeleteKeepsActiveBoardAndPublishedPost() throws Exception {
         long board = createBoard();
-        Author author = createAuthor("raceCreate", "4113111500");
+        Author author = createAuthor("raceCreate", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         CountDownLatch publishedWhileReadLocked = new CountDownLatch(1);
@@ -676,7 +680,7 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void deleteFirstThenPostCreateRetainsSoftDeletedBoardWithoutPublishedPost() throws Exception {
         long board = createBoard();
-        Author author = createAuthor("raceDelete", "4113111500");
+        Author author = createAuthor("raceDelete", "4113165000");
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         CountDownLatch deleteWriteLocked = new CountDownLatch(1);
@@ -733,13 +737,13 @@ class BoardPostPostgreSqlIntegrationTest {
     @Test
     void activePetSwitchRaceAllowsOnlyMutationSuccessOrAuthorPetForbiddenStateTuples() throws Exception {
         long board = createBoard();
-        Author author = createAuthor("raceActor", "4113111500");
+        Author author = createAuthor("raceActor", "4113165000");
         long secondPet = jdbc.queryForObject("""
                 insert into pets (owner_user_id, public_tag, nickname, status)
                 values (?, ?, 'second', 'ACTIVE') returning id
                 """, Long.class, author.userId(), publicTag("second", 4));
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
-        BoardPost patchPost = posts.saveAndFlush(BoardPost.publish(board, author.userId(), author.petId(), "4113111500", "title", "content"));
+        BoardPost patchPost = posts.saveAndFlush(BoardPost.publish(board, author.userId(), author.petId(), "4113165000", "title", "content"));
         List<Throwable> patchOutcomes = runStartedConcurrently(
                 () -> postService.update(author.userId(), patchPost.getId(), new BoardPostUpdateRequest(true, "changed", false, null, 0)),
                 () -> activePetSelectionService.selectActivePet(author.userId(), secondPet)
@@ -759,7 +763,7 @@ class BoardPostPostgreSqlIntegrationTest {
         }
 
         jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
-        BoardPost deletePost = posts.saveAndFlush(BoardPost.publish(board, author.userId(), author.petId(), "4113111500", "delete", "content"));
+        BoardPost deletePost = posts.saveAndFlush(BoardPost.publish(board, author.userId(), author.petId(), "4113165000", "delete", "content"));
         List<Throwable> deleteOutcomes = runStartedConcurrently(
                 () -> postService.delete(author.userId(), deletePost.getId()),
                 () -> activePetSelectionService.selectActivePet(author.userId(), secondPet)
@@ -843,9 +847,9 @@ class BoardPostPostgreSqlIntegrationTest {
 
     private long persistedPost(String title) {
         long boardId = createBoard();
-        Author author = createAuthor(title, "4113111500");
+        Author author = createAuthor(title, "4113165000");
         return posts.saveAndFlush(BoardPost.publish(
-                boardId, author.userId(), author.petId(), "4113111500", title, "content"
+                boardId, author.userId(), author.petId(), "4113165000", title, "content"
         )).getId();
     }
 

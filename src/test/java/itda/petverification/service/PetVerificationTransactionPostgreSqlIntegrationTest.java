@@ -39,6 +39,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -52,7 +53,10 @@ class PetVerificationTransactionPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired private PetCreationTransactionService petCreationTransactions;
     @Autowired private PetVerificationApplyTransactionService verificationTransactions;
@@ -144,7 +148,7 @@ class PetVerificationTransactionPostgreSqlIntegrationTest {
     private User user() {
         String unique = UUID.randomUUID().toString().replace("-", "");
         return userRepository.saveAndFlush(User.register(unique + "@example.test", "encoded", "Synthetic Owner",
-                "owner#" + unique.substring(0, 8), "4113111500"));
+                "owner#" + unique.substring(0, 8), "4113165000"));
     }
 
     private Pet pet(User user, String publicTag) {

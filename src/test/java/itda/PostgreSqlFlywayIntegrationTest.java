@@ -39,6 +39,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -53,7 +54,10 @@ class PostgreSqlFlywayIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private Flyway flyway;
@@ -84,9 +88,14 @@ class PostgreSqlFlywayIntegrationTest {
         assertThat(flyway.info().pending()).isEmpty();
         assertThat(flyway.info().current()).isNotNull();
         assertThat(jdbcTemplate.queryForObject(
-                "select count(*) from neighborhoods",
+                """
+                select count(*)
+                  from neighborhoods
+                 where code = '4113165000'
+                   and active = true
+                """,
                 Integer.class
-        )).isEqualTo(3);
+        )).isEqualTo(1);
     }
 
     @Test
@@ -101,7 +110,7 @@ class PostgreSqlFlywayIntegrationTest {
                     role,
                     account_status,
                     neighborhood_code
-                ) values (?, ?, ?, ?, 'USER', 'ACTIVE', '4113111500')
+                ) values (?, ?, ?, ?, 'USER', 'ACTIVE', '4113165000')
                 returning id
                 """,
                 Long.class,
@@ -169,7 +178,7 @@ class PostgreSqlFlywayIntegrationTest {
                     "encoded",
                     "사용자",
                     "사용자#" + unique.substring(0, 8),
-                    "4113111500"
+                    "4113165000"
             );
 
             assertThatThrownBy(() ->
@@ -197,12 +206,12 @@ class PostgreSqlFlywayIntegrationTest {
         String unique = UUID.randomUUID().toString().replace("-", "");
         jdbcTemplate.update("""
                 insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
-                values (?, null, ?, ?, 'USER', 'ACTIVE', '4113111500')
+                values (?, null, ?, ?, 'USER', 'ACTIVE', '4113165000')
                 """, unique + "@example.com", "OAuth사용자", "OAuth#" + unique.substring(0, 8));
 
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
-                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000')
                 """, unique.toUpperCase() + "@EXAMPLE.COM", "중복사용자", "중복#" + unique.substring(0, 8)))
                 .isInstanceOf(RuntimeException.class);
     }
@@ -251,7 +260,7 @@ class PostgreSqlFlywayIntegrationTest {
                 new OAuthExchangeCommand(OAuthProvider.GOOGLE, loginCode), user -> user);
         String signupToken = ((OAuthExchangeResult.SignupRequired<User>) exchange).signupToken();
         User completed = oauthSignupService.complete(new OAuthSignupCommand(
-                signupToken, "OAuth사용자", "4113111500"), user -> user);
+                signupToken, "OAuth사용자", "4113165000"), user -> user);
 
         assertThat(completed.hasPasswordCredential()).isFalse();
         assertThat(jdbcTemplate.queryForObject("""
@@ -278,7 +287,7 @@ class PostgreSqlFlywayIntegrationTest {
         insertOAuthUser(email, "Race#" + unique.substring(0, 8));
 
         assertThatThrownBy(() -> oauthSignupService.complete(
-                new OAuthSignupCommand(signupToken, "OAuth사용자", "4113111500"),
+                new OAuthSignupCommand(signupToken, "OAuth사용자", "4113165000"),
                 user -> tokenProvider.issueTokens(user)))
                 .isInstanceOf(OAuthFlowException.class)
                 .extracting(error -> ((OAuthFlowException) error).getFailure())
@@ -316,7 +325,7 @@ class PostgreSqlFlywayIntegrationTest {
             Callable<Boolean> complete = () -> {
                 try {
                     oauthSignupService.complete(new OAuthSignupCommand(
-                            signupToken, "OAuth사용자", "4113111500"), user -> user.getId());
+                            signupToken, "OAuth사용자", "4113165000"), user -> user.getId());
                     return true;
                 } catch (RuntimeException exception) {
                     return false;
@@ -403,14 +412,14 @@ class PostgreSqlFlywayIntegrationTest {
                 "encoded",
                 "사용자",
                 "사용자#" + unique.substring(0, 8),
-                "4113111500"
+                "4113165000"
         );
     }
 
     private Long insertOAuthUser(String email, String publicTag) {
         return jdbcTemplate.queryForObject("""
                 insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
-                values (?, null, 'OAuth사용자', ?, 'USER', 'ACTIVE', '4113111500')
+                values (?, null, 'OAuth사용자', ?, 'USER', 'ACTIVE', '4113165000')
                 returning id
                 """, Long.class, email, publicTag);
     }
