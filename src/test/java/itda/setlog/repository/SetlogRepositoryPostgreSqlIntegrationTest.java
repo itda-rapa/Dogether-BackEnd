@@ -7,10 +7,14 @@ import itda.pet.domain.PetStatus;
 import itda.setlog.domain.Setlog;
 import itda.setlog.domain.SetlogStatus;
 import itda.user.domain.AccountStatus;
+import jakarta.persistence.EntityManagerFactory;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -32,17 +37,24 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.flyway.locations=classpath:db/migration"
+        "spring.flyway.locations=classpath:db/migration",
+        "spring.jpa.properties.hibernate.generate_statistics=true"
 })
 class SetlogRepositoryPostgreSqlIntegrationTest {
 
+    /**
+     * V39_2 migration이 postgis/pgrouting extension을 요구하므로 두 extension을 모두 제공하는
+     * 이미지를 사용한다. postgres:16-alpine에서는 Flyway 초기화 단계에서 실패한다.
+     */
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+            DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                    .asCompatibleSubstituteFor("postgres"));
 
     @Autowired private SetlogRepository setlogRepository;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private EntityManagerFactory entityManagerFactory;
 
     @BeforeEach
     void createNeighborhoodFixture() {
@@ -238,6 +250,128 @@ class SetlogRepositoryPostgreSqlIntegrationTest {
                         List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
                 )
         ).isEmpty());
+    }
+
+    @Test
+    void detailLookupExcludesBothBlockDirections() {
+        Long viewer = createUser();
+        Long author = createUser();
+        Long authorPet = createPet(author);
+        Instant createdAt = Instant.parse("2099-08-11T05:00:00Z");
+        Long setlogId = createSetlog(authorPet, author, false, createdAt);
+
+        assertThat(findDetail(setlogId, viewer)).isPresent();
+
+        block(viewer, author);
+        assertThat(findDetail(setlogId, viewer)).isEmpty();
+
+        jdbcTemplate.update(
+                "delete from user_blocks where blocker_user_id = ? and blocked_user_id = ?",
+                viewer, author
+        );
+        assertThat(findDetail(setlogId, viewer)).isPresent();
+
+        block(author, viewer);
+        assertThat(findDetail(setlogId, viewer)).isEmpty();
+    }
+
+    @Test
+    void detailLookupExcludesDeletedInvisibleAndInactiveGraph() {
+        Long viewer = createUser();
+        Instant createdAt = Instant.parse("2099-08-11T06:00:00Z");
+
+        Long author = createUser();
+        Long authorPet = createPet(author);
+        Long visible = createSetlog(authorPet, author, false, createdAt);
+        updateMediaStatus(visible, MediaStatus.COMPLETED);
+
+        Long deletedSetlog = createSetlog(authorPet, author, false, createdAt);
+        jdbcTemplate.update(
+                "update setlogs set status = 'DELETED_BY_AUTHOR' where id = ?",
+                deletedSetlog
+        );
+
+        Long deletedMediaSetlog = createSetlog(authorPet, author, false, createdAt);
+        jdbcTemplate.update("""
+                update media set deleted_at = ?
+                 where id = (select media_id from setlogs where id = ?)
+                """, createdAt.atOffset(ZoneOffset.UTC), deletedMediaSetlog);
+
+        Long failedMediaSetlog = createSetlog(authorPet, author, false, createdAt);
+        updateMediaStatus(failedMediaSetlog, MediaStatus.FAILED);
+
+        Long suspendedPet = createPet(author);
+        Long suspendedPetSetlog = createSetlog(suspendedPet, author, false, createdAt);
+        jdbcTemplate.update(
+                "update pets set status = 'SUSPENDED' where id = ?", suspendedPet
+        );
+
+        Long deletedPet = createPet(author);
+        Long deletedPetSetlog = createSetlog(deletedPet, author, false, createdAt);
+        jdbcTemplate.update(
+                "update pets set status = 'DELETED', deleted_at = ? where id = ?",
+                createdAt.atOffset(ZoneOffset.UTC), deletedPet
+        );
+
+        Long suspendedAuthor = createUser();
+        Long suspendedAuthorPet = createPet(suspendedAuthor);
+        Long suspendedAuthorSetlog = createSetlog(
+                suspendedAuthorPet, suspendedAuthor, false, createdAt
+        );
+        jdbcTemplate.update(
+                "update users set account_status = 'SUSPENDED' where id = ?",
+                suspendedAuthor
+        );
+
+        assertThat(findDetail(visible, viewer)).isPresent();
+        assertThat(List.of(
+                deletedSetlog,
+                deletedMediaSetlog,
+                failedMediaSetlog,
+                suspendedPetSetlog,
+                deletedPetSetlog,
+                suspendedAuthorSetlog
+        )).allSatisfy(hiddenSetlogId ->
+                assertThat(findDetail(hiddenSetlogId, viewer)).isEmpty()
+        );
+    }
+
+    /**
+     * 상세 응답 조립에 필요한 Media·작성자 Pet·작성자 User를 모두 fetch join으로 채우는지
+     * 실제 statement 수로 검증한다. 하나라도 lazy로 남으면 추가 select가 발생한다.
+     */
+    @Test
+    void detailLookupLoadsMediaAndAuthorGraphInSingleStatement() {
+        Long viewer = createUser();
+        Long author = createUser();
+        Long authorPet = createPet(author);
+        Long setlogId = createSetlog(
+                authorPet, author, false, Instant.parse("2099-08-11T07:00:00Z")
+        );
+        Statistics statistics = entityManagerFactory
+                .unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        Setlog setlog = findDetail(setlogId, viewer).orElseThrow();
+        String mediaPath = setlog.getMedia().getPath();
+        MediaStatus mediaStatus = setlog.getMedia().getStatus();
+        String authorNickname = setlog.getAuthorPet().getOwner().getNickname();
+
+        assertThat(mediaPath).isNotBlank();
+        assertThat(mediaStatus).isEqualTo(MediaStatus.UPLOADED);
+        assertThat(authorNickname).isNotBlank();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1L);
+    }
+
+    private Optional<Setlog> findDetail(Long setlogId, Long viewer) {
+        return setlogRepository.findVisibleDetailById(
+                setlogId,
+                viewer,
+                SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED),
+                PetStatus.ACTIVE,
+                AccountStatus.ACTIVE
+        );
     }
 
     private List<Setlog> find(
