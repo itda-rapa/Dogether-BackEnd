@@ -39,9 +39,8 @@ safety_review_cases 1 ─ N evidence_access_audits
 |---|---|---|
 | id | BIGSERIAL | PK |
 | user_id | BIGINT | FK users, NOT NULL |
-| provider | VARCHAR(20) | GOOGLE/NAVER |
+| provider | VARCHAR(20) | DB CHECK: GOOGLE/NAVER; runtime adapter는 GOOGLE만 구현 |
 | provider_subject | VARCHAR(255) | NOT NULL |
-| provider_email | VARCHAR(320) | nullable |
 | created_at | TIMESTAMPTZ | NOT NULL |
 | updated_at | TIMESTAMPTZ | NOT NULL |
 
@@ -49,8 +48,11 @@ safety_review_cases 1 ─ N evidence_access_audits
 
 - `UNIQUE(provider, provider_subject)`
 - `UNIQUE(user_id, provider)`
-- Provider Access/Refresh Token은 M3 기본 범위에서 저장하지 않는다.
-- `loginCode`와 `signupToken`은 원문을 DB에 영구 저장하지 않는 짧은 TTL의 1회용 자원이다. Redis 사용 시 해시값·상태·만료시각만 저장한다.
+- Provider Access/Refresh Token과 ID Token은 저장하지 않는다.
+- `oauth_login_codes`: hash, provider, provider subject, verified email, 상태, 만료시각을 저장하는 5분 TTL 1회용 교환 자원이다. logical expiry 뒤 약 1분 cleanup grace 동안 row와 transient verified email snapshot을 보존한 뒤 physical delete한다.
+- `oauth_signup_tokens`: hash, provider, provider subject, verified email, 상태, 만료시각을 저장하는 10분 TTL 1회용 가입 자원이다. logical expiry 뒤 약 1분 cleanup grace 동안 row와 transient verified email snapshot을 보존한 뒤 physical delete한다.
+- browser authorization transaction은 DB가 아니라 Redis에 state hash, PKCE verifier, nonce, backend redirect URI와 만료시각만 보관하고 callback에서 원자적으로 소비한다.
+- `OAuthArtifactCleanupScheduler`가 주기적으로 logical expiry + 약 1분 grace를 지난 loginCode/signupToken row를 physical delete한다.
 
 ## 3. 게시판 변경
 

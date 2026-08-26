@@ -56,33 +56,47 @@ Content-Type: application/json
 
 ## 2. OAuth
 
-### `GET /oauth2/authorization/{provider}`
+### `GET /oauth2/authorization/google`
 
-- 인증: 불필요
-- Provider: `google`, `naver`
-- 응답: Provider 인증 페이지로 `302`
-- 서버는 State·PKCE·Callback 정보를 짧은 TTL로 저장한다.
+- 인증: 불필요. 브라우저 navigation 전용이며 JSON `ApiResponse` endpoint가 아니다.
+- Google OAuth가 enabled이면 Google authorization endpoint로 `302 Found`를 반환한다. disabled이면 `404`다.
+- scope는 정확히 `openid email`이다. 서버는 Redis에 일회용 state, PKCE verifier(S256), nonce, backend redirect URI와 browser binding hash를 저장한다. 시작 응답은 raw `__Host-dogether_oauth_browser_binding` cookie를 short-lived `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, Domain 없이 설정한다.
+- `NAVER`는 공통 enum/DB 제약에만 존재하며 runtime endpoint·adapter·설정은 없다.
 
 Callback 흐름:
 
 ```text
-Provider 인증
-→ Backend /login/oauth2/code/{provider} callback
-→ State·Provider 사용자 검증
+Google 인증
+→ Backend /login/oauth2/code/google callback
+→ state 원자적 소비, PKCE token 교환, OIDC ID token 검증
 → 1회용 loginCode 발급
-→ Front callback URL?loginCode={code}&provider={provider} 로 302
+→ allowlist된 Front success callback URL?loginCode={code}&provider=GOOGLE 로 302
 → Front가 POST /auth/oauth/exchange 호출
 ```
 
-- Access/Refresh Token은 Redirect URL에 포함하지 않는다.
-- callback 실패 시 Front 오류 URL에는 민감한 Provider 응답을 포함하지 않고 표준 오류 코드만 전달한다.
+- ID token은 issuer(`accounts.google.com`), configured client ID 단일 audience, nonce, email 존재,
+  `email_verified=true`, subject를 검증한다. OIDC는 복수 audience를 표현할 수 있지만 Dogether는 추가 audience를
+  신뢰하지 않아 실패시킨다. `azp`는 모든 ID Token의 필수 claim이 아니며, 제공되면 configured client ID와
+  일치해야 한다. `sub`는 providerSubject/identity key이고 email은 identity key가 아니다. Gmail·Workspace·`hd`
+  여부를 추가 요구하지 않으므로 `hd` 없는 third-party verified email도 허용한다.
+- Redirect URL에는 Access/Refresh Token, provider token, verified email, providerSubject 및 raw provider
+  error/response를 포함하지 않는다. Provider token과 raw provider error/response는 저장하지 않으며 verified
+  email은 loginCode/signupToken의 짧은 TTL + cleanup grace 동안에만 transient snapshot으로 DB row에 남을 수 있다.
+- callback 실패는 allowlist된 Front error callback URL에 `errorCode` 하나만 붙여 `302`한다. 허용 값은
+  `INTERNAL_ERROR`, `OAUTH_STATE_INVALID`, `OAUTH_STATE_EXPIRED`, `OAUTH_AUTHORIZATION_DENIED`,
+  `OAUTH_IDENTITY_VERIFICATION_FAILED`, `OAUTH_PROVIDER_UNAVAILABLE`다.
 
-오류: `400 OAUTH_PROVIDER_UNSUPPORTED`, `503 OAUTH_PROVIDER_UNAVAILABLE`.
+### `GET /login/oauth2/code/google`
+
+- 인증: 불필요. Google이 `state`, `code` 또는 `error`를 전달하는 browser callback이다.
+- callback은 authorization을 시작한 동일 browser correlation cookie를 요구한다. cookie가 없거나 malformed 또는 transaction과 불일치하면 state를 소비하지 않고 `OAUTH_STATE_INVALID`로 redirect한다.
+- 성공·실패 모두 위 callback URL로 `302`하며 JSON error envelope를 직접 반환하지 않는다.
+- OAuth가 disabled이면 `404`다.
 
 ### `POST /auth/oauth/exchange`
 
 - 인증: 불필요
-- 성공: `200`
+- 성공: 기존 OAuth Identity는 `200`, 신규 Identity는 `202`
 - 멱등: loginCode는 1회용이므로 재사용 불가
 
 요청:
@@ -99,7 +113,7 @@ Provider 인증
 ```json
 {
   "success": true,
-  "message": "OAuth 로그인 성공",
+  "message": "OAuth 로그인이 완료되었습니다.",
   "data": {
     "accessToken": "eyJhbGciOi...",
     "refreshToken": "eyJhbGciOi...",
@@ -114,7 +128,7 @@ Provider 인증
 ```json
 {
   "success": true,
-  "message": "OAuth 사용자 프로필 입력이 필요합니다.",
+  "message": "OAuth 가입을 위한 추가 정보 입력이 필요합니다.",
   "data": {
     "profileCompletionRequired": true,
     "signupToken": "opaque-one-time-signup-token",
@@ -130,8 +144,10 @@ Provider 인증
 - `401 OAUTH_LOGIN_CODE_INVALID`
 - `410 OAUTH_LOGIN_CODE_EXPIRED`
 - `410 OAUTH_LOGIN_CODE_CONSUMED`
-- `409 OAUTH_ACCOUNT_LINK_DECISION_REQUIRED`
-- `503 OAUTH_PROVIDER_UNAVAILABLE`
+- `403 ACCOUNT_NOT_ACTIVE`
+- `409 OAUTH_ACCOUNT_LINK_DECISION_REQUIRED` (동일 email의 미연결 기존 계정; 자동 연결·신규 User 생성·link endpoint 없음, loginCode 미소비). 이는 최종 account-link 정책이 아닌 현재 안전 경계다.
+- loginCode는 logical expiry 뒤 약 1분 cleanup grace 안에는 `OAUTH_LOGIN_CODE_EXPIRED`, physical delete 뒤에는
+  `OAUTH_LOGIN_CODE_INVALID`다.
 
 ### `POST /auth/oauth/signup`
 
@@ -164,36 +180,15 @@ Provider 인증
 }
 ```
 
-오류: `401 OAUTH_SIGNUP_TOKEN_INVALID`, `410 OAUTH_SIGNUP_TOKEN_EXPIRED`, `409 NICKNAME_ALREADY_EXISTS`, `404 NEIGHBORHOOD_NOT_FOUND`.
-
-### `POST /auth/oauth/link` — D-02에서 명시적 연결 선택 시
-
-- 인증: 동일 이메일의 기존 계정 JWT 필수
-- 목적: 이메일 일치만으로 자동 연결하지 않고 기존 계정 본인 확인 뒤 OAuth Identity를 연결
-- D-02에서 자동 연결 또는 연결 거부를 선택하면 이 Endpoint는 구현하지 않는다.
-
-요청:
-
-```json
-{
-  "provider": "GOOGLE",
-  "loginCode": "unconsumed-one-time-login-code"
-}
-```
-
-응답:
-
-```json
-{
-  "success": true,
-  "message": "OAuth 계정이 연결되었습니다.",
-  "data": {
-    "provider": "GOOGLE",
-    "linked": true
-  },
-  "error": null
-}
-```
+- 오류: `400 VALIDATION_FAILED`, `401 OAUTH_SIGNUP_TOKEN_INVALID`, `410 OAUTH_SIGNUP_TOKEN_EXPIRED`,
+  `422 NEIGHBORHOOD_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`, `409 PUBLIC_TAG_GENERATION_FAILED`.
+- `signupToken`은 10분 TTL의 1회용이고, nickname은 trim 후 2~20자, neighborhoodCode는 trim 후
+  최대 20자여야 한다. email/provider subject는 request body가 아니라 token에서만 가져온다. logical expiry
+  뒤 약 1분 cleanup grace 안에는 `OAUTH_SIGNUP_TOKEN_EXPIRED`, physical delete 뒤에는
+  `OAUTH_SIGNUP_TOKEN_INVALID`다. 가입 transaction 직전/중 동일 email User가 먼저 생성되는 late race는
+  User·OAuthIdentity·RefreshToken·signupToken consume을 모두 rollback하고
+  `409 CONCURRENT_UPDATE_CONFLICT`를 반환한다. 이 경우 signupToken을 account-link context로 재해석하지
+  않으며 새 OAuth authorization부터 다시 시작한다.
 
 ---
 

@@ -9,11 +9,20 @@ import itda.common.security.service.TokenProvider;
 import itda.email.EmailVerificationPurpose;
 import itda.email.EmailVerificationService;
 import itda.neighborhood.repository.NeighborhoodRepository;
+import itda.oauth.domain.OAuthProvider;
+import itda.oauth.service.OAuthExchangeCommand;
+import itda.oauth.service.OAuthExchangeResult;
+import itda.oauth.service.OAuthExchangeService;
+import itda.oauth.service.OAuthFlowException;
+import itda.oauth.service.OAuthFlowFailure;
+import itda.oauth.service.OAuthSignupCommand;
+import itda.oauth.service.OAuthSignupService;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import itda.user.service.PublicTagGenerator;
 import java.util.Locale;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,7 +41,33 @@ public class AuthService {
     private final PublicTagGenerator publicTagGenerator;
     private final UserRegistrationService userRegistrationService;
     private final EmailVerificationService emailVerificationService;
+    private final OAuthExchangeService oauthExchangeService;
+    private final OAuthSignupService oauthSignupService;
 
+    @Autowired
+    public AuthService(
+            UserRepository userRepository,
+            NeighborhoodRepository neighborhoodRepository,
+            PasswordEncoder passwordEncoder,
+            TokenProvider tokenProvider,
+            PublicTagGenerator publicTagGenerator,
+            UserRegistrationService userRegistrationService,
+            EmailVerificationService emailVerificationService,
+            OAuthExchangeService oauthExchangeService,
+            OAuthSignupService oauthSignupService
+    ) {
+        this.userRepository = userRepository;
+        this.neighborhoodRepository = neighborhoodRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.tokenProvider = tokenProvider;
+        this.publicTagGenerator = publicTagGenerator;
+        this.userRegistrationService = userRegistrationService;
+        this.emailVerificationService = emailVerificationService;
+        this.oauthExchangeService = oauthExchangeService;
+        this.oauthSignupService = oauthSignupService;
+    }
+
+    /** Retained for existing unit tests that do not exercise OAuth flows. */
     public AuthService(
             UserRepository userRepository,
             NeighborhoodRepository neighborhoodRepository,
@@ -42,13 +77,17 @@ public class AuthService {
             UserRegistrationService userRegistrationService,
             EmailVerificationService emailVerificationService
     ) {
-        this.userRepository = userRepository;
-        this.neighborhoodRepository = neighborhoodRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.tokenProvider = tokenProvider;
-        this.publicTagGenerator = publicTagGenerator;
-        this.userRegistrationService = userRegistrationService;
-        this.emailVerificationService = emailVerificationService;
+        this(
+                userRepository,
+                neighborhoodRepository,
+                passwordEncoder,
+                tokenProvider,
+                publicTagGenerator,
+                userRegistrationService,
+                emailVerificationService,
+                null,
+                null
+        );
     }
 
     public AuthTokensResponse signup(SignupRequest request) {
@@ -98,7 +137,8 @@ public class AuthService {
         User user = userRepository.findByEmailIgnoreCase(normalizeEmail(request.email()))
                 .orElseThrow(() -> new BusinessException(ErrorCode.LOGIN_FAILED));
 
-        if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+        if (!user.hasPasswordCredential()
+                || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new BusinessException(ErrorCode.LOGIN_FAILED);
         }
         if (!user.isActive()) {
@@ -114,6 +154,38 @@ public class AuthService {
         );
     }
 
+    public OAuthExchangeResult<AuthTokensResponse> exchangeOAuth(
+            OAuthProvider provider,
+            String loginCode
+    ) {
+        if (provider != OAuthProvider.GOOGLE) {
+            throw new BusinessException(ErrorCode.OAUTH_PROVIDER_UNSUPPORTED);
+        }
+        try {
+            return oauthExchangeService.exchange(
+                    new OAuthExchangeCommand(provider, loginCode),
+                    user -> AuthTokensResponse.from(tokenProvider.issueTokens(user))
+            );
+        } catch (OAuthFlowException exception) {
+            throw oauthFailure(exception);
+        }
+    }
+
+    public AuthTokensResponse signupOAuth(
+            String signupToken,
+            String nickname,
+            String neighborhoodCode
+    ) {
+        try {
+            return oauthSignupService.complete(
+                    new OAuthSignupCommand(signupToken, nickname, neighborhoodCode),
+                    user -> AuthTokensResponse.from(tokenProvider.issueTokens(user))
+            );
+        } catch (OAuthFlowException exception) {
+            throw oauthFailure(exception);
+        }
+    }
+
     @Transactional
     public void logout(Long userId) {
         tokenProvider.revokeAllForUser(userId);
@@ -121,6 +193,24 @@ public class AuthService {
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private BusinessException oauthFailure(OAuthFlowException exception) {
+        ErrorCode errorCode = switch (exception.getFailure()) {
+            case LOGIN_CODE_INVALID -> ErrorCode.OAUTH_LOGIN_CODE_INVALID;
+            case LOGIN_CODE_EXPIRED -> ErrorCode.OAUTH_LOGIN_CODE_EXPIRED;
+            case LOGIN_CODE_CONSUMED -> ErrorCode.OAUTH_LOGIN_CODE_CONSUMED;
+            case SIGNUP_TOKEN_INVALID -> ErrorCode.OAUTH_SIGNUP_TOKEN_INVALID;
+            case SIGNUP_TOKEN_EXPIRED -> ErrorCode.OAUTH_SIGNUP_TOKEN_EXPIRED;
+            case ACCOUNT_LINK_DECISION_REQUIRED ->
+                    ErrorCode.OAUTH_ACCOUNT_LINK_DECISION_REQUIRED;
+            case ACCOUNT_NOT_ACTIVE -> ErrorCode.ACCOUNT_NOT_ACTIVE;
+            case VALIDATION_FAILED -> ErrorCode.VALIDATION_FAILED;
+            case NEIGHBORHOOD_NOT_FOUND -> ErrorCode.NEIGHBORHOOD_NOT_FOUND;
+            case CONCURRENT_UPDATE_CONFLICT -> ErrorCode.CONCURRENT_UPDATE_CONFLICT;
+            case PUBLIC_TAG_GENERATION_FAILED -> ErrorCode.PUBLIC_TAG_GENERATION_FAILED;
+        };
+        return new BusinessException(errorCode);
     }
 
     private boolean isConstraintViolation(

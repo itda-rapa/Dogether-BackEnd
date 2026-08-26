@@ -50,6 +50,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.ObjectMapper;
 
 @Tag("kafka")
@@ -72,7 +73,10 @@ import tools.jackson.databind.ObjectMapper;
 class RiskSignalConsumerKafkaIntegrationTest {
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired @Qualifier("riskKafkaTemplate") private KafkaTemplate<String, String> kafkaTemplate;
     @Autowired private EmbeddedKafkaBroker broker;

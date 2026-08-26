@@ -26,6 +26,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * Scan 생성·claim·lease·소유권 fence 와 DB invariant 를 실제 PostgreSQL 에서 검증한다.
@@ -45,7 +46,10 @@ class MeetingSuggestionScanPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired private MeetingSuggestionScanClaimService claims;
     @Autowired private JdbcTemplate jdbc;

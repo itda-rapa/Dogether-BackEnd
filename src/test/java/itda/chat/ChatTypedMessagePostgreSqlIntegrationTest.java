@@ -42,6 +42,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * M3 typed message(IMAGE/VIDEO/SETLOG_SHARE)의 저장·권한·멱등성·lifecycle을 실제 PostgreSQL로 검증한다.
@@ -60,7 +61,10 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private MockMvc mockMvc;
@@ -78,7 +82,7 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
     private static final long USER_2 = 2L;
     private static final long PET_1 = 11L;
     private static final long PET_2 = 22L;
-    private static final String NEIGHBORHOOD = "4113111500";
+    private static final String NEIGHBORHOOD = "4113165000";
 
     private long roomId;
 

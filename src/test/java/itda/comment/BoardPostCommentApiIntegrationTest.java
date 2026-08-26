@@ -158,7 +158,7 @@ class BoardPostCommentApiIntegrationTest {
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("BOARD_POST_NOT_FOUND"));
 
         jdbc.execute("delete from user_blocks");
-        jdbc.update("update users set neighborhood_code = ? where id = ?", "4113111600", authorId);
+        jdbc.update("update users set neighborhood_code = ? where id = ?", "4113351000", authorId);
         create(authorId, postId, "{\"content\":\"author keeps access\"}")
                 .andExpect(status().isCreated());
         mockMvc.perform(get("/posts/{postId}/comments", postId).with(user(principal(authorId))))
@@ -167,7 +167,7 @@ class BoardPostCommentApiIntegrationTest {
 
     @Test
     void parentVisibilityIsAppliedToCreateAndListAndDeletedParentAllowsOnlyOwnedDelete() throws Exception {
-        long otherRegion = createUser("otherRegion", "4113111600");
+        long otherRegion = createUser("otherRegion", "4113351000");
         long otherPet = createPet(otherRegion, "먼견");
         jdbc.update("update users set active_pet_id = ? where id = ?", otherPet, otherRegion);
         create(otherRegion, postId, "{\"content\":\"hidden\"}")

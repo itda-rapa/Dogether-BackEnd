@@ -23,6 +23,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * Integration tests for the M1-015 chat REST polling API — all four endpoints
@@ -45,7 +46,10 @@ class ChatRestPollingApiPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private ChatRoomService chatRoomService;
@@ -84,7 +88,7 @@ class ChatRestPollingApiPostgreSqlIntegrationTest {
     private static final long PET_3 = 33L;
 
     /** The only neighborhood code the seed guarantees. */
-    private static final String NEIGHBORHOOD = "4113111500";
+    private static final String NEIGHBORHOOD = "4113165000";
 
     @BeforeEach
     void resetFixture() {

@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -44,7 +45,10 @@ class PetSearchApiContractPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private MockMvc mockMvc;
@@ -450,7 +454,7 @@ class PetSearchApiContractPostgreSqlIntegrationTest {
                     role,
                     account_status,
                     neighborhood_code
-                ) values (?, 'encoded', ?, ?, 'USER', ?, '4113111500')
+                ) values (?, 'encoded', ?, ?, 'USER', ?, '4113165000')
                 returning id
                 """,
                 Long.class,

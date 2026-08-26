@@ -57,6 +57,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -78,7 +79,10 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @LocalServerPort
     private int port;
@@ -1386,7 +1390,7 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
         jdbcTemplate.update("""
                 insert into users (id, email, password_hash, nickname, public_tag, role,
                                    account_status, neighborhood_code)
-                values (?, ?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                values (?, ?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000')
                 """, id, email, "user" + id, publicTag);
     }
 

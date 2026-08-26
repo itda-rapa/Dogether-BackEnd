@@ -43,6 +43,8 @@ dependencies {
 
     // Security
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    // OIDC ID-token/JWKS verification via Spring Security's maintained Nimbus integration.
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
     testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
     implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'

@@ -26,7 +26,7 @@ public class User extends BaseEntity {
     @Column(nullable = false, length = 320)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 255)
+    @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
     @Column(nullable = false, length = 30)
@@ -86,8 +86,31 @@ public class User extends BaseEntity {
         );
     }
 
+    /**
+     * Creates an account whose authentication credential is held by an OAuth provider.
+     * A password must not be synthesized for these accounts.
+     */
+    public static User registerOAuth(
+            String email,
+            String nickname,
+            String publicTag,
+            String neighborhoodCode
+    ) {
+        return new User(
+                email,
+                null,
+                nickname,
+                publicTag,
+                neighborhoodCode
+        );
+    }
+
     public boolean isActive() {
         return accountStatus == AccountStatus.ACTIVE;
+    }
+
+    public boolean hasPasswordCredential() {
+        return passwordHash != null;
     }
 
     public void selectActivePet(Long petId) {
