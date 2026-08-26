@@ -63,14 +63,15 @@ class AdminDashboardJdbcRepositoryPostgreSqlIntegrationTest {
         long fromUser = insertUser("USER", "ACTIVE", FROM);
         long beforeToUser = insertUser("USER", "SUSPENDED", TO.minusSeconds(1));
         insertUser("USER", "ACTIVE", TO);
-        insertUser("USER", "WITHDRAWN", FROM.plusSeconds(1));
+        long withdrawnUser = insertUser("USER", "WITHDRAWN", FROM.plusSeconds(1));
         insertUser("ADMIN", "ACTIVE", FROM.plusSeconds(1));
 
         long beforePet = insertPet(beforeUser, "ACTIVE", FROM.minusSeconds(1));
         long fromPet = insertPet(fromUser, "ACTIVE", FROM);
         insertPet(beforeToUser, "SUSPENDED", TO.minusSeconds(1));
-        insertPet(fromUser, "DELETED", FROM.plusSeconds(1));
+        long deletedPet = insertPet(fromUser, "DELETED", FROM.plusSeconds(1));
         insertPet(fromUser, "ACTIVE", TO);
+        long withdrawnOwnerPet = insertPet(withdrawnUser, "ACTIVE", FROM.plusSeconds(2));
 
         insertSetlog(fromPet, "VISIBLE", false, FROM);
         insertSetlog(beforePet, "VISIBLE", true, FROM.plusSeconds(1));
@@ -80,6 +81,8 @@ class AdminDashboardJdbcRepositoryPostgreSqlIntegrationTest {
         insertBoardPost(fromUser, fromPet, "PUBLISHED", FROM);
         insertBoardPost(fromUser, fromPet, "DELETED", TO.minusSeconds(1));
         insertBoardPost(fromUser, fromPet, "PUBLISHED", TO);
+        insertBoardPost(withdrawnUser, withdrawnOwnerPet, "PUBLISHED", FROM.plusSeconds(2));
+        insertBoardPost(fromUser, deletedPet, "PUBLISHED", TO.minusSeconds(1));
 
         insertReport(fromUser, fromPet, beforeUser, beforePet, "OPEN", FROM);
         insertReport(beforeUser, beforePet, fromUser, fromPet, "ACTIONED", TO.minusSeconds(1));
@@ -113,8 +116,8 @@ class AdminDashboardJdbcRepositoryPostgreSqlIntegrationTest {
         assertThat(counts.petsNew()).isEqualTo(2);
         assertThat(counts.setlogsTotal()).isEqualTo(2);
         assertThat(counts.setlogsNew()).isOne();
-        assertThat(counts.boardPostsTotal()).isEqualTo(2);
-        assertThat(counts.boardPostsNew()).isOne();
+        assertThat(counts.boardPostsTotal()).isEqualTo(4);
+        assertThat(counts.boardPostsNew()).isEqualTo(3);
         assertThat(counts.reportsCreated()).isEqualTo(2);
         assertThat(counts.reportsOpen()).isEqualTo(2);
         assertThat(counts.detectedUsers()).isEqualTo(2);
@@ -127,6 +130,16 @@ class AdminDashboardJdbcRepositoryPostgreSqlIntegrationTest {
                 .containsExactlyInAnyOrderEntriesOf(java.util.Map.of(
                         "USER_BLOCKED", 2L,
                         "GREETING_EXPIRED", 1L));
+    }
+
+    @Test
+    void returnsEverySupportedSignalTypeIncludingZeroCount() {
+        insertRisk("USER_BLOCK", "USER_BLOCKED", 101, 201, FROM);
+
+        assertThat(repository.findSignalCounts(FROM, TO))
+                .containsExactlyInAnyOrderEntriesOf(java.util.Map.of(
+                        "USER_BLOCKED", 1L,
+                        "GREETING_EXPIRED", 0L));
     }
 
     @Test
