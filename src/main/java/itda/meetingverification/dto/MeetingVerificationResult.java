@@ -1,16 +1,22 @@
 package itda.meetingverification.dto;
 
+import itda.meetingverification.domain.MeetingVerificationMethod;
+import java.time.Instant;
+
 /**
- * 위치 제출 처리 결과. M3 응답(04_M3_API_상세명세.md §11)의 {@code counterpartSubmitted}
- * 에 맞춘 내부 계약이다.
+ * 위치 제출 처리 결과.
  *
- * <p>Meeting 은 확정 시점에만 생성되므로 제출 단계에서는 존재하지 않는다. 제출 상태는
- * {@code submittedPetId} 와 {@code counterpartSubmitted} 로만 표현하고, REST 응답의
- * {@code meetingId} 는 #146 병합 뒤 확정 시점에 채운다.
+ * <p>첫 제출·LOW_ACCURACY 는 {@code confirmed=false}, Meeting 관련 값(meetingId·
+ * verificationMethod·confirmedAt)은 null 이다. GPS 확정 또는 GPS 경합 재조회는 실제
+ * Meeting 정보를 반환한다.
  */
 public record MeetingVerificationResult(
         Long cardId,
         Long submittedPetId,
-        boolean counterpartSubmitted
+        boolean counterpartSubmitted,
+        Long meetingId,
+        boolean confirmed,
+        MeetingVerificationMethod verificationMethod,
+        Instant confirmedAt
 ) {
 }

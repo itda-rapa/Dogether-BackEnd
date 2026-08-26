@@ -137,6 +137,9 @@ public enum ErrorCode {
             HttpStatus.CONFLICT,
             "같은 요청 식별자로 이미 다른 내용의 위치 제출이 접수되었습니다."
     ),
+    MEETING_TIME_WINDOW_EXCEEDED(HttpStatus.CONFLICT, "양쪽 위치 제출 시각 간격이 허용 범위를 초과했습니다."),
+    MEETING_DISTANCE_EXCEEDED(HttpStatus.CONFLICT, "두 위치 사이의 거리가 허용 범위를 초과했습니다."),
+    MEETING_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 만남입니다."),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
     REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 

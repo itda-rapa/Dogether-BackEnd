@@ -1414,7 +1414,7 @@ Query:
 }
 ```
 
-첫 제출 응답:
+첫 제출 응답(대기):
 
 ```json
 {
@@ -1422,19 +1422,18 @@ Query:
   "message": "상대방의 확인을 기다리고 있습니다.",
   "data": {
     "cardId": 51,
-    "status": "WAITING_COUNTERPART",
-    "meetingId": null,
     "submittedPetId": 12,
     "counterpartSubmitted": false,
+    "meetingId": null,
+    "confirmed": false,
     "verificationMethod": null,
-    "codeRequired": false,
-    "expiresAt": "2026-08-20T09:05:00Z"
+    "confirmedAt": null
   },
   "error": null
 }
 ```
 
-GPS 성공 응답:
+GPS 확정 응답:
 
 ```json
 {
@@ -1442,13 +1441,12 @@ GPS 성공 응답:
   "message": "만남이 확인되었습니다.",
   "data": {
     "cardId": 51,
-    "status": "CONFIRMED",
-    "meetingId": 61,
+    "submittedPetId": 12,
     "counterpartSubmitted": true,
+    "meetingId": 61,
+    "confirmed": true,
     "verificationMethod": "GPS",
-    "distanceMeters": 42.7,
-    "confirmedAt": "2026-08-20T09:02:00Z",
-    "reviewAvailable": true
+    "confirmedAt": "2026-08-20T09:02:00Z"
   },
   "error": null
 }
@@ -1456,26 +1454,26 @@ GPS 성공 응답:
 
 정확도 부족 응답:
 
-Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하지 않고 `LOW_ACCURACY`로 분류한다. Meeting은 이 결과를 받아 아래 `CODE_REQUIRED` 정상 응답으로 전환한다. 좌표 범위 밖·비수·음수 accuracy·허용 미래 시각 초과만 `LOCATION_INVALID`, 수집 허용 시간보다 오래된 위치만 `LOCATION_STALE`다. Location의 거리 utility는 두 좌표 사이의 미터 거리만 반환하고 100m 제한과 양쪽 제출 5분 제한은 Meeting이 판정한다.
+Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하지 않고 `LOW_ACCURACY`로 분류한다. Meeting은 이 결과를 받아 해당 Pet 의 제출을 `CODE_REQUIRED`로 저장하고 Meeting 을 생성하지 않는다. 좌표 범위 밖·비수·음수 accuracy·허용 미래 시각 초과만 `LOCATION_INVALID`, 수집 허용 시간보다 오래된 위치만 `LOCATION_STALE`다. Location의 거리 utility는 두 좌표 사이의 미터 거리만 반환하고 100m 제한과 양쪽 제출 간격 제한은 Meeting이 판정한다.
 
 ```json
 {
   "success": true,
-  "message": "위치 정확도가 낮아 확인 코드가 필요합니다.",
+  "message": "상대방의 확인을 기다리고 있습니다.",
   "data": {
     "cardId": 51,
-    "status": "CODE_REQUIRED",
+    "submittedPetId": 12,
+    "counterpartSubmitted": false,
     "meetingId": null,
-    "verificationMethod": "CODE",
-    "codeRequired": true,
-    "displayCode": "4821",
-    "codeExpiresAt": "2026-08-20T09:07:00Z"
+    "confirmed": false,
+    "verificationMethod": null,
+    "confirmedAt": null
   },
   "error": null
 }
 ```
 
-`displayCode`는 발급 대상 한쪽에게만 반환한다.
+`confirmed=false` 일 때 `meetingId`·`verificationMethod`·`confirmedAt` 은 항상 null 이다. Confirmation Code 발급·입력·검증은 이번 범위에서 제외한다.
 
 오류:
 
@@ -1483,8 +1481,10 @@ Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하�
 - `403 MEETING_NOT_PARTICIPANT`
 - `409 MEETING_CARD_NOT_OPEN`
 - `400 LOCATION_INVALID`, `400 LOCATION_STALE`
-- `409 MEETING_TIME_WINDOW_EXCEEDED`
-- `409 MEETING_DISTANCE_EXCEEDED`
+- `409 MEETING_TIME_WINDOW_EXCEEDED`(양쪽 제출 시각 간격 초과)
+- `409 MEETING_DISTANCE_EXCEEDED`(거리 초과)
+- `409 MEETING_VERIFICATION_REQUEST_CONFLICT`(같은 clientRequestId 다른 내용)
+- `409 MEETING_ALREADY_CONFIRMED`(GPS 외 방식으로 이미 확정)
 
 ### `GET /meeting-cards/{cardId}/meeting-verification`
 
@@ -1496,16 +1496,19 @@ Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하�
   "message": "만남 확인 상태 조회 성공",
   "data": {
     "cardId": 51,
-    "status": "WAITING_COUNTERPART",
-    "meetingId": null,
     "mySubmitted": true,
     "counterpartSubmitted": false,
-    "codeRequired": false,
-    "expiresAt": "2026-08-20T09:05:00Z"
+    "meetingId": null,
+    "confirmed": false,
+    "verificationMethod": null,
+    "confirmedAt": null,
+    "codeRequired": false
   },
   "error": null
 }
 ```
+
+오류: `404 MEETING_CARD_NOT_FOUND`, `403 MEETING_NOT_PARTICIPANT`.
 
 ### `POST /meeting-cards/{cardId}/confirmation-code/verify`
 

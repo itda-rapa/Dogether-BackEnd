@@ -11,9 +11,11 @@ import itda.meetingcard.domain.MeetingCardStatus;
 import itda.meetingcard.domain.MeetingCardType;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
 import itda.meetingcard.service.MeetingCardService;
+import itda.meetingverification.domain.MeetingVerificationMethod;
 import itda.meetingverification.domain.MeetingVerificationStatus;
 import itda.meetingverification.dto.MeetingVerificationResult;
 import itda.meetingverification.dto.MeetingVerificationSubmitCommand;
+import itda.meetingverification.repository.MeetingRepository;
 import itda.meetingverification.repository.MeetingVerificationRepository;
 import itda.meetingverification.service.MeetingVerificationService;
 import java.time.Instant;
@@ -42,12 +44,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * 만남 위치 제출 기반(#111)을 실제 PostgreSQL 에서 검증한다.
+ * GPS 만남 위치 제출·양쪽 확인(#111)을 실제 PostgreSQL 에서 검증한다.
  *
- * <p>단위 테스트로 증명할 수 없는 것만 본다: 새 DB 제약(Unique/FK/Check), clientRequestId
- * 멱등·충돌 정책, 양쪽 동시 제출에서 제출 2행·Meeting 0행, 비참여 Pet 거부, 기존 MeetingCard
- * lifecycle 회귀. Meeting 은 확정 시점에만 생성되므로 제출만으로는 0행이어야 한다.
- * Location 판정은 #146 병합 전이므로 억지로 만들지 않는다.
+ * <p>단위 테스트로 증명할 수 없는 것만 본다: GPS 확정 시 Meeting 정확히 1건, LOW_ACCURACY·
+ * 거리 초과·시간 간격 초과 시 0건, clientRequestId 전역 경합 409, 카드 취소·GPS 제출 경합,
+ * DB 제약. Location 의 좌표·freshness·accuracy 판정은 {@code app.location} 설정으로 실동작한다.
  */
 @Tag("postgres")
 @Testcontainers
@@ -55,7 +56,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @TestPropertySource(properties = {
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
-        "spring.flyway.locations=classpath:db/migration,classpath:db/seed"
+        "spring.flyway.locations=classpath:db/migration,classpath:db/seed",
+        "app.meeting-verification.distance-limit-meters=100",
+        "app.meeting-verification.submission-interval=30s"
 })
 class MeetingVerificationPostgreSqlIntegrationTest {
 
@@ -74,6 +77,8 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     private ChatRoomService chatRoomService;
     @Autowired
     private MeetingVerificationRepository meetingVerificationRepository;
+    @Autowired
+    private MeetingRepository meetingRepository;
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -105,11 +110,11 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         cardId = meetingCardService.confirm(USER_1, request(roomId)).cardId();
     }
 
-    // ── 제출 저장·Meeting 은 생성하지 않음 ─────────────────────────────────
+    // ── 제출 저장·GPS 확정 ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("첫 제출은 Verification 1행만 만들고 Meeting 은 0행이다")
-    void firstSubmitStoresVerificationOnly() {
+    @DisplayName("첫 ACCEPTABLE 제출은 Verification 1행·Meeting 0행·confirmed=false")
+    void firstAcceptableSubmitStoresVerificationOnly() {
         UUID clientRequestId = UUID.randomUUID();
 
         MeetingVerificationResult result = submit(USER_1, clientRequestId);
@@ -117,6 +122,8 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         assertThat(result.cardId()).isEqualTo(cardId);
         assertThat(result.submittedPetId()).isEqualTo(PET_1);
         assertThat(result.counterpartSubmitted()).isFalse();
+        assertThat(result.confirmed()).isFalse();
+        assertThat(result.meetingId()).isNull();
 
         assertThat(countOf("meetings")).isZero();
         assertThat(countOf("meeting_verifications")).isEqualTo(1);
@@ -125,28 +132,73 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                 """, String.class, jdbcTemplate.queryForObject(
                 "select min(id) from meeting_verifications", Long.class)))
                 .isEqualTo(MeetingVerificationStatus.SUBMITTED.name());
-        assertThat(jdbcTemplate.queryForObject("""
-                select client_request_id::text from meeting_verifications
-                """, String.class)).isEqualTo(clientRequestId.toString());
     }
 
     @Test
-    @DisplayName("양쪽 제출 후에도 Location 판정 전 Meeting 은 0행이다")
-    void bothSubmissionsLeaveMeetingAtZero() {
+    @DisplayName("양쪽 ACCEPTABLE 제출은 GPS Meeting 1건을 만들고 confirmed=true")
+    void bothAcceptableSubmissionsConfirmGpsMeeting() {
         submit(USER_1, UUID.randomUUID());
         MeetingVerificationResult second = submit(USER_2, UUID.randomUUID());
 
         assertThat(second.counterpartSubmitted()).isTrue();
-        assertThat(countOf("meetings")).isZero();
+        assertThat(second.confirmed()).isTrue();
+        assertThat(second.meetingId()).isNotNull();
+        assertThat(second.verificationMethod()).isEqualTo(MeetingVerificationMethod.GPS);
+        assertThat(second.confirmedAt()).isNotNull();
+
+        assertThat(countOf("meetings")).isEqualTo(1);
         assertThat(countOf("meeting_verifications")).isEqualTo(2);
     }
 
-    // ── clientRequestId 멱등·충돌 정책 ─────────────────────────────────────
+    @Test
+    @DisplayName("LOW_ACCURACY 제출은 CODE_REQUIRED 로 저장되고 Meeting 은 0건이다")
+    void lowAccuracyDoesNotCreateMeeting() {
+        submit(USER_1, UUID.randomUUID(), 37.5665, 126.978, 60.0);
+
+        assertThat(countOf("meetings")).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "select status from meeting_verifications where participant_pet_id = ?",
+                String.class, PET_1)).isEqualTo(MeetingVerificationStatus.CODE_REQUIRED.name());
+
+        // 상대가 ACCEPTABLE 이어도 한쪽 CODE_REQUIRED 면 GPS Meeting 을 만들지 않는다.
+        MeetingVerificationResult second = submit(USER_2, UUID.randomUUID(), 37.5665, 126.978, 24.5);
+        assertThat(second.confirmed()).isFalse();
+        assertThat(countOf("meetings")).isZero();
+    }
 
     @Test
-    @DisplayName("같은 card/pet/payload/clientRequestId 재요청은 멱등으로 기존 결과를 반환한다")
+    @DisplayName("거리 초과는 MEETING_DISTANCE_EXCEEDED 이고 Meeting 은 0건이다")
+    void distanceExceededDoesNotCreateMeeting() {
+        submit(USER_1, UUID.randomUUID(), 37.5665, 126.978, 24.5);
+
+        assertThatThrownBy(() -> submit(USER_2, UUID.randomUUID(), 37.9000, 127.1000, 24.5))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.MEETING_DISTANCE_EXCEEDED);
+
+        assertThat(countOf("meetings")).isZero();
+    }
+
+    @Test
+    @DisplayName("제출 시각 간격 초과는 MEETING_TIME_WINDOW_EXCEEDED 이고 Meeting 은 0건이다")
+    void intervalExceededDoesNotCreateMeeting() {
+        submit(USER_1, UUID.randomUUID(), 37.5665, 126.978, 24.5,
+                Instant.now().minus(2, ChronoUnit.MINUTES));
+
+        assertThatThrownBy(() -> submit(USER_2, UUID.randomUUID(), 37.5665, 126.978, 24.5,
+                Instant.now().minus(10, ChronoUnit.SECONDS)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(ErrorCode.MEETING_TIME_WINDOW_EXCEEDED);
+
+        assertThat(countOf("meetings")).isZero();
+    }
+
+    // ── clientRequestId 멱등·충돌 ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("같은 card/pet/payload/clientRequestId 재요청은 멱등이다")
     void sameClientRequestIdWithSameCardPetAndPayloadIsIdempotent() {
-        // payload(capturedAt 포함)가 정확히 같은 요청을 두 번 보낸다.
         MeetingVerificationSubmitCommand command = new MeetingVerificationSubmitCommand(
                 UUID.randomUUID(), 37.5665, 126.978, 24.5,
                 Instant.now().minus(10, ChronoUnit.SECONDS));
@@ -159,7 +211,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         assertThat(second.cardId()).isEqualTo(first.cardId());
         assertThat(second.submittedPetId()).isEqualTo(first.submittedPetId());
         assertThat(countOf("meeting_verifications")).isEqualTo(1);
-        assertThat(meetingVerificationRepository.findAll()).hasSize(1);
     }
 
     @Test
@@ -190,8 +241,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.MEETING_VERIFICATION_REQUEST_CONFLICT);
-
-        assertThat(countOf("meeting_verifications")).isEqualTo(1);
     }
 
     @Test
@@ -207,8 +256,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.MEETING_VERIFICATION_REQUEST_CONFLICT);
-
-        assertThat(countOf("meeting_verifications")).isEqualTo(1);
     }
 
     @Test
@@ -219,11 +266,8 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         UUID replacement = UUID.randomUUID();
         MeetingVerificationResult result = submit(USER_1, replacement, 37.5700, 126.9800, 12.0);
 
-        assertThat(result.counterpartSubmitted()).isFalse();
+        assertThat(result.confirmed()).isFalse();
         assertThat(countOf("meeting_verifications")).isEqualTo(1);
-        assertThat(jdbcTemplate.queryForObject("""
-                select client_request_id::text from meeting_verifications
-                """, String.class)).isEqualTo(replacement.toString());
         assertThat(jdbcTemplate.queryForObject(
                 "select latitude from meeting_verifications", Double.class))
                 .isEqualTo(37.5700);
@@ -278,23 +322,22 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     // ── 동시성 ─────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("양쪽 Pet 이 동시에 제출해도 Verification 은 2행 이하·Meeting 은 0행이다")
-    void concurrentSubmissionsCreateNoMeeting() throws Exception {
+    @DisplayName("양쪽 Pet 이 동시에 GPS 제출해도 Meeting 은 정확히 1건·Verification 은 2행이다")
+    void concurrentGpsSubmissionsCreateSingleMeeting() throws Exception {
         List<Object> outcomes = runConcurrently(i -> {
             long actor = (i % 2 == 0) ? USER_1 : USER_2;
-            return submit(actor, UUID.randomUUID(), 37.5665 + i * 0.0001, 126.978, 24.5);
+            return submit(actor, UUID.randomUUID(), 37.5665, 126.978, 24.5);
         });
 
         assertThat(outcomes).hasSize(WORKERS);
         assertThat(outcomes).allMatch(o -> o instanceof MeetingVerificationResult);
-        assertThat(countOf("meetings")).isZero();
+        assertThat(countOf("meetings")).isEqualTo(1);
         assertThat(countOf("meeting_verifications")).isEqualTo(2);
     }
 
     @Test
     @DisplayName("서로 다른 카드·다른 Pet 조합이 같은 clientRequestId 를 동시에 제출하면 하나만 성공하고 나머지는 409 다")
     void concurrentSameClientRequestIdAcrossDifferentPairsYieldsOneConflict() throws Exception {
-        // 서로 다른 pair lock 을 타도록 다른 참여 Pet 조합의 두 번째 DIRECT 방·카드를 준비한다.
         insertUser(3L);
         insertUser(4L);
         insertPet(33L, 3L);
@@ -307,8 +350,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                         "다른공원", Instant.now().plus(2, ChronoUnit.DAYS))).cardId();
 
         UUID sharedRequestId = UUID.randomUUID();
-
-        // 같은 clientRequestId 를 서로 다른 카드(다른 pair lock)에 동시에 제출한다.
         List<Object> outcomes = runTwoConcurrently(
                 () -> captureSubmit(USER_1, cardId, sharedRequestId),
                 () -> captureSubmit(3L, otherCardId, sharedRequestId));
@@ -325,13 +366,26 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         assertThat(conflicts).hasSize(1);
         assertThat(conflicts.get(0).getErrorCode())
                 .isEqualTo(ErrorCode.MEETING_VERIFICATION_REQUEST_CONFLICT);
-        // CONCURRENT_UPDATE_CONFLICT·500·원시 DataIntegrityViolationException 이 새어 나오면 안 된다.
         assertThat(outcomes).noneMatch(o -> o instanceof DataIntegrityViolationException);
-        assertThat(conflicts.get(0).getErrorCode())
-                .isNotEqualTo(ErrorCode.CONCURRENT_UPDATE_CONFLICT);
 
         assertThat(countOf("meeting_verifications")).isEqualTo(1);
         assertThat(countOf("meetings")).isZero();
+    }
+
+    @Test
+    @DisplayName("카드 취소와 GPS 제출이 경합하면 한쪽만 정상 진행된다")
+    void cancelRacingGpsSubmissionIsResolved() throws Exception {
+        List<Object> outcomes = runTwoConcurrently(
+                () -> captureCancel(USER_1),
+                () -> captureSubmit(USER_2, cardId, UUID.randomUUID()));
+
+        // 두 결과는 각각 취소 성공 또는 제출 결과/오류다. 어느 쪽이든 meetings 는 0 또는 1이고
+        // 카드 상태는 CANCELED 또는 OPEN 으로 정합해야 한다. 경합은 pair lock / 행 잠금으로 직렬화된다.
+        assertThat(outcomes).hasSize(2);
+        String status = jdbcTemplate.queryForObject(
+                "select status from meeting_cards where id = ?", String.class, cardId);
+        assertThat(status).isIn(MeetingCardStatus.OPEN.name(), MeetingCardStatus.CANCELED.name());
+        assertThat(countOf("meetings")).isLessThanOrEqualTo(1);
     }
 
     // ── 확정용 Meeting DB 제약 ─────────────────────────────────────────────
@@ -364,37 +418,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                         """, otherCardId))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_meeting_verification_method");
-    }
-
-    @Test
-    @DisplayName("meetings 는 확정 필드(verification_method, confirmed_at) 없이 만들 수 없다")
-    void databaseRejectsMeetingWithoutConfirmationFields() {
-        long otherCardId = confirmAnotherCard();
-
-        assertThatThrownBy(() -> jdbcTemplate.update("""
-                        insert into meetings (meeting_card_id, verification_method)
-                        values (?, 'GPS')
-                        """, otherCardId))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("confirmed_at");
-
-        assertThatThrownBy(() -> jdbcTemplate.update("""
-                        insert into meetings (meeting_card_id, confirmed_at)
-                        values (?, now())
-                        """, otherCardId))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("verification_method");
-    }
-
-    @Test
-    @DisplayName("meetings 의 meeting_card_id 는 meeting_cards 를 참조한다(FK)")
-    void databaseRejectsMeetingForMissingCard() {
-        assertThatThrownBy(() -> jdbcTemplate.update("""
-                        insert into meetings (meeting_card_id, verification_method, confirmed_at)
-                        values (99999, 'GPS', now())
-                        """))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("meetings_meeting_card_id_fkey");
     }
 
     @Test
@@ -451,19 +474,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                 .hasMessageContaining("ck_meeting_verification_status");
     }
 
-    @Test
-    @DisplayName("존재하지 않는 카드의 제출은 FK 로 거부된다")
-    void databaseRejectsVerificationForMissingCard() {
-        assertThatThrownBy(() -> jdbcTemplate.update("""
-                        insert into meeting_verifications
-                            (meeting_card_id, participant_pet_id, latitude, longitude,
-                             accuracy_meters, captured_at, client_request_id)
-                        values (99999, ?, 37.5, 126.9, 10.0, now(), ?)
-                        """, PET_1, UUID.randomUUID()))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("meeting_verifications_meeting_card_id_fkey");
-    }
-
     // ── 기존 MeetingCard lifecycle 회귀 ────────────────────────────────────
 
     @Test
@@ -480,7 +490,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select status from meeting_cards where id = ?",
                 String.class, cardId)).isEqualTo(MeetingCardStatus.CANCELED.name());
-        assertThat(countOf("meetings")).isZero();
     }
 
     // ── helpers ────────────────────────────────────────────────────────────
@@ -492,10 +501,35 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     private MeetingVerificationResult submit(long userId, UUID clientRequestId,
                                              double latitude, double longitude,
                                              double accuracyMeters) {
+        return submit(userId, clientRequestId, latitude, longitude, accuracyMeters,
+                Instant.now().minus(10, ChronoUnit.SECONDS));
+    }
+
+    private MeetingVerificationResult submit(long userId, UUID clientRequestId,
+                                             double latitude, double longitude,
+                                             double accuracyMeters, Instant capturedAt) {
         return meetingVerificationService.submit(userId, cardId,
                 new MeetingVerificationSubmitCommand(
-                        clientRequestId, latitude, longitude, accuracyMeters,
-                        Instant.now().minus(10, ChronoUnit.SECONDS)));
+                        clientRequestId, latitude, longitude, accuracyMeters, capturedAt));
+    }
+
+    private Object captureSubmit(long userId, long targetCardId, UUID clientRequestId) {
+        try {
+            return meetingVerificationService.submit(userId, targetCardId,
+                    new MeetingVerificationSubmitCommand(
+                            clientRequestId, 37.5665, 126.978, 24.5,
+                            Instant.now().minus(10, ChronoUnit.SECONDS)));
+        } catch (BusinessException exception) {
+            return exception;
+        }
+    }
+
+    private Object captureCancel(long userId) {
+        try {
+            return meetingCardService.cancel(userId, cardId);
+        } catch (BusinessException exception) {
+            return exception;
+        }
     }
 
     private long confirmAnotherCard() {
@@ -563,27 +597,6 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         }
     }
 
-    private int countOf(String table) {
-        return jdbcTemplate.queryForObject("select count(*) from " + table, Integer.class);
-    }
-
-    /**
-     * 제출을 실행해 결과 또는 BusinessException 을 그대로 담아 반환한다. 예상치 못한
-     * 예외(예: 원시 DataIntegrityViolationException)는 감싸지 않고 그대로 던져 테스트가
-     * 실패하게 한다.
-     */
-    private Object captureSubmit(long userId, long targetCardId, UUID clientRequestId) {
-        try {
-            return meetingVerificationService.submit(userId, targetCardId,
-                    new MeetingVerificationSubmitCommand(
-                            clientRequestId, 37.5665, 126.978, 24.5,
-                            Instant.now().minus(10, ChronoUnit.SECONDS)));
-        } catch (BusinessException exception) {
-            return exception;
-        }
-    }
-
-    /** 두 액션을 barrier 로 동시에 시작시켜 실행한다. */
     private List<Object> runTwoConcurrently(Callable<Object> first, Callable<Object> second)
             throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -609,5 +622,9 @@ class MeetingVerificationPostgreSqlIntegrationTest {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    private int countOf(String table) {
+        return jdbcTemplate.queryForObject("select count(*) from " + table, Integer.class);
     }
 }

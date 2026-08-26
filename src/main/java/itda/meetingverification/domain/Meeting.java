@@ -20,9 +20,6 @@ import lombok.NoArgsConstructor;
  *
  * <p>미확정 상태(NOT_SUBMITTED/WAITING_COUNTERPART/...)를 저장하지 않는다. 제출·대기
  * 상태는 {@link MeetingVerification} 행의 존재와 양쪽 제출 여부로 표현한다.
- *
- * <p>현재 #146 Location 계약 미병합이라 생성 경로는 아직 없다. GPS 확정 태스크에서
- * 확정 시 이 엔티티를 저장하고, GPS 거리값이 필요하면 그때 필드를 추가한다.
  */
 @Getter
 @Entity
