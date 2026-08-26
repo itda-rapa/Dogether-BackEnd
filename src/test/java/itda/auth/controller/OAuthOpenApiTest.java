@@ -72,6 +72,10 @@ class OAuthOpenApiTest {
             assertThat(browserOperation.path("responses").path("302").path("headers")
                     .path("Location").isMissingNode()).as("%s Location header", browserPath).isFalse();
         }
+        assertThat(openApi.path("paths").path("/oauth2/authorization/google").path("get")
+                .path("responses").path("302").path("headers").path("Set-Cookie").isMissingNode())
+                .as("OAuth authorization browser binding cookie header")
+                .isFalse();
     }
 
     private void assertConcreteOperation(JsonNode operation, String operationName) {

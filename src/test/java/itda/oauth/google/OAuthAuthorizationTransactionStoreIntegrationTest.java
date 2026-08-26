@@ -30,6 +30,9 @@ import org.testcontainers.utility.DockerImageName;
 @Testcontainers
 class OAuthAuthorizationTransactionStoreIntegrationTest {
 
+    private static final String BROWSER_BINDING_A = "A".repeat(43);
+    private static final String BROWSER_BINDING_B = "B".repeat(43);
+
     @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
             .withExposedPorts(6379);
@@ -44,12 +47,12 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     @Test
     void stateCanBeConsumedExactlyOnceAcrossConcurrentCallbacks() throws Exception {
         OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
-        var created = store.create();
+        var created = store.create(BROWSER_BINDING_A);
         var executor = Executors.newFixedThreadPool(2);
         try {
             Callable<Boolean> consume = () -> {
                 try {
-                    store.consume(created.state());
+                    store.consume(created.state(), BROWSER_BINDING_A);
                     return true;
                 } catch (OAuthCallbackException exception) {
                     return false;
@@ -72,17 +75,75 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     }
 
     @Test
+    void callbackFromDifferentBrowserCannotConsumeAuthorizationTransaction() {
+        OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
+        var created = store.create(BROWSER_BINDING_A);
+
+        assertThatThrownBy(() -> store.consume(created.state(), BROWSER_BINDING_B))
+                .isInstanceOf(OAuthCallbackException.class)
+                .extracting(error -> ((OAuthCallbackException) error).failure())
+                .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
+        assertThat(template().hasKey(key(created.state()))).isTrue();
+
+        assertThat(store.consume(created.state(), BROWSER_BINDING_A))
+                .isEqualTo(new OAuthAuthorizationTransactionStore.ConsumedTransaction(
+                        created.codeVerifier(), created.nonce()));
+        assertThat(template().hasKey(key(created.state()))).isFalse();
+        assertInvalid(store, created.state());
+    }
+
+    @Test
+    void missingOrMalformedBrowserBindingLeavesStateAvailableForOriginalBrowser() {
+        OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
+        var created = store.create(BROWSER_BINDING_A);
+
+        assertThatThrownBy(() -> store.consume(created.state(), null))
+                .isInstanceOf(OAuthCallbackException.class)
+                .extracting(error -> ((OAuthCallbackException) error).failure())
+                .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
+        assertThatThrownBy(() -> store.consume(created.state(), "malformed!"))
+                .isInstanceOf(OAuthCallbackException.class)
+                .extracting(error -> ((OAuthCallbackException) error).failure())
+                .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
+        assertThat(template().hasKey(key(created.state()))).isTrue();
+
+        store.consume(created.state(), BROWSER_BINDING_A);
+        assertThat(template().hasKey(key(created.state()))).isFalse();
+    }
+
+    @Test
+    void sameBrowserBindingSupportsIndependentMultiTabTransactions() {
+        OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
+        var first = store.create(BROWSER_BINDING_A);
+        var second = store.create(BROWSER_BINDING_A);
+
+        assertThat(store.consume(first.state(), BROWSER_BINDING_A)).isNotNull();
+        assertThat(store.consume(second.state(), BROWSER_BINDING_A)).isNotNull();
+    }
+
+    @Test
+    void redisTransactionStoresOnlyBrowserBindingHash() {
+        OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
+        var created = store.create(BROWSER_BINDING_A);
+
+        assertThat(template().opsForHash().get(key(created.state()), "browserBindingHash"))
+                .isEqualTo(TokenHashing.sha256(BROWSER_BINDING_A));
+        assertThat(template().opsForHash().values(key(created.state())))
+                .doesNotContain(BROWSER_BINDING_A);
+    }
+
+    @Test
     void expiredStateIsDeletedAndReportedAsExpired() {
         Instant start = Instant.parse("2026-08-25T00:00:00Z");
         OAuthAuthorizationTransactionStore creator = store(start);
-        var created = creator.create();
+        var created = creator.create(BROWSER_BINDING_A);
         OAuthAuthorizationTransactionStore afterExpiry = store(start.plusSeconds(61));
 
-        assertThatThrownBy(() -> afterExpiry.consume(created.state()))
+        assertThatThrownBy(() -> afterExpiry.consume(created.state(), BROWSER_BINDING_A))
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_EXPIRED);
-        assertThatThrownBy(() -> afterExpiry.consume(created.state()))
+        assertThatThrownBy(() -> afterExpiry.consume(created.state(), BROWSER_BINDING_A))
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
@@ -99,14 +160,14 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     void redirectBindingMismatchInvalidatesAndDeletesState() {
         Instant now = Instant.parse("2026-08-25T00:00:00Z");
         OAuthAuthorizationTransactionStore creator = store(now, properties());
-        var created = creator.create();
+        var created = creator.create(BROWSER_BINDING_A);
         GoogleOAuthProperties differentRedirect = new GoogleOAuthProperties(true, "client-id", "client-secret",
                 "https://other-api.example.com/login/oauth2/code/google",
                 "https://front.example.com/oauth/success", "https://front.example.com/oauth/error",
                 List.of("https://front.example.com/oauth/success", "https://front.example.com/oauth/error"),
                 Duration.ofSeconds(60), Duration.ofSeconds(5), Duration.ofSeconds(1), Duration.ofSeconds(1));
 
-        assertThatThrownBy(() -> store(now, differentRedirect).consume(created.state()))
+        assertThatThrownBy(() -> store(now, differentRedirect).consume(created.state(), BROWSER_BINDING_A))
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
@@ -116,11 +177,11 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     @Test
     void corruptVerifierOrNonceInvalidatesAndDeletesState() {
         OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
-        var missingVerifier = store.create();
+        var missingVerifier = store.create(BROWSER_BINDING_A);
         template().opsForHash().delete(key(missingVerifier.state()), "codeVerifier");
         assertInvalid(store, missingVerifier.state());
 
-        var missingNonce = store.create();
+        var missingNonce = store.create(BROWSER_BINDING_A);
         template().opsForHash().delete(key(missingNonce.state()), "nonce");
         assertInvalid(store, missingNonce.state());
         assertThat(template().hasKey(key(missingVerifier.state()))).isFalse();
@@ -131,11 +192,11 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     void physicalTtlIncludesConfiguredGraceWhileLogicalExpiryStillFailsClosed() {
         Instant now = Instant.parse("2026-08-25T00:00:00Z");
         OAuthAuthorizationTransactionStore creator = store(now);
-        var created = creator.create();
+        var created = creator.create(BROWSER_BINDING_A);
         assertThat(template().getExpire(key(created.state()), java.util.concurrent.TimeUnit.MILLISECONDS))
                 .isBetween(59_000L, 65_000L);
 
-        assertThatThrownBy(() -> store(now.plusSeconds(60)).consume(created.state()))
+        assertThatThrownBy(() -> store(now.plusSeconds(60)).consume(created.state(), BROWSER_BINDING_A))
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_EXPIRED);
@@ -185,7 +246,7 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     }
 
     private void assertInvalid(OAuthAuthorizationTransactionStore store, String state) {
-        assertThatThrownBy(() -> store.consume(state))
+        assertThatThrownBy(() -> store.consume(state, BROWSER_BINDING_A))
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);

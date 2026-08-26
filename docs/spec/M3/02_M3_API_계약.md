@@ -43,7 +43,10 @@ Active Pet이 없으면 `relationship`은 `null`이고, 그 외에는 기존 Fri
 두 mutation은 Pet link만 변경하며 Media row/`deletedAt`/S3/`StorageDeleteJob`을 변경하지 않는다.
 
 OAuth의 두 GET은 브라우저 navigation 전용이며 `ApiResponse` JSON을 반환하지 않는다. Google만
-runtime 지원하고, 시작 성공은 Google authorize URL로 `302`, callback의 성공은 allowlist된 success
+runtime 지원하고, 시작 성공은 Google authorize URL로 `302`하면서 short-lived
+`__Host-dogether_oauth_browser_binding` cookie를 `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, Domain 없이
+설정한다. callback은 같은 browser correlation cookie를 요구하며 부재·불일치는 state를 소비하지 않고
+`OAUTH_STATE_INVALID`로 redirect한다. callback의 성공은 allowlist된 success
 callback URL로 `302`다. callback success query는 `loginCode`, `provider=GOOGLE`만 포함하며 JWT나
 provider token, verified email, providerSubject, raw provider response는 포함하지 않는다. callback 실패도
 error callback URL로 `errorCode`만 붙여 `302`하며 허용 값은 `INTERNAL_ERROR`, `OAUTH_STATE_INVALID`,

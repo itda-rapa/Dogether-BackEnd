@@ -14,6 +14,16 @@ if redis.call('HGET', KEYS[1], 'provider') ~= ARGV[2]
     return {-1}
 end
 
+local browserBindingHash = redis.call('HGET', KEYS[1], 'browserBindingHash')
+if not browserBindingHash then
+    redis.call('DEL', KEYS[1])
+    return {-1}
+end
+
+if browserBindingHash ~= ARGV[4] then
+    return {-1}
+end
+
 local codeVerifier = redis.call('HGET', KEYS[1], 'codeVerifier')
 local nonce = redis.call('HGET', KEYS[1], 'nonce')
 if not codeVerifier or not nonce then

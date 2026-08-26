@@ -140,7 +140,9 @@ paths:
       operationId: startGoogleOAuthAuthorization
       description: |
         JSON API가 아닌 browser navigation endpoint다. enabled일 때 Google authorization URL로 302를
-        반환하며 scope는 `openid email`, state·PKCE S256·nonce를 사용한다. disabled이면 404다.
+        반환하며 scope는 `openid email`, state·PKCE S256·nonce를 사용한다. 시작 응답은 동일 browser의
+        callback을 위해 short-lived `__Host-dogether_oauth_browser_binding` cookie를 `HttpOnly`, `Secure`,
+        `SameSite=Lax`, `Path=/` 및 Domain 없이 설정한다. disabled이면 404다.
       security: []
       responses:
         '302':
@@ -149,6 +151,9 @@ paths:
             Location:
               required: true
               schema: { type: string, format: uri }
+            Set-Cookie:
+              description: Authorization start sets the short-lived browser correlation cookie; safe error redirects do not.
+              schema: { type: string }
         '404':
           description: Google OAuth 비활성화
 
@@ -162,7 +167,9 @@ paths:
         `loginCode`와 `provider=GOOGLE`만 붙여 302한다. 실패는 error callback URL에 allowlist된
         `errorCode`만 붙여 302한다. 허용 errorCode는 `INTERNAL_ERROR`, `OAUTH_STATE_INVALID`,
         `OAUTH_STATE_EXPIRED`, `OAUTH_AUTHORIZATION_DENIED`,
-        `OAUTH_IDENTITY_VERIFICATION_FAILED`, `OAUTH_PROVIDER_UNAVAILABLE`다. Location에는 JWT,
+        `OAUTH_IDENTITY_VERIFICATION_FAILED`, `OAUTH_PROVIDER_UNAVAILABLE`다. authorization을 시작한 동일
+        browser correlation cookie가 없거나 일치하지 않으면 `OAUTH_STATE_INVALID`로 302하며 transaction을
+        소비하지 않는다. Location에는 JWT,
         provider token, verified email, providerSubject, raw provider response를 포함하지 않는다.
       security: []
       parameters:

@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Component;
 public class OAuthAuthorizationTransactionStore {
 
     private static final String KEY_PREFIX = "dogether:oauth:v1:google:transaction:";
+    private static final Pattern BROWSER_BINDING_PATTERN = Pattern.compile("[A-Za-z0-9_-]{43}");
 
     private final StringRedisTemplate redis;
     private final DefaultRedisScript<Long> issueScript;
@@ -55,7 +57,10 @@ public class OAuthAuthorizationTransactionStore {
         this.clock = clock;
     }
 
-    public CreatedTransaction create() {
+    public CreatedTransaction create(String browserBinding) {
+        if (!isValidBrowserBinding(browserBinding)) {
+            throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_INVALID);
+        }
         Duration logicalTtl = properties.transactionTtl();
         Duration graceTtl = properties.transactionGraceTtl();
         Instant expiresAt = clock.instant().plus(logicalTtl);
@@ -67,7 +72,7 @@ public class OAuthAuthorizationTransactionStore {
             Long result = redis.execute(issueScript, List.of(key(state)),
                     OAuthProvider.GOOGLE.name(), codeVerifier, nonce,
                     properties.backendRedirectUri().toString(), Long.toString(expiresAt.toEpochMilli()),
-                    Long.toString(physicalTtl.toMillis()));
+                    TokenHashing.sha256(browserBinding), Long.toString(physicalTtl.toMillis()));
             if (Long.valueOf(1L).equals(result)) {
                 return new CreatedTransaction(state, codeVerifier, nonce, expiresAt);
             }
@@ -78,13 +83,13 @@ public class OAuthAuthorizationTransactionStore {
         throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_PROVIDER_UNAVAILABLE);
     }
 
-    public ConsumedTransaction consume(String state) {
-        if (state == null || state.isBlank()) {
+    public ConsumedTransaction consume(String state, String browserBinding) {
+        if (state == null || state.isBlank() || !isValidBrowserBinding(browserBinding)) {
             throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_INVALID);
         }
         List<?> result = redis.execute(consumeScript, List.of(key(state)),
                 Long.toString(clock.instant().toEpochMilli()), OAuthProvider.GOOGLE.name(),
-                properties.backendRedirectUri().toString());
+                properties.backendRedirectUri().toString(), TokenHashing.sha256(browserBinding));
         long status = status(result);
         if (status == -2L) {
             throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_EXPIRED);
@@ -108,6 +113,10 @@ public class OAuthAuthorizationTransactionStore {
         } catch (java.security.NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
+    }
+
+    static boolean isValidBrowserBinding(String browserBinding) {
+        return browserBinding != null && BROWSER_BINDING_PATTERN.matcher(browserBinding).matches();
     }
 
     private long status(List<?> result) {

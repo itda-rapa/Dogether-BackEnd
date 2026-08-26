@@ -7,6 +7,7 @@ redis.call('HSET', KEYS[1],
     'codeVerifier', ARGV[2],
     'nonce', ARGV[3],
     'redirectUri', ARGV[4],
-    'expiresAt', ARGV[5])
-redis.call('PEXPIRE', KEYS[1], ARGV[6])
+    'expiresAt', ARGV[5],
+    'browserBindingHash', ARGV[6])
+redis.call('PEXPIRE', KEYS[1], ARGV[7])
 return 1

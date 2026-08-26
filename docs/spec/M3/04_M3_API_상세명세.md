@@ -60,7 +60,7 @@ Content-Type: application/json
 
 - 인증: 불필요. 브라우저 navigation 전용이며 JSON `ApiResponse` endpoint가 아니다.
 - Google OAuth가 enabled이면 Google authorization endpoint로 `302 Found`를 반환한다. disabled이면 `404`다.
-- scope는 정확히 `openid email`이다. 서버는 Redis에 일회용 state, PKCE verifier(S256), nonce와 backend redirect URI를 저장한다.
+- scope는 정확히 `openid email`이다. 서버는 Redis에 일회용 state, PKCE verifier(S256), nonce, backend redirect URI와 browser binding hash를 저장한다. 시작 응답은 raw `__Host-dogether_oauth_browser_binding` cookie를 short-lived `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, Domain 없이 설정한다.
 - `NAVER`는 공통 enum/DB 제약에만 존재하며 runtime endpoint·adapter·설정은 없다.
 
 Callback 흐름:
@@ -89,6 +89,7 @@ Google 인증
 ### `GET /login/oauth2/code/google`
 
 - 인증: 불필요. Google이 `state`, `code` 또는 `error`를 전달하는 browser callback이다.
+- callback은 authorization을 시작한 동일 browser correlation cookie를 요구한다. cookie가 없거나 malformed 또는 transaction과 불일치하면 state를 소비하지 않고 `OAUTH_STATE_INVALID`로 redirect한다.
 - 성공·실패 모두 위 callback URL로 `302`하며 JSON error envelope를 직접 반환하지 않는다.
 - OAuth가 disabled이면 `404`다.
 
