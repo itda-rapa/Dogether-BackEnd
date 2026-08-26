@@ -131,6 +131,12 @@ public enum ErrorCode {
     MEETING_CARD_ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소된 약속 카드입니다."),
     MEETING_CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "약속 카드를 찾을 수 없습니다."),
     MEETING_CARD_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "약속 카드는 DIRECT 채팅방에서만 만들 수 있습니다."),
+    MEETING_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "약속 참여 반려견만 위치를 제출할 수 있습니다."),
+    MEETING_CARD_NOT_OPEN(HttpStatus.CONFLICT, "취소된 약속 카드에는 위치를 제출할 수 없습니다."),
+    MEETING_VERIFICATION_REQUEST_CONFLICT(
+            HttpStatus.CONFLICT,
+            "같은 요청 식별자로 이미 다른 내용의 위치 제출이 접수되었습니다."
+    ),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
     REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 
