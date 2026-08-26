@@ -4,6 +4,7 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.domain.Media;
 import itda.media.domain.MediaType;
+import itda.media.storage.ObjectMetadata;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +50,22 @@ public final class ChatMediaPolicy {
             throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
         }
         requireValidUpload(media.getMediaType(), media.getContentType(), media.getFileSize());
+    }
+
+    /** 실제 object metadata는 init 요청의 선언값보다 우선한다. */
+    public static void requireVerifiedObject(Media media, ObjectMetadata metadata) {
+        if (metadata == null || metadata.size() != media.getFileSize()) {
+            throw new BusinessException(ErrorCode.MEDIA_SIZE_INVALID);
+        }
+        String expectedContentType = normalizeContentType(media.getContentType(), media.getMediaType());
+        if (metadata.contentType() == null || metadata.contentType().isBlank()) {
+            throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
+        }
+        String actualContentType = metadata.contentType().trim().toLowerCase(Locale.ROOT);
+        if (!expectedContentType.equals(actualContentType)) {
+            throw new BusinessException(ErrorCode.INVALID_MEDIA_TYPE);
+        }
+        requireValidUpload(media.getMediaType(), actualContentType, metadata.size());
     }
 
     public static String normalizeContentType(String contentType, MediaType mediaType) {

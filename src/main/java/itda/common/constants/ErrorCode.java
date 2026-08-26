@@ -47,6 +47,8 @@ public enum ErrorCode {
     INVALID_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "허용되지 않는 미디어 형식입니다."),
     MEDIA_SIZE_INVALID(HttpStatus.PAYLOAD_TOO_LARGE, "허용된 미디어 크기를 초과했습니다."),
     MEDIA_STATE_CONFLICT(HttpStatus.CONFLICT, "현재 미디어 상태에서는 요청을 처리할 수 없습니다."),
+    MEDIA_STORAGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "미디어 스토리지를 일시적으로 사용할 수 없습니다."),
+    MEDIA_STORAGE_REJECTED(HttpStatus.BAD_GATEWAY, "미디어 스토리지 요청이 거절되었습니다."),
     MEDIA_PURPOSE_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 마일스톤에서 해당 미디어를 업로드할 수 없습니다."),
     SETLOG_MEDIA_ALREADY_USED(HttpStatus.CONFLICT, "이미 셋로그에 사용된 미디어입니다."),
     SETLOG_UPLOAD_PET_FORBIDDEN(HttpStatus.FORBIDDEN, "현재 활동 반려견으로만 셋로그를 업로드할 수 있습니다."),

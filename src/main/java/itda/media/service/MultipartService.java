@@ -84,4 +84,12 @@ public class MultipartService {
         // 이후 RustFS는 업로드된 Part들을 하나의 파일로 병합
         s3Client.completeMultipartUpload(completeRequest);
     }
+
+    public void abortMultipartUpload(String path, String uploadId) {
+        s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
+                .bucket(s3Properties.bucket())
+                .key(path)
+                .uploadId(uploadId)
+                .build());
+    }
 }

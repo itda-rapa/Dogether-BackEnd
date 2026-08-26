@@ -10,6 +10,11 @@ import itda.media.dto.uploaddto.MultipartUploadInfo;
 import itda.media.dto.uploaddto.MultipartUploaded;
 import itda.media.dto.uploaddto.PresignedUrl;
 import itda.media.repository.MediaRepository;
+import itda.media.storage.ObjectMetadata;
+import itda.media.storage.ObjectNotFoundException;
+import itda.media.storage.ObjectStorage;
+import itda.media.storage.StorageProviderRejectedException;
+import itda.media.storage.StorageProviderUnavailableException;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +47,7 @@ public class MediaService {
     private final S3Presigner s3Presigner;
     private final S3Properties s3Properties;
     private final UserRepository userRepository;
+    private final ObjectStorage objectStorage;
 
 
     // 파일 업로드를 수행하는 메서드
@@ -84,7 +90,6 @@ public class MediaService {
                 .bucket(s3Properties.bucket()) // RustFS에 저장할 버킷명
                 .key(path) // 경로 및 이름을 정의한 저장될 파일명
                 .contentType(contentType) // 파일의 MIME 타입
-                .contentLength(fileSize)
                 .build();
         // RustFS에 전달할 PresignedURL에 대한 요청을 생성하기 위해 PutObjectRequest 객체 생성
         // PresignedUrl의 유효기간에 관한 설정도 추가
@@ -189,8 +194,12 @@ public class MediaService {
         if (media.getStatus() != MediaStatus.INIT) {
             throw new IllegalArgumentException("Media is not in INIT status");
         }
-        // 멀티파트 업로드인 경우 S3에 작업완료를 지시 ( 단일 업로드 인 경우 생략 )
-        if (media.getUploadId() != null && !CollectionUtils.isEmpty(parts)) {
+        // 멀티파트 upload는 적어도 한 개의 완료 part가 있어야 한다.
+        if (media.getUploadId() != null) {
+            if (CollectionUtils.isEmpty(parts)) {
+                rejectUpload(media, null);
+                throw new BusinessException(ErrorCode.MEDIA_STATE_CONFLICT);
+            }
             // completeMultipartUpload()를 호출하여 S3에 업로드 완료를 알림
             // S3에서 백엔드로부터 API 수신 시 업로드된 파일을 병합 시작
             multipartService.completeMultipartUpload(media.getPath(), media.getUploadId(), parts);
@@ -198,10 +207,56 @@ public class MediaService {
             attributes.put("parts", parts);
             media.updateAttributes(attributes);
         }
-        // Media 객체 상태를 UPLOADED로 전환
-        media.updateStatus(MediaStatus.UPLOADED);
+        ObjectMetadata metadata;
+        try {
+            metadata = headUploadedObject(media.getPath());
+        } catch (BusinessException exception) {
+            if (exception.getErrorCode() == ErrorCode.MEDIA_NOT_UPLOADED) {
+                rejectUpload(media, null);
+            }
+            throw exception;
+        }
+        try {
+            ChatMediaPolicy.requireVerifiedObject(media, metadata);
+        } catch (BusinessException exception) {
+            rejectUpload(media, metadata);
+            throw exception;
+        }
+        // 실제 object metadata 검증에 성공한 경우에만 재생 가능 상태로 전이한다.
+        media.markUploadVerified(metadata, Instant.now());
         // Media 객체 저장
         return mediaRepository.save(media);
+    }
+
+    private void rejectUpload(Media media, ObjectMetadata metadata) {
+        media.updateStatus(MediaStatus.FAILED);
+        mediaRepository.save(media);
+        if (metadata == null && media.getUploadId() != null) {
+            try {
+                multipartService.abortMultipartUpload(media.getPath(), media.getUploadId());
+            } catch (RuntimeException ignored) {
+                // abort 실패 여부와 무관하게 Media는 재사용 불가능한 FAILED 상태로 남긴다.
+            }
+        }
+        if (metadata != null) {
+            try {
+                objectStorage.delete(media.getPath(), metadata.versionId());
+            } catch (RuntimeException ignored) {
+                // delete 실패 여부와 무관하게 Media는 재사용 불가능한 FAILED 상태로 남긴다.
+            }
+        }
+    }
+
+    private ObjectMetadata headUploadedObject(String path) {
+        try {
+            return objectStorage.head(path);
+        } catch (ObjectNotFoundException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_NOT_UPLOADED);
+        } catch (StorageProviderUnavailableException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        } catch (StorageProviderRejectedException exception) {
+            throw new BusinessException(ErrorCode.MEDIA_STORAGE_REJECTED);
+        }
     }
 
     public String getPresignedUrl(Long id) {

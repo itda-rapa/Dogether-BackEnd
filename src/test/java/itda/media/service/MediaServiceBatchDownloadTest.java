@@ -7,13 +7,20 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 
 import itda.common.properties.S3Properties;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.domain.Media;
 import itda.media.domain.MediaStatus;
+import itda.media.domain.MediaType;
 import itda.media.repository.MediaRepository;
+import itda.media.storage.ObjectMetadata;
+import itda.media.storage.ObjectStorage;
+import itda.media.storage.ObjectNotFoundException;
+import itda.media.dto.uploaddto.MultipartUploaded;
+import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.net.URI;
 import java.time.Instant;
@@ -37,6 +44,7 @@ class MediaServiceBatchDownloadTest {
     @Mock private MultipartService multipartService;
     @Mock private S3Presigner s3Presigner;
     @Mock private UserRepository userRepository;
+    @Mock private ObjectStorage objectStorage;
 
     private MediaService mediaService;
 
@@ -47,7 +55,8 @@ class MediaServiceBatchDownloadTest {
                 multipartService,
                 s3Presigner,
                 new S3Properties("access", "secret", "bucket", "region", 600L),
-                userRepository
+                userRepository,
+                objectStorage
         );
     }
 
@@ -141,11 +150,105 @@ class MediaServiceBatchDownloadTest {
         then(s3Presigner).shouldHaveNoInteractions();
     }
 
+    @Test
+    void multipartUploadWithoutPartsIsRejectedBeforeStorageCompletion() {
+        Media media = new Media(MediaType.IMAGE, "users/1/image.png", 1L, 9L * 1024 * 1024, "upload-1");
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+
+        assertMediaError(() -> mediaService.mediaUploaded(7L, List.of(), 1L), ErrorCode.MEDIA_STATE_CONFLICT);
+
+        then(objectStorage).shouldHaveNoInteractions();
+        assertThat(media.getStatus()).isEqualTo(MediaStatus.FAILED);
+        then(mediaRepository).should().save(media);
+        then(multipartService).should().abortMultipartUpload("users/1/image.png", "upload-1");
+    }
+
+    @Test
+    void uploadCompletionRejectsActualObjectSizeMismatch() {
+        Media media = new Media(MediaType.IMAGE, "users/1/image.png", 1L, 10L, "upload-1");
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+        given(objectStorage.head("users/1/image.png")).willReturn(
+                new ObjectMetadata(11L, "image/png", "etag", Instant.now(), "version-1"));
+
+        assertMediaError(() -> mediaService.mediaUploaded(
+                7L, List.of(new MultipartUploaded(1, "etag")), 1L), ErrorCode.MEDIA_SIZE_INVALID);
+
+        assertThat(media.getStatus()).isEqualTo(MediaStatus.FAILED);
+        then(mediaRepository).should().save(media);
+        then(objectStorage).should().delete("users/1/image.png", "version-1");
+    }
+
+    @Test
+    void uploadCompletionRejectsActualObjectContentTypeMismatch() {
+        Media media = new Media(MediaType.IMAGE, "users/1/image.png", 1L, 10L);
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+        given(objectStorage.head("users/1/image.png")).willReturn(
+                new ObjectMetadata(10L, "image/gif", "etag", Instant.now(), "version-1"));
+
+        assertMediaError(() -> mediaService.mediaUploaded(7L, List.of(), 1L), ErrorCode.INVALID_MEDIA_TYPE);
+
+        assertThat(media.getStatus()).isEqualTo(MediaStatus.FAILED);
+        then(objectStorage).should().delete("users/1/image.png", "version-1");
+    }
+
+    @Test
+    void uploadCompletionMarksMediaFailedWhenStorageObjectIsMissing() {
+        Media media = new Media(MediaType.VIDEO, "users/1/video.mp4", 1L, 10L);
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+        given(objectStorage.head("users/1/video.mp4")).willThrow(
+                new ObjectNotFoundException("head", new IllegalStateException("missing")));
+
+        assertMediaError(() -> mediaService.mediaUploaded(7L, List.of(), 1L), ErrorCode.MEDIA_NOT_UPLOADED);
+
+        assertThat(media.getStatus()).isEqualTo(MediaStatus.FAILED);
+        then(mediaRepository).should().save(media);
+    }
+
+    @Test
+    void uploadCompletionPersistsVerifiedObjectMetadataAndCompletedStatus() {
+        Media media = new Media(MediaType.VIDEO, "users/1/video.mp4", 1L, 10L);
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+        Instant lastModified = Instant.parse("2026-08-26T01:00:00Z");
+        given(objectStorage.head("users/1/video.mp4")).willReturn(
+                new ObjectMetadata(10L, "video/mp4", "etag", lastModified, "version-1"));
+        given(mediaRepository.save(media)).willReturn(media);
+
+        Media result = mediaService.mediaUploaded(7L, List.of(), 1L);
+
+        assertThat(result.getStatus()).isEqualTo(MediaStatus.COMPLETED);
+        assertThat(result.getContentType()).isEqualTo("video/mp4");
+        assertThat(result.getObjectVersionId()).isEqualTo("version-1");
+        assertThat(result.getVerifiedAt()).isNotNull();
+        then(mediaRepository).should().save(media);
+    }
+
     private void assertMediaNotFound(Runnable invocation) {
         assertThatThrownBy(invocation::run)
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(ErrorCode.MEDIA_NOT_FOUND));
+    }
+
+    private void assertMediaError(Runnable invocation, ErrorCode expected) {
+        assertThatThrownBy(invocation::run)
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(expected));
+    }
+
+    private User owner(long id) {
+        User user = mock(User.class);
+        given(user.getId()).willReturn(id);
+        return user;
     }
 
     private Media downloadableMedia(

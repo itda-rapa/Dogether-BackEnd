@@ -11,6 +11,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Map;
+import itda.media.storage.ObjectMetadata;
 
 @Entity
 @Table(name = "media")
@@ -113,6 +114,16 @@ public class Media extends BaseEntity {
     }
     public void updateAttributes(Map<String, Object> attributes) {
         this.attributes = attributes;
+    }
+
+    public void markUploadVerified(ObjectMetadata metadata, Instant verifiedAt) {
+        this.fileSize = metadata.size();
+        this.contentType = metadata.contentType();
+        this.etag = metadata.etag();
+        this.objectVersionId = metadata.versionId();
+        this.storageLastModified = metadata.lastModified();
+        this.verifiedAt = verifiedAt;
+        this.status = MediaStatus.COMPLETED;
     }
 
     public static Media verifiedVideo(
