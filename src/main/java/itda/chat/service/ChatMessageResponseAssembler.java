@@ -55,11 +55,15 @@ public class ChatMessageResponseAssembler {
     /**
      * 목록 변환(폴링). IMAGE/VIDEO media와 SETLOG_SHARE setlog를 한 번에 hydrate해 N+1을 피한다.
      */
+    /**
+     * 목록 변환에서 조회자 User를 함께 받아 SETLOG_SHARE의 차단 접근 정책까지 적용한다.
+     */
     public List<ChatMessageResponse> toResponses(
             List<ChatMessage> messages,
             Map<Long, PetDisplaySummary> senderPets,
             long actorPetId,
-            String actorNickname
+            String actorNickname,
+            Long viewerUserId
     ) {
         Map<Long, ChatMessageAttachment> attachments = attachmentsOf(messages);
         Map<Long, OwnedPresignedDownload> mediaDownloads =
@@ -69,7 +73,7 @@ public class ChatMessageResponseAssembler {
                                 .distinct()
                                 .toList()
                 );
-        Map<Long, ShareableSetlogView> setlogViews = setlogViewsOf(messages);
+        Map<Long, ShareableSetlogView> setlogViews = setlogViewsOf(messages, viewerUserId);
 
         return messages.stream()
                 .map(message -> toResponse(
@@ -202,7 +206,10 @@ public class ChatMessageResponseAssembler {
         return Map.copyOf(result);
     }
 
-    private Map<Long, ShareableSetlogView> setlogViewsOf(List<ChatMessage> messages) {
+    private Map<Long, ShareableSetlogView> setlogViewsOf(
+            List<ChatMessage> messages,
+            Long viewerUserId
+    ) {
         List<Long> setlogIds = messages.stream()
                 .filter(m -> m.getType() == MessageType.SETLOG_SHARE && m.getSharedSetlogId() != null)
                 .map(ChatMessage::getSharedSetlogId)
@@ -211,7 +218,7 @@ public class ChatMessageResponseAssembler {
         if (setlogIds.isEmpty()) {
             return Map.of();
         }
-        return setlogQueryService.findShareableSetlogViews(setlogIds);
+        return setlogQueryService.findShareableSetlogViews(setlogIds, viewerUserId);
     }
 
     private String senderPetNickname(Long senderPetId,

@@ -267,7 +267,7 @@ public class ChatQueryService {
                 .getPetDisplaySummaries(senderPetIds);
 
         List<ChatMessageResponse> items = responseAssembler.toResponses(
-                messages, senderPets, actor.petId(), actor.nickname());
+                messages, senderPets, actor.petId(), actor.nickname(), userId);
 
         Long nextAfterMessageId;
         if (!items.isEmpty()) {

@@ -248,19 +248,45 @@ public class SetlogQueryService {
      */
     @Transactional(readOnly = true)
     public Map<Long, ShareableSetlogView> findShareableSetlogViews(Collection<Long> setlogIds) {
+        return findShareableSetlogViews(setlogIds, null);
+    }
+
+    /**
+     * 메시지 목록 hydration용 viewer-aware batch 계약. 조회자와 작성자 사이에 차단 관계가
+     * 있으면 원본 Setlog가 아직 표시 가능하더라도 {@code available=false}로 숨긴다.
+     * 차단 확인은 작성자별 개별 조회가 아니라 batch query 한 번으로 수행하며, 차단된
+     * Setlog에는 media presigned URL을 발급하지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, ShareableSetlogView> findShareableSetlogViews(
+            Collection<Long> setlogIds,
+            Long viewerUserId
+    ) {
         if (setlogIds == null || setlogIds.isEmpty()) {
             return Map.of();
         }
         List<Setlog> setlogs = setlogRepository.findAllByIdForShare(
                 setlogIds, SetlogStatus.VISIBLE, PLAYABLE_MEDIA_STATUSES);
-        Map<Long, MediaService.OwnedPresignedDownload> downloads =
-                mediaService.getMediaDownloadsByIds(
-                        setlogs.stream().map(setlog -> setlog.getMedia().getId()).toList());
+        Set<Long> blockedAuthorUserIds =
+                blockRelationshipQueryService.findBlockedUserIdsBetween(
+                        viewerUserId,
+                        setlogs.stream()
+                                .map(setlog -> setlog.getAuthorPet().getOwner().getId())
+                                .collect(Collectors.toSet())
+                );
+        List<Setlog> visibleSetlogs = setlogs.stream()
+                .filter(setlog -> !blockedAuthorUserIds.contains(
+                        setlog.getAuthorPet().getOwner().getId()))
+                .toList();
+        Map<Long, MediaService.OwnedPresignedDownload> downloads = visibleSetlogs.isEmpty()
+                ? Map.of()
+                : mediaService.getMediaDownloadsByIds(
+                        visibleSetlogs.stream().map(setlog -> setlog.getMedia().getId()).toList());
         Map<Long, ShareableSetlogView> result = new LinkedHashMap<>();
         for (Long setlogId : setlogIds) {
             result.put(setlogId, ShareableSetlogView.unavailable(setlogId));
         }
-        for (Setlog setlog : setlogs) {
+        for (Setlog setlog : visibleSetlogs) {
             result.put(setlog.getId(), toShareableView(
                     setlog, downloads.get(setlog.getMedia().getId())));
         }
