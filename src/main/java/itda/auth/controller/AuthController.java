@@ -2,6 +2,9 @@ package itda.auth.controller;
 
 import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
+import itda.auth.dto.OAuthExchangeRequest;
+import itda.auth.dto.OAuthSignupRequest;
+import itda.auth.dto.OAuthSignupRequiredResponse;
 import itda.auth.dto.PasswordResetRequest;
 import itda.auth.dto.RefreshRequest;
 import itda.auth.dto.SignupRequest;
@@ -14,6 +17,7 @@ import itda.email.dto.EmailVerificationChallengeResponse;
 import itda.email.dto.EmailVerificationConfirmedResponse;
 import itda.email.dto.EmailVerificationConfirmRequest;
 import itda.email.dto.EmailVerificationSendRequest;
+import itda.oauth.service.OAuthExchangeResult;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -92,6 +96,43 @@ public class AuthController implements AuthSwaggerSupporter {
                 authService.refresh(request.refreshToken()),
                 "토큰이 재발급되었습니다."
         );
+    }
+
+    @PostMapping("/oauth/exchange")
+    public ResponseEntity<ApiResponse<?>> exchangeOAuth(
+            @Valid @RequestBody OAuthExchangeRequest request
+    ) {
+        OAuthExchangeResult<AuthTokensResponse> result = authService.exchangeOAuth(
+                request.provider(), request.loginCode()
+        );
+        if (result instanceof OAuthExchangeResult.ExistingUser<AuthTokensResponse> existingUser) {
+            return ResponseEntity.ok(ApiResponse.<Object>ok(
+                    existingUser.value(), "OAuth 로그인이 완료되었습니다."
+            ));
+        }
+
+        OAuthExchangeResult.SignupRequired<AuthTokensResponse> signupRequired =
+                (OAuthExchangeResult.SignupRequired<AuthTokensResponse>) result;
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(ApiResponse.<Object>ok(
+                new OAuthSignupRequiredResponse(
+                        signupRequired.profileCompletionRequired(),
+                        signupRequired.signupToken(),
+                        signupRequired.signupTokenExpiresAt()
+                ),
+                "OAuth 가입을 위한 추가 정보 입력이 필요합니다."
+        ));
+    }
+
+    @PostMapping("/oauth/signup")
+    public ResponseEntity<ApiResponse<AuthTokensResponse>> signupOAuth(
+            @Valid @RequestBody OAuthSignupRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(
+                authService.signupOAuth(
+                        request.signupToken(), request.nickname(), request.neighborhoodCode()
+                ),
+                "OAuth 회원가입이 완료되었습니다."
+        ));
     }
 
     @PostMapping("/logout")

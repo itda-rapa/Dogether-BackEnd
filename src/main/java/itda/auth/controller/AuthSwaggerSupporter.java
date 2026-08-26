@@ -10,6 +10,8 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.auth.dto.AuthTokensResponse;
 import itda.auth.dto.LoginRequest;
+import itda.auth.dto.OAuthExchangeRequest;
+import itda.auth.dto.OAuthSignupRequest;
 import itda.auth.dto.PasswordResetRequest;
 import itda.auth.dto.RefreshRequest;
 import itda.auth.dto.SignupRequest;
@@ -155,6 +157,31 @@ public interface AuthSwaggerSupporter {
             )
     )
     ApiResponse<AuthTokensResponse> refresh(RefreshRequest request);
+
+    @Operation(
+            summary = "OAuth 로그인 코드 교환",
+            description = "Google callback에서 발급된 일회용 loginCode를 교환합니다. 기존 계정은 토큰을, 신규 계정은 가입 토큰을 반환합니다."
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "기존 OAuth 계정 로그인 성공")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "프로필 입력이 필요한 신규 OAuth 계정")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "지원하지 않는 OAuth 제공자")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 loginCode")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "비활성화된 계정")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "동일 이메일 계정 연결 정책 결정 필요")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "만료되었거나 이미 사용된 loginCode")
+    ResponseEntity<ApiResponse<?>> exchangeOAuth(OAuthExchangeRequest request);
+
+    @Operation(
+            summary = "OAuth 회원가입 완료",
+            description = "OAuth 가입 토큰과 필수 프로필 정보를 사용해 OAuth 전용 계정을 생성하고 토큰을 발급합니다."
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "OAuth 회원가입 성공")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "요청 값 검증 실패")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 가입 토큰")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "동시 가입 충돌")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "만료된 가입 토큰")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "422", description = "유효하지 않은 동네 코드")
+    ResponseEntity<ApiResponse<AuthTokensResponse>> signupOAuth(OAuthSignupRequest request);
 
     @Operation(summary = "로그아웃", description = "현재 사용자의 Refresh Token을 폐기하는 API")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(

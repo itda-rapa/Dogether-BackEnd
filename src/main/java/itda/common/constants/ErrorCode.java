@@ -32,6 +32,22 @@ public enum ErrorCode {
     NEIGHBORHOOD_NOT_FOUND(HttpStatus.UNPROCESSABLE_CONTENT, "선택할 수 없는 동네입니다."),
     ACCOUNT_NOT_ACTIVE(HttpStatus.FORBIDDEN, "현재 이용할 수 없는 계정입니다."),
 
+    OAUTH_PROVIDER_UNSUPPORTED(HttpStatus.BAD_REQUEST, "지원하지 않는 OAuth 제공자입니다."),
+    OAUTH_LOGIN_CODE_INVALID(HttpStatus.UNAUTHORIZED, "유효하지 않은 OAuth 로그인 코드입니다."),
+    OAUTH_LOGIN_CODE_EXPIRED(HttpStatus.GONE, "OAuth 로그인 코드가 만료되었습니다."),
+    OAUTH_LOGIN_CODE_CONSUMED(HttpStatus.GONE, "이미 사용된 OAuth 로그인 코드입니다."),
+    OAUTH_SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "유효하지 않은 OAuth 가입 토큰입니다."),
+    OAUTH_SIGNUP_TOKEN_EXPIRED(HttpStatus.GONE, "OAuth 가입 토큰이 만료되었습니다."),
+    OAUTH_ACCOUNT_LINK_DECISION_REQUIRED(
+            HttpStatus.CONFLICT,
+            "동일한 이메일의 계정이 있어 OAuth 계정 연결 정책 결정이 필요합니다."
+    ),
+    OAUTH_PROVIDER_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "OAuth 제공자를 일시적으로 사용할 수 없습니다."),
+    OAUTH_STATE_INVALID(HttpStatus.UNAUTHORIZED, "유효하지 않은 OAuth 요청 상태입니다."),
+    OAUTH_STATE_EXPIRED(HttpStatus.GONE, "OAuth 요청 상태가 만료되었습니다."),
+    OAUTH_IDENTITY_VERIFICATION_FAILED(HttpStatus.UNAUTHORIZED, "OAuth 사용자 정보를 검증하지 못했습니다."),
+    OAUTH_AUTHORIZATION_DENIED(HttpStatus.FORBIDDEN, "OAuth 인증이 거부되었습니다."),
+
     EMAIL_VERIFICATION_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "이메일 인증 재전송 가능 시간 전입니다."),
     EMAIL_VERIFICATION_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "인증번호가 일치하지 않습니다."),
     EMAIL_VERIFICATION_UNAVAILABLE(HttpStatus.GONE, "사용할 수 없는 이메일 인증 요청입니다."),
