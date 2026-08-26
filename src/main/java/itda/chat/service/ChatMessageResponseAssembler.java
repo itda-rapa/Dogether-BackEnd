@@ -5,7 +5,6 @@ import itda.chat.domain.ChatMessageAttachment;
 import itda.chat.domain.MessageType;
 import itda.chat.dto.response.ChatMessageAttachmentResponse;
 import itda.chat.dto.response.ChatMessageResponse;
-import itda.chat.dto.response.SetlogMediaResponse;
 import itda.chat.dto.response.SharedSetlogResponse;
 import itda.chat.repository.ChatMessageAttachmentRepository;
 import itda.media.service.MediaService;
@@ -31,6 +30,7 @@ public class ChatMessageResponseAssembler {
     private final ChatMessageAttachmentRepository attachmentRepository;
     private final MediaService mediaService;
     private final SetlogQueryService setlogQueryService;
+    private final SharedSetlogResponseMapper sharedSetlogResponseMapper;
 
     /**
      * 단일 메시지 변환(전송 응답·실시간 이벤트). 이미 알려진 발신자 닉네임을 받는다.
@@ -55,11 +55,15 @@ public class ChatMessageResponseAssembler {
     /**
      * 목록 변환(폴링). IMAGE/VIDEO media와 SETLOG_SHARE setlog를 한 번에 hydrate해 N+1을 피한다.
      */
+    /**
+     * 목록 변환에서 조회자 User를 함께 받아 SETLOG_SHARE의 차단 접근 정책까지 적용한다.
+     */
     public List<ChatMessageResponse> toResponses(
             List<ChatMessage> messages,
             Map<Long, PetDisplaySummary> senderPets,
             long actorPetId,
-            String actorNickname
+            String actorNickname,
+            Long viewerUserId
     ) {
         Map<Long, ChatMessageAttachment> attachments = attachmentsOf(messages);
         Map<Long, OwnedPresignedDownload> mediaDownloads =
@@ -69,7 +73,7 @@ public class ChatMessageResponseAssembler {
                                 .distinct()
                                 .toList()
                 );
-        Map<Long, ShareableSetlogView> setlogViews = setlogViewsOf(messages);
+        Map<Long, ShareableSetlogView> setlogViews = setlogViewsOf(messages, viewerUserId);
 
         return messages.stream()
                 .map(message -> toResponse(
@@ -159,32 +163,7 @@ public class ChatMessageResponseAssembler {
             return null;
         }
         ShareableSetlogView view = views.getOrDefault(setlogId, ShareableSetlogView.unavailable(setlogId));
-        return toSharedSetlogResponse(view);
-    }
-
-    private SharedSetlogResponse toSharedSetlogResponse(ShareableSetlogView view) {
-        if (!view.available()) {
-            return SharedSetlogResponse.unavailable(view.setlogId());
-        }
-        SetlogMediaResponse media = view.mediaId() == null
-                ? null
-                : new SetlogMediaResponse(
-                        view.mediaId(),
-                        view.mediaType(),
-                        view.mediaUrl(),
-                        view.mediaUrlExpiresAt()
-                );
-        return new SharedSetlogResponse(
-                view.setlogId(),
-                true,
-                null,
-                view.authorPetId(),
-                view.authorPetNickname(),
-                view.caption(),
-                media,
-                view.reactionCount(),
-                "/setlogs/" + view.setlogId()
-        );
+        return sharedSetlogResponseMapper.toResponse(view);
     }
 
     private Map<Long, ChatMessageAttachment> attachmentsOf(List<ChatMessage> messages) {
@@ -202,7 +181,10 @@ public class ChatMessageResponseAssembler {
         return Map.copyOf(result);
     }
 
-    private Map<Long, ShareableSetlogView> setlogViewsOf(List<ChatMessage> messages) {
+    private Map<Long, ShareableSetlogView> setlogViewsOf(
+            List<ChatMessage> messages,
+            Long viewerUserId
+    ) {
         List<Long> setlogIds = messages.stream()
                 .filter(m -> m.getType() == MessageType.SETLOG_SHARE && m.getSharedSetlogId() != null)
                 .map(ChatMessage::getSharedSetlogId)
@@ -211,7 +193,7 @@ public class ChatMessageResponseAssembler {
         if (setlogIds.isEmpty()) {
             return Map.of();
         }
-        return setlogQueryService.findShareableSetlogViews(setlogIds);
+        return setlogQueryService.findShareableSetlogViews(setlogIds, viewerUserId);
     }
 
     private String senderPetNickname(Long senderPetId,
