@@ -10,6 +10,7 @@ import java.util.Map;
 public record MediaResponse(
         Long id,
         MediaType mediaType,
+        String contentType,
         String path,
         MediaStatus status,
         Long userId,
@@ -22,6 +23,7 @@ public record MediaResponse(
         return new MediaResponse(
                 media.getId(),
                 media.getMediaType(),
+                media.getContentType(),
                 media.getPath(),
                 media.getStatus(),
                 media.getUserId(),

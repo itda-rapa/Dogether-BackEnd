@@ -29,6 +29,7 @@ public interface MediaSwaggerSupporter {
             examples = @ExampleObject("""
                     {
                         "mediaType":"IMAGE",
+                        "contentType":"image/png",
                         "fileSize":1048576
                     }
                     """)
@@ -43,14 +44,29 @@ public interface MediaSwaggerSupporter {
                                 "success":true,
                                 "message":"Media 객체가 초기화되었습니다.",
                                 "data":{
-                                    "mediaId":1,
+                                    "id":1,
+                                    "mediaType":"IMAGE",
+                                    "contentType":"image/png",
+                                    "path":"posts/1/uuid.png",
+                                    "status":"INIT",
+                                    "userId":1,
+                                    "presignedUrl":"https://storage.example.com/upload",
+                                    "presignedHeaders":{
+                                        "Content-Type":"image/png",
+                                        "Content-Length":"1048576"
+                                    },
                                     "uploadId":"upload-001",
-                                    "parts":[
+                                    "presignedUrlParts":[
                                         {
                                             "partNumber":1,
-                                            "url":"https://storage.example.com/upload"
+                                            "presignedUrl":"https://storage.example.com/upload/part-1",
+                                            "headers":{
+                                                "Content-Length":"5242880"
+                                            }
                                         }
-                                    ]
+                                    ],
+                                    "createdAt":"2026-08-26T00:00:00Z",
+                                    "updatedAt":"2026-08-26T00:00:00Z"
                                 },
                                 "error":null
                             }
@@ -62,7 +78,11 @@ public interface MediaSwaggerSupporter {
             MediaInitRequest request
     );
 
-    @Operation(summary = "미디어 업로드 완료", description = "업로드된 미디어 파트를 완료 처리하는 API")
+    @Operation(
+            summary = "미디어 업로드 완료",
+            description = "업로드를 완료한 뒤 Object Storage HEAD의 실제 크기와 MIME을 검증한다. "
+                    + "검증에 성공한 Media만 COMPLETED 상태로 전이한다."
+    )
     @RequestBody(content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = MediaUploadedRequest.class),
@@ -88,15 +108,38 @@ public interface MediaSwaggerSupporter {
                                 "success":true,
                                 "message":"성공적으로 업로드되었습니다.",
                                 "data":{
-                                    "mediaId":1,
+                                    "id":1,
                                     "mediaType":"IMAGE",
-                                    "status":"UPLOADED",
-                                    "url":"https://storage.example.com/media/1"
+                                    "contentType":"image/png",
+                                    "path":"posts/1/uuid.png",
+                                    "status":"COMPLETED",
+                                    "userId":1,
+                                    "fileSize":1048576,
+                                    "attributes":{
+                                        "parts":[
+                                            {"partNumber":1,"eTag":"etag-value"}
+                                        ]
+                                    },
+                                    "createdAt":"2026-08-26T00:00:00Z",
+                                    "modifiedAt":"2026-08-26T00:01:00Z"
                                 },
                                 "error":null
                             }
                             """)
             )
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "403",
+            description = "Media 소유자가 아님 (MEDIA_NOT_OWNED)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "409",
+            description = "INIT 상태가 아니거나 빈 multipart 완료 요청 (MEDIA_STATE_CONFLICT)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "422",
+            description = "실제 업로드된 객체를 확인할 수 없음 (MEDIA_NOT_UPLOADED), "
+                    + "또는 VIDEO 실제 재생 길이가 5초를 초과함 (MEDIA_DURATION_INVALID)"
     )
     ApiResponse<MediaResponse> mediaUploaded(
             @Parameter(hidden = true) CurrentUser user,

@@ -11,6 +11,7 @@ import itda.media.storage.StorageProviderRejectedException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.exception.SdkException;
+import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
@@ -132,6 +133,27 @@ public class S3ObjectStorage implements ObjectStorage {
             throw classify("head", exception);
         } catch (SdkException exception) {
             throw unavailable("head", exception);
+        }
+    }
+
+    @Override
+    public byte[] read(String objectKey, String versionId) {
+        requireObjectKey(objectKey);
+        try {
+            return s3Client.getObject(GetObjectRequest.builder()
+                    .bucket(properties.bucket())
+                    .key(objectKey)
+                    .versionId(normalizeVersionId(versionId))
+                    .build(), ResponseTransformer.toBytes()).asByteArray();
+        } catch (NoSuchKeyException exception) {
+            throw new ObjectNotFoundException("read", exception);
+        } catch (S3Exception exception) {
+            if (exception.statusCode() == 404) {
+                throw new ObjectNotFoundException("read", exception);
+            }
+            throw classify("read", exception);
+        } catch (SdkException exception) {
+            throw unavailable("read", exception);
         }
     }
 

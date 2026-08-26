@@ -419,6 +419,9 @@ class ChatTypedMessagePostgreSqlIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].type").value("IMAGE"))
                 .andExpect(jsonPath("$.data.items[0].attachment.mediaId").value((int) mediaId))
+                .andExpect(jsonPath("$.data.items[0].attachment.mediaType").value("IMAGE"))
+                .andExpect(jsonPath("$.data.items[0].attachment.contentType").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].attachment.fileSize").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[0].attachment.url").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[0].attachment.expiresAt").value(nullValue()));
     }
