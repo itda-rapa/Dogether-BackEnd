@@ -25,7 +25,7 @@ INSERT INTO users (
         '데모사용자#D001',
         'USER',
         'ACTIVE',
-        '4113111500'
+        '4113165000'
     ),
     (
         'bori@dogether.local',
@@ -34,7 +34,7 @@ INSERT INTO users (
         '보리보호자#D002',
         'USER',
         'ACTIVE',
-        '4113111500'
+        '4113351000'
     ),
     (
         'maru@dogether.local',
@@ -43,7 +43,7 @@ INSERT INTO users (
         '마루보호자#D003',
         'USER',
         'ACTIVE',
-        '4113111600'
+        '4113352000'
     ),
     (
         'kkoma@dogether.local',
@@ -52,7 +52,7 @@ INSERT INTO users (
         '꼬마보호자#D004',
         'USER',
         'ACTIVE',
-        '4113111700'
+        '4113352000'
     )
 ON CONFLICT DO NOTHING;
 
