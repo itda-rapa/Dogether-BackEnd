@@ -51,6 +51,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -65,7 +66,10 @@ class BoardPostCommentPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardPostCommentRepository comments;
@@ -80,7 +84,7 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void flywayCreatesForeignKeysChecksAndHierarchyIndexesWithoutCascade() {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
+        Author author = createAuthor("author", "4113165000");
         long postId = insertPost(boardId, author, "PUBLISHED");
 
         assertThatThrownBy(() -> insertComment(999999999L, author.userId(), author.petId(), "content", Instant.now(), null))
@@ -95,7 +99,7 @@ class BoardPostCommentPostgreSqlIntegrationTest {
                 .isInstanceOf(DataIntegrityViolationException.class);
         insertComment(postId, author.userId(), author.petId(), "😀".repeat(5000), Instant.now(), null);
         long rootId = insertComment(postId, author.userId(), author.petId(), "root", Instant.now().plusSeconds(1), null);
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author reactor = createAuthor("reactor", "4113165000");
         assertThat(jdbc.update("""
                 insert into board_post_comment_reactions (comment_id, reactor_pet_id, reaction_type)
                 values (?, ?, 'HELPFUL')
@@ -239,7 +243,7 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void softDeletedCommentsAreHiddenButRowsRemainAndPostSoftDeleteRetainsHistory() {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
+        Author author = createAuthor("author", "4113165000");
         long postId = insertPost(boardId, author, "PUBLISHED");
         long visibleId = insertComment(postId, author.userId(), author.petId(), "visible", Instant.now(), null);
         long deletedId = insertComment(postId, author.userId(), author.petId(), "deleted", Instant.now().plusSeconds(1), Instant.now());
@@ -256,10 +260,10 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void nativeListFiltersBlockedCommentsBeforeLimitAndUsesCreatedAtIdKeyset() {
         long boardId = createBoard();
-        long viewer = createUser("viewer", "4113111500");
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author blocked = createAuthor("blocked", "4113111500");
-        Author visible = createAuthor("visible", "4113111500");
+        long viewer = createUser("viewer", "4113165000");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author blocked = createAuthor("blocked", "4113165000");
+        Author visible = createAuthor("visible", "4113165000");
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
         Instant tie = Instant.parse("2026-08-10T00:00:00Z");
         long hiddenId = insertComment(postId, blocked.userId(), blocked.petId(), "hidden", tie, null);
@@ -277,9 +281,9 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void listApiReturnsOldestFirstCursorPageFiltersReverseBlocksAndExcludesSoftDeletedRows() throws Exception {
         long boardId = createBoard();
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author viewer = createAuthor("viewer", "4113111500");
-        Author reverseBlocker = createAuthor("reverseBlocker", "4113111500");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author viewer = createAuthor("viewer", "4113165000");
+        Author reverseBlocker = createAuthor("reverseBlocker", "4113165000");
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
         Instant created = Instant.parse("2026-08-10T00:00:00Z");
         long firstId = insertComment(postId, postAuthor.userId(), postAuthor.petId(), "first", created, null);
@@ -309,9 +313,9 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void rootCandidatesKeepOnlyFinalVisibleThreadsBeforeLimitAndCursorPagination() throws Exception {
         long boardId = createBoard();
-        long viewerId = createUser("viewer", "4113111500");
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author blockedAuthor = createAuthor("blockedAuthor", "4113111500");
+        long viewerId = createUser("viewer", "4113165000");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author blockedAuthor = createAuthor("blockedAuthor", "4113165000");
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
         Instant start = Instant.parse("2026-08-10T00:00:00Z");
 
@@ -373,8 +377,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void listRendersNestedDepthThreeTreeWithStableCreatedAtThenIdSiblingOrdering() throws Exception {
         long boardId = createBoard();
-        long viewerId = createUser("viewer", "4113111500");
-        Author author = createAuthor("author", "4113111500");
+        long viewerId = createUser("viewer", "4113165000");
+        Author author = createAuthor("author", "4113165000");
         long postId = insertPost(boardId, author, "PUBLISHED");
         Instant tie = Instant.parse("2026-08-10T00:00:00Z");
         long rootId = insertComment(postId, author.userId(), author.petId(), "root", tie, null);
@@ -401,8 +405,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void listApiRejectsInvalidCursorAndSize() throws Exception {
         long boardId = createBoard();
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author viewer = createAuthor("viewer", "4113111500");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author viewer = createAuthor("viewer", "4113165000");
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
         for (String size : List.of("0", "101", "-1")) {
             mockMvc.perform(get("/posts/{postId}/comments", postId)
@@ -417,7 +421,7 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void concurrentManagedCommentUpdatesProduceOneActualOptimisticLockFailure() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
+        Author author = createAuthor("author", "4113165000");
         long postId = insertPost(boardId, author, "PUBLISHED");
         BoardPostComment comment = comments.saveAndFlush(BoardPostComment.create(postId, author.userId(), author.petId(), "original"));
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
@@ -444,7 +448,7 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void serviceSoftDeleteUsesPessimisticWriteAndConflictsWithAStalePatch() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
+        Author author = createAuthor("author", "4113165000");
         activate(author);
         long postId = insertPost(boardId, author, "PUBLISHED");
         BoardPostComment comment = comments.saveAndFlush(BoardPostComment.create(postId, author.userId(), author.petId(), "original"));
@@ -485,8 +489,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void createFirstThenPostDeleteWaitsForShareLockAndRetainsCommentHistory() throws Exception {
         long boardId = createBoard();
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author commenter = createAuthor("commenter", "4113111500");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author commenter = createAuthor("commenter", "4113165000");
         activate(postAuthor);
         activate(commenter);
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
@@ -526,8 +530,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void deleteFirstWithFlushedWriteLockMakesWaitingCommentCreateReevaluatePublishedPredicate() throws Exception {
         long boardId = createBoard();
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author commenter = createAuthor("commenter", "4113111500");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author commenter = createAuthor("commenter", "4113165000");
         activate(postAuthor);
         activate(commenter);
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
@@ -566,8 +570,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void replyCreateFirstThenParentDeleteWaitsForActualParentShareLock() throws Exception {
         long boardId = createBoard();
-        Author parentAuthor = createAuthor("parentAuthor", "4113111500");
-        Author replier = createAuthor("replier", "4113111500");
+        Author parentAuthor = createAuthor("parentAuthor", "4113165000");
+        Author replier = createAuthor("replier", "4113165000");
         activate(parentAuthor);
         activate(replier);
         long postId = insertPost(boardId, parentAuthor, "PUBLISHED");
@@ -608,8 +612,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void parentDeleteFirstMakesWaitingReplyCreateReevaluateActiveParentPredicate() throws Exception {
         long boardId = createBoard();
-        Author parentAuthor = createAuthor("parentAuthor", "4113111500");
-        Author replier = createAuthor("replier", "4113111500");
+        Author parentAuthor = createAuthor("parentAuthor", "4113165000");
+        Author replier = createAuthor("replier", "4113165000");
         activate(parentAuthor);
         activate(replier);
         long postId = insertPost(boardId, parentAuthor, "PUBLISHED");
@@ -649,8 +653,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void replyCreateFirstThenPostDeleteWaitsForPostShareLockAndRetainsReplyHistory() throws Exception {
         long boardId = createBoard();
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author replier = createAuthor("replier", "4113111500");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author replier = createAuthor("replier", "4113165000");
         activate(postAuthor);
         activate(replier);
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
@@ -691,8 +695,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void postDeleteFirstMakesWaitingReplyCreateReevaluatePublishedPredicate() throws Exception {
         long boardId = createBoard();
-        Author postAuthor = createAuthor("postAuthor", "4113111500");
-        Author replier = createAuthor("replier", "4113111500");
+        Author postAuthor = createAuthor("postAuthor", "4113165000");
+        Author replier = createAuthor("replier", "4113165000");
         activate(postAuthor);
         activate(replier);
         long postId = insertPost(boardId, postAuthor, "PUBLISHED");
@@ -732,8 +736,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void samePetConcurrentCommentHelpfulUsesServiceAndObservedUserLockWait() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author author = createAuthor("author", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         activate(reactor);
         long postId = insertPost(boardId, author, "PUBLISHED");
         long commentId = insertComment(postId, author.userId(), author.petId(), "target", Instant.now(), null);
@@ -771,8 +775,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void commentHelpfulFirstThenCommentDeleteWaitsAndRetainsHistoricalReactionRow() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author author = createAuthor("author", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         activate(author);
         activate(reactor);
         long postId = insertPost(boardId, author, "PUBLISHED");
@@ -812,9 +816,9 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void helpfulReputationCountsOnlyUndeletedOwnTargetsAndKeepsActiveCommentHistoryAcrossDeletedPostAndAncestor() {
         long boardId = createBoard();
-        Author receiver = createAuthor("receiver", "4113111500");
-        Author secondReceiver = createAuthor("second", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author receiver = createAuthor("receiver", "4113165000");
+        Author secondReceiver = createAuthor("second", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         long activePost = insertPost(boardId, receiver, "PUBLISHED");
         long deletedPost = insertPost(boardId, receiver, "PUBLISHED");
         jdbc.update("update board_posts set status = 'DELETED', deleted_at = now() where id = ?", deletedPost);
@@ -842,8 +846,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void deletedReactorPetKeepsExistingHelpfulRowAndReceiverReputation() {
         long boardId = createBoard();
-        Author receiver = createAuthor("receiver", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author receiver = createAuthor("receiver", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         long postId = insertPost(boardId, receiver, "PUBLISHED");
         insertPostHelpful(postId, reactor.petId());
 
@@ -859,8 +863,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void commentDeleteFirstMakesWaitingHelpfulReevaluateActiveTargetAndCreateNoRow() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author author = createAuthor("author", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         activate(author);
         activate(reactor);
         long postId = insertPost(boardId, author, "PUBLISHED");
@@ -900,8 +904,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void commentHelpfulFirstThenParentPostDeleteWaitsAndKeepsActiveCommentReputation() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author author = createAuthor("author", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         activate(author);
         activate(reactor);
         long postId = insertPost(boardId, author, "PUBLISHED");
@@ -941,8 +945,8 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     @Test
     void parentPostDeleteFirstMakesWaitingCommentHelpfulFailAndCreateNoRow() throws Exception {
         long boardId = createBoard();
-        Author author = createAuthor("author", "4113111500");
-        Author reactor = createAuthor("reactor", "4113111500");
+        Author author = createAuthor("author", "4113165000");
+        Author reactor = createAuthor("reactor", "4113165000");
         activate(author);
         activate(reactor);
         long postId = insertPost(boardId, author, "PUBLISHED");
@@ -1010,7 +1014,7 @@ class BoardPostCommentPostgreSqlIntegrationTest {
     private long insertPost(long boardId, Author author, String status) {
         return jdbc.queryForObject("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', ?) returning id
+                values (?, ?, ?, '4113165000', 'title', 'content', ?) returning id
                 """, Long.class, boardId, author.userId(), author.petId(), status);
     }
 

@@ -24,6 +24,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -38,7 +39,10 @@ class PetMigrationPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private Flyway flyway;
@@ -466,7 +470,7 @@ class PetMigrationPostgreSqlIntegrationTest {
                     role,
                     account_status,
                     neighborhood_code
-                ) values (?, 'encoded', '보호자', ?, 'USER', 'ACTIVE', '4113111500')
+                ) values (?, 'encoded', '보호자', ?, 'USER', 'ACTIVE', '4113165000')
                 returning id
                 """,
                 Long.class,

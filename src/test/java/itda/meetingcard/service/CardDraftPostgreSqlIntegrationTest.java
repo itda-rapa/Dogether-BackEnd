@@ -44,6 +44,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * AI 약속 초안 생성을 실제 PostgreSQL 에서 검증한다.
@@ -66,7 +67,10 @@ class CardDraftPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     /** 서울에서는 2026-07-30, UTC 에서는 2026-07-29. 존을 틀리면 잡힌다. */
     private static final Instant NOW = Instant.parse("2026-07-29T16:00:00Z");
@@ -95,7 +99,7 @@ class CardDraftPostgreSqlIntegrationTest {
     private static final long USER_2 = 2L;
     private static final long PET_1 = 11L;
     private static final long PET_2 = 22L;
-    private static final String NEIGHBORHOOD = "4113111500";
+    private static final String NEIGHBORHOOD = "4113165000";
 
     private long roomId;
     private FixtureMeetingDraftAiClient ai;

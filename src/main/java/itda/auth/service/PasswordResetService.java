@@ -38,6 +38,9 @@ public class PasswordResetService {
         emailVerificationService.consume(verificationToken, email, EmailVerificationPurpose.PASSWORD_RESET);
         User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        if (!user.hasPasswordCredential()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN);
+        }
         user.changePasswordHash(passwordEncoder.encode(newPassword));
         tokenProvider.revokeAllForUser(user.getId());
     }

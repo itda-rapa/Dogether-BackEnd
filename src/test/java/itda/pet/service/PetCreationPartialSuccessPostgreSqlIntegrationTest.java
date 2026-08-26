@@ -24,6 +24,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -41,7 +42,10 @@ class PetCreationPartialSuccessPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private PetCreationService petCreationService;
@@ -114,7 +118,7 @@ class PetCreationPartialSuccessPostgreSqlIntegrationTest {
                 "encoded",
                 "보호자",
                 "보호자#" + unique.substring(0, 8),
-                "4113111500"
+                "4113165000"
         ));
     }
 

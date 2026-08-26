@@ -31,6 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -46,7 +47,10 @@ class BoardPostReactionPostgreSqlIntegrationTest {
 
     @Container
     @ServiceConnection
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:16-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private BoardPostReactionRepository reactions;
@@ -613,7 +617,7 @@ class BoardPostReactionPostgreSqlIntegrationTest {
         String unique = UUID.randomUUID().toString().replace("-", "");
         long userId = jdbc.queryForObject("""
                 insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
-                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500') returning id
+                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000') returning id
                 """, Long.class, unique + "@test.com", "user" + unique.substring(0, 6), "user#" + unique.substring(0, 8));
         long petId = jdbc.queryForObject("""
                 insert into pets (owner_user_id, public_tag, nickname, status)
@@ -623,7 +627,7 @@ class BoardPostReactionPostgreSqlIntegrationTest {
                 Long.class, "board-" + unique.substring(0, 8));
         long postId = jdbc.queryForObject("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED') returning id
+                values (?, ?, ?, '4113165000', 'title', 'content', 'PUBLISHED') returning id
                 """, Long.class, boardId, userId, petId);
         return new Fixture(postId, petId);
     }
@@ -640,7 +644,7 @@ class BoardPostReactionPostgreSqlIntegrationTest {
                 Long.class, "board-race-" + unique.substring(0, 8));
         long postId = jdbc.queryForObject("""
                 insert into board_posts (board_id, author_user_id, author_pet_id, neighborhood_code, title, content, status)
-                values (?, ?, ?, '4113111500', 'title', 'content', 'PUBLISHED') returning id
+                values (?, ?, ?, '4113165000', 'title', 'content', 'PUBLISHED') returning id
                 """, Long.class, boardId, authorUserId, authorPetId);
         jdbc.update("update users set active_pet_id = ? where id = ?", authorPetId, authorUserId);
         return new ReactionActorFixture(postId, authorUserId, reactorUserId, firstPetId, secondPetId);
@@ -649,7 +653,7 @@ class BoardPostReactionPostgreSqlIntegrationTest {
     private long createUser(String unique) {
         return jdbc.queryForObject("""
                 insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
-                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500') returning id
+                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000') returning id
                 """, Long.class, unique + "@test.com", "user" + unique.substring(0, 6),
                 "user#" + unique.substring(0, 8));
     }

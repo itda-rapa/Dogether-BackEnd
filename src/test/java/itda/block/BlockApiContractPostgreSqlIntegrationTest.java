@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -44,7 +45,10 @@ class BlockApiContractPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private MockMvc mockMvc;
@@ -181,7 +185,7 @@ class BlockApiContractPostgreSqlIntegrationTest {
                 insert into users (
                     email, password_hash, nickname, public_tag,
                     role, account_status, neighborhood_code
-                ) values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                ) values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000')
                 returning id
                 """,
                 Long.class,

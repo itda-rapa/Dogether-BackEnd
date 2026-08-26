@@ -103,7 +103,7 @@ class BoardPostReactionServiceTest {
         assertBusiness(() -> service().addReaction(1L, 101L, BoardPostReactionType.LIKE),
                 ErrorCode.BOARD_POST_NOT_FOUND);
 
-        BoardPost otherRegion = post(102L, 2L, 20L, "4113111600");
+        BoardPost otherRegion = post(102L, 2L, 20L, "4113351000");
         given(posts.findPublishedByIdForShare(102L)).willReturn(Optional.of(otherRegion));
         assertBusiness(() -> service().addReaction(1L, 102L, BoardPostReactionType.LIKE),
                 ErrorCode.BOARD_POST_NOT_FOUND);

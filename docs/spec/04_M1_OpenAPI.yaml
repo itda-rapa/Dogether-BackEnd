@@ -133,6 +133,121 @@ paths:
         '204':
           description: 로그아웃 완료
 
+  /oauth2/authorization/google:
+    get:
+      tags: [Auth]
+      summary: Google OAuth 브라우저 인증 시작
+      operationId: startGoogleOAuthAuthorization
+      description: |
+        JSON API가 아닌 browser navigation endpoint다. enabled일 때 Google authorization URL로 302를
+        반환하며 scope는 `openid email`, state·PKCE S256·nonce를 사용한다. 시작 응답은 동일 browser의
+        callback을 위해 short-lived `__Host-dogether_oauth_browser_binding` cookie를 `HttpOnly`, `Secure`,
+        `SameSite=Lax`, `Path=/` 및 Domain 없이 설정한다. disabled이면 404다.
+      security: []
+      responses:
+        '302':
+          description: Google authorization endpoint로 redirect
+          headers:
+            Location:
+              required: true
+              schema: { type: string, format: uri }
+            Set-Cookie:
+              description: Authorization start sets the short-lived browser correlation cookie; safe error redirects do not.
+              schema: { type: string }
+        '404':
+          description: Google OAuth 비활성화
+
+  /login/oauth2/code/google:
+    get:
+      tags: [Auth]
+      summary: Google OAuth 브라우저 callback
+      operationId: completeGoogleOAuthCallback
+      description: |
+        JSON API가 아닌 Google callback endpoint다. 성공은 allowlist된 success callback URL에
+        `loginCode`와 `provider=GOOGLE`만 붙여 302한다. 실패는 error callback URL에 allowlist된
+        `errorCode`만 붙여 302한다. 허용 errorCode는 `INTERNAL_ERROR`, `OAUTH_STATE_INVALID`,
+        `OAUTH_STATE_EXPIRED`, `OAUTH_AUTHORIZATION_DENIED`,
+        `OAUTH_IDENTITY_VERIFICATION_FAILED`, `OAUTH_PROVIDER_UNAVAILABLE`다. authorization을 시작한 동일
+        browser correlation cookie가 없거나 일치하지 않으면 `OAUTH_STATE_INVALID`로 302하며 transaction을
+        소비하지 않는다. Location에는 JWT,
+        provider token, verified email, providerSubject, raw provider response를 포함하지 않는다.
+      security: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: code
+          in: query
+          required: false
+          schema: { type: string }
+        - name: error
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '302':
+          description: Front success 또는 error callback URL로 redirect
+          headers:
+            Location:
+              required: true
+              schema: { type: string, format: uri }
+        '404':
+          description: Google OAuth 비활성화
+
+  /auth/oauth/exchange:
+    post:
+      tags: [Auth]
+      summary: OAuth loginCode 교환
+      operationId: exchangeOAuthLoginCode
+      description: Google callback의 1회용 loginCode를 교환한다. 기존 OAuth 계정은 JWT를, 신규 계정은 프로필 완료용 signupToken을 받는다. 미연결 기존 User와 동일 email이면 자동 연결·신규 User 생성 없이 409을 반환하며 loginCode는 소비하지 않는다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OAuthExchangeRequest' }
+      responses:
+        '200':
+          description: 기존 OAuth 계정 로그인 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokensEnvelope' }
+        '202':
+          description: 신규 OAuth 계정의 프로필 입력 필요
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OAuthSignupRequiredEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
+
+  /auth/oauth/signup:
+    post:
+      tags: [Auth]
+      summary: OAuth 신규 계정 가입 완료
+      operationId: signupOAuth
+      description: 1회용 signupToken의 검증된 identity로 OAuth 전용 계정을 만들고 JWT를 발급한다. 가입 중 동일 email User가 먼저 생성되는 late race는 전체 transaction을 rollback하고 409 CONCURRENT_UPDATE_CONFLICT를 반환한다. 이후 새 OAuth authorization부터 다시 시작해야 한다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OAuthSignupRequest' }
+      responses:
+        '201':
+          description: OAuth 회원가입 및 JWT 발급 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokensEnvelope' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '410': { $ref: '#/components/responses/Gone' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+
   /me:
     get:
       tags: [Me]
@@ -1415,6 +1530,18 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+    Gone:
+      description: 만료되었거나 이미 소비된 일회용 자원
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UnprocessableContent:
+      description: 의미적으로 처리할 수 없는 요청
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
     TooManyRequests:
       description: 일일 제한 초과
       content:
@@ -1477,6 +1604,46 @@ components:
       properties:
         refreshToken:
           type: string
+    OAuthExchangeRequest:
+      type: object
+      required: [provider, loginCode]
+      properties:
+        provider:
+          type: string
+          enum: [GOOGLE, NAVER]
+          description: runtime은 GOOGLE만 지원하며 NAVER는 400 OAUTH_PROVIDER_UNSUPPORTED다.
+        loginCode:
+          type: string
+          minLength: 1
+          maxLength: 512
+    OAuthSignupRequest:
+      type: object
+      required: [signupToken, nickname, neighborhoodCode]
+      properties:
+        signupToken:
+          type: string
+          minLength: 1
+          maxLength: 512
+        nickname:
+          type: string
+          minLength: 2
+          maxLength: 20
+        neighborhoodCode:
+          type: string
+          minLength: 1
+          maxLength: 20
+    OAuthSignupRequired:
+      type: object
+      required: [profileCompletionRequired, signupToken, signupTokenExpiresAt]
+      properties:
+        profileCompletionRequired:
+          type: boolean
+          const: true
+        signupToken:
+          type: string
+        signupTokenExpiresAt:
+          type: string
+          format: date-time
     AuthTokens:
       type: object
       required: [accessToken, refreshToken, accessTokenExpiresAt]
@@ -1490,6 +1657,14 @@ components:
           format: date-time
     AuthTokensEnvelope:
       $ref: '#/components/schemas/EnvelopeAuthTokens'
+    OAuthSignupRequiredEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string, const: 'OAuth 가입을 위한 추가 정보 입력이 필요합니다.' }
+        data: { $ref: '#/components/schemas/OAuthSignupRequired' }
+        error: { type: 'null' }
 
     Neighborhood:
       type: object

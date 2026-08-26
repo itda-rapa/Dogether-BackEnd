@@ -22,6 +22,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @Tag("postgres")
 @Testcontainers
@@ -36,7 +37,10 @@ class FriendRequestActionPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(
+                DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                        .asCompatibleSubstituteFor("postgres")
+        );
 
     @Autowired
     private FriendRequestCommandService commandService;
@@ -327,7 +331,7 @@ class FriendRequestActionPostgreSqlIntegrationTest {
                     role,
                     account_status,
                     neighborhood_code
-                ) VALUES (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                ) VALUES (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113165000')
                 RETURNING id
                 """,
                 Long.class,

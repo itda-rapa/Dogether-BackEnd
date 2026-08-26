@@ -5,6 +5,7 @@ import itda.common.dto.ApiResponse;
 import itda.common.filter.JwtFilter;
 import itda.common.properties.CorsProperties;
 import itda.common.properties.AdminBootstrapProperties;
+import itda.oauth.google.GoogleOAuthProperties;
 import itda.common.properties.JwtProperties;
 import itda.common.properties.MediaProperties;
 import itda.common.properties.S3Properties;
@@ -37,7 +38,8 @@ import tools.jackson.databind.ObjectMapper;
         S3Properties.class,
         MediaProperties.class,
         AdminBootstrapProperties.class,
-        CorsProperties.class
+        CorsProperties.class,
+        GoogleOAuthProperties.class
 })
 public class SecurityConfig {
 
@@ -89,7 +91,14 @@ public class SecurityConfig {
                         ).permitAll()
                         .requestMatchers(
                                 HttpMethod.GET,
-                                "/neighborhoods"
+                                "/neighborhoods",
+                                "/oauth2/authorization/google",
+                                "/login/oauth2/code/google"
+                        ).permitAll()
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/auth/oauth/exchange",
+                                "/auth/oauth/signup"
                         ).permitAll()
                         .requestMatchers("/admin/**")
                         .hasAnyRole("ADMIN", "SUPER_ADMIN")

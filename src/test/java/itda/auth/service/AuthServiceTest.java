@@ -155,6 +155,7 @@ class AuthServiceTest {
                 User user = mock(User.class);
                 given(userRepository.findByEmailIgnoreCase("user@example.com"))
                         .willReturn(Optional.of(user));
+                given(user.hasPasswordCredential()).willReturn(true);
                 given(user.getPasswordHash()).willReturn("encoded-password");
                 given(passwordEncoder.matches("wrong-password", "encoded-password"))
                         .willReturn(false);
@@ -183,6 +184,7 @@ class AuthServiceTest {
                 User user = mock(User.class);
                 given(userRepository.findByEmailIgnoreCase("user@example.com"))
                         .willReturn(Optional.of(user));
+                given(user.hasPasswordCredential()).willReturn(true);
                 given(user.getPasswordHash()).willReturn("encoded-password");
                 given(passwordEncoder.matches("correct-password", "encoded-password"))
                         .willReturn(true);
@@ -197,6 +199,30 @@ class AuthServiceTest {
                                 ((BusinessException) exception).getErrorCode()
                         )
                         .isEqualTo(ErrorCode.ACCOUNT_NOT_ACTIVE);
+                then(tokenProvider).shouldHaveNoInteractions();
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: OAuth 전용 계정이라 passwordHash가 없으면")
+        class WithOAuthOnlyAccount {
+
+            @Test
+            @DisplayName("It: PasswordEncoder를 호출하지 않고 LOGIN_FAILED로 거부한다")
+            void itRejectsWithoutMatchingNullPasswordHash() {
+                User user = mock(User.class);
+                given(userRepository.findByEmailIgnoreCase("oauth@example.com"))
+                        .willReturn(Optional.of(user));
+                given(user.hasPasswordCredential()).willReturn(false);
+
+                assertThatThrownBy(() -> authService.login(
+                        new LoginRequest("oauth@example.com", "password")
+                ))
+                        .isInstanceOf(BusinessException.class)
+                        .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                        .isEqualTo(ErrorCode.LOGIN_FAILED);
+
+                then(passwordEncoder).shouldHaveNoInteractions();
                 then(tokenProvider).shouldHaveNoInteractions();
             }
         }

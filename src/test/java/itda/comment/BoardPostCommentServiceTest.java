@@ -90,7 +90,7 @@ class BoardPostCommentServiceTest {
         given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.empty());
         assertBusiness(() -> service().create(1L, 10L, new CommentCreateRequest("content")), "BOARD_POST_NOT_FOUND");
 
-        BoardPost otherRegion = publishedPost(10L, 20L, "4113111600");
+        BoardPost otherRegion = publishedPost(10L, 20L, "4113351000");
         given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.of(otherRegion));
         assertBusiness(() -> service().create(1L, 10L, new CommentCreateRequest("content")), "BOARD_POST_NOT_FOUND");
     }
