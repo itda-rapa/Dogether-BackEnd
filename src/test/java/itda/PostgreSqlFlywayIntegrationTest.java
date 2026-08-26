@@ -11,8 +11,21 @@ import itda.common.exception.BusinessException;
 import itda.common.security.TokenHashing;
 import itda.common.security.dto.IssuedTokens;
 import itda.common.security.service.TokenProvider;
+import itda.oauth.domain.OAuthProvider;
+import itda.oauth.service.OAuthExchangeCommand;
+import itda.oauth.service.OAuthExchangeResult;
+import itda.oauth.service.OAuthExchangeService;
+import itda.oauth.service.OAuthFlowException;
+import itda.oauth.service.OAuthFlowFailure;
+import itda.oauth.service.OAuthLoginCodeIssuer;
+import itda.oauth.service.OAuthSignupCommand;
+import itda.oauth.service.OAuthSignupService;
+import itda.oauth.service.OAuthVerifiedIdentity;
 import itda.user.domain.User;
 import java.util.UUID;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.flywaydb.core.Flyway;
@@ -56,6 +69,15 @@ class PostgreSqlFlywayIntegrationTest {
 
     @Autowired
     private TokenProvider tokenProvider;
+
+    @Autowired
+    private OAuthLoginCodeIssuer oauthLoginCodeIssuer;
+
+    @Autowired
+    private OAuthExchangeService oauthExchangeService;
+
+    @Autowired
+    private OAuthSignupService oauthSignupService;
 
     @Test
     void appliesAllMigrationsToPostgreSql() {
@@ -170,6 +192,153 @@ class PostgreSqlFlywayIntegrationTest {
         }
     }
 
+    @Test
+    void oauthOnlyUserCanPersistWithoutPasswordButEmailRemainsCaseInsensitiveUnique() {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        jdbcTemplate.update("""
+                insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
+                values (?, null, ?, ?, 'USER', 'ACTIVE', '4113111500')
+                """, unique + "@example.com", "OAuth사용자", "OAuth#" + unique.substring(0, 8));
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
+                values (?, 'encoded', ?, ?, 'USER', 'ACTIVE', '4113111500')
+                """, unique.toUpperCase() + "@EXAMPLE.COM", "중복사용자", "중복#" + unique.substring(0, 8)))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void oauthIdentityAndArtifactConstraintsProtectIdentityBindingAndSensitiveEmailScrubbing() {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        Long firstUserId = insertOAuthUser(unique + "one@example.com", "OAuth#" + unique.substring(0, 8));
+        Long secondUserId = insertOAuthUser(unique + "two@example.com", "Other#" + unique.substring(0, 8));
+        jdbcTemplate.update("""
+                insert into oauth_identities (user_id, provider, provider_subject, created_at, updated_at)
+                values (?, 'GOOGLE', ?, current_timestamp, current_timestamp)
+                """, firstUserId, "subject-" + unique);
+
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                insert into oauth_identities (user_id, provider, provider_subject, created_at, updated_at)
+                values (?, 'GOOGLE', ?, current_timestamp, current_timestamp)
+                """, secondUserId, "subject-" + unique)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                insert into oauth_identities (user_id, provider, provider_subject, created_at, updated_at)
+                values (?, 'GOOGLE', ?, current_timestamp, current_timestamp)
+                """, firstUserId, "other-subject-" + unique)).isInstanceOf(RuntimeException.class);
+
+        jdbcTemplate.update("""
+                insert into oauth_login_codes
+                    (token_hash, provider, provider_subject, verified_email, status, expires_at, created_at, consumed_at)
+                values (?, 'GOOGLE', ?, null, 'CONSUMED', current_timestamp + interval '5 minutes',
+                        current_timestamp, current_timestamp)
+                """, TokenHashing.sha256("consumed-" + unique), "subject-" + unique);
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                insert into oauth_login_codes
+                    (token_hash, provider, provider_subject, verified_email, status, expires_at, created_at)
+                values (?, 'GOOGLE', ?, null, 'AVAILABLE', current_timestamp + interval '5 minutes', current_timestamp)
+                """, TokenHashing.sha256("available-" + unique), "subject-" + unique))
+                .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void oauthNewUserLifecycleCreatesPasswordlessUserAndSingleGoogleIdentity() {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        String email = unique + "@example.com";
+        String loginCode = oauthLoginCodeIssuer.issue(new OAuthVerifiedIdentity(
+                OAuthProvider.GOOGLE, "subject-" + unique, email)).loginCode();
+
+        OAuthExchangeResult<User> exchange = oauthExchangeService.exchange(
+                new OAuthExchangeCommand(OAuthProvider.GOOGLE, loginCode), user -> user);
+        String signupToken = ((OAuthExchangeResult.SignupRequired<User>) exchange).signupToken();
+        User completed = oauthSignupService.complete(new OAuthSignupCommand(
+                signupToken, "OAuth사용자", "4113111500"), user -> user);
+
+        assertThat(completed.hasPasswordCredential()).isFalse();
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from oauth_identities
+                where user_id = ? and provider = 'GOOGLE' and provider_subject = ?
+                """, Integer.class, completed.getId(), "subject-" + unique)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                select verified_email is null and status = 'CONSUMED'
+                from oauth_signup_tokens where provider_subject = ?
+                """, Boolean.class, "subject-" + unique)).isTrue();
+    }
+
+    @Test
+    void lateOAuthEmailRaceReturnsConflictAndRollsBackSignupArtifacts() {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        String email = unique + "@example.com";
+        String subject = "late-email-subject-" + unique;
+        String loginCode = oauthLoginCodeIssuer.issue(new OAuthVerifiedIdentity(
+                OAuthProvider.GOOGLE, subject, email)).loginCode();
+        String signupToken = ((OAuthExchangeResult.SignupRequired<User>) oauthExchangeService.exchange(
+                new OAuthExchangeCommand(OAuthProvider.GOOGLE, loginCode), user -> user)).signupToken();
+
+        // A Dogether account wins the email race after exchange has committed its signup token.
+        insertOAuthUser(email, "Race#" + unique.substring(0, 8));
+
+        assertThatThrownBy(() -> oauthSignupService.complete(
+                new OAuthSignupCommand(signupToken, "OAuth사용자", "4113111500"),
+                user -> tokenProvider.issueTokens(user)))
+                .isInstanceOf(OAuthFlowException.class)
+                .extracting(error -> ((OAuthFlowException) error).getFailure())
+                .isEqualTo(OAuthFlowFailure.CONCURRENT_UPDATE_CONFLICT);
+
+        assertThat(jdbcTemplate.queryForObject("""
+                select status = 'AVAILABLE' and verified_email = ?
+                  from oauth_signup_tokens
+                 where provider_subject = ?
+                """, Boolean.class, email, subject)).isTrue();
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from users where email = ?
+                """, Integer.class, email)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*) from oauth_identities where provider_subject = ?
+                """, Integer.class, subject)).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*)
+                  from refresh_tokens refresh_token
+                  join users user_account on user_account.id = refresh_token.user_id
+                 where user_account.email = ?
+                """, Integer.class, email)).isZero();
+    }
+
+    @Test
+    void concurrentOAuthSignupHasExactlyOneWinnerAndOnePersistedIdentity() throws Exception {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        String subject = "concurrent-subject-" + unique;
+        String loginCode = oauthLoginCodeIssuer.issue(new OAuthVerifiedIdentity(
+                OAuthProvider.GOOGLE, subject, unique + "@example.com")).loginCode();
+        String signupToken = ((OAuthExchangeResult.SignupRequired<User>) oauthExchangeService.exchange(
+                new OAuthExchangeCommand(OAuthProvider.GOOGLE, loginCode), user -> user)).signupToken();
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Boolean> complete = () -> {
+                try {
+                    oauthSignupService.complete(new OAuthSignupCommand(
+                            signupToken, "OAuth사용자", "4113111500"), user -> user.getId());
+                    return true;
+                } catch (RuntimeException exception) {
+                    return false;
+                }
+            };
+            long winners = executor.invokeAll(List.of(complete, complete)).stream()
+                    .filter(result -> {
+                        try {
+                            return result.get();
+                        } catch (Exception exception) {
+                            throw new AssertionError(exception);
+                        }
+                    }).count();
+            assertThat(winners).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from oauth_identities where provider_subject = ?", Integer.class, subject))
+                .isEqualTo(1);
+    }
+
     @Nested
     @DisplayName("Describe: Refresh Token 생명주기")
     class DescribeRefreshTokenLifecycle {
@@ -236,6 +405,14 @@ class PostgreSqlFlywayIntegrationTest {
                 "사용자#" + unique.substring(0, 8),
                 "4113111500"
         );
+    }
+
+    private Long insertOAuthUser(String email, String publicTag) {
+        return jdbcTemplate.queryForObject("""
+                insert into users (email, password_hash, nickname, public_tag, role, account_status, neighborhood_code)
+                values (?, null, 'OAuth사용자', ?, 'USER', 'ACTIVE', '4113111500')
+                returning id
+                """, Long.class, email, publicTag);
     }
 
     private void assertRefreshRejected(String refreshToken) {

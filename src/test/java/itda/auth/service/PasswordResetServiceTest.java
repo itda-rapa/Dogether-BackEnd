@@ -28,6 +28,7 @@ class PasswordResetServiceTest {
     void resetsPasswordThenRevokesAllRefreshTokens() {
         given(userRepository.findByEmailIgnoreCase("user@example.com")).willReturn(Optional.of(user));
         given(user.getId()).willReturn(7L);
+        given(user.hasPasswordCredential()).willReturn(true);
         given(passwordEncoder.encode("new-password")).willReturn("new-hash");
         PasswordResetService service = new PasswordResetService(emailVerificationService, userRepository,
                 passwordEncoder, tokenProvider);
@@ -39,5 +40,22 @@ class PasswordResetServiceTest {
                 EmailVerificationPurpose.PASSWORD_RESET);
         order.verify(user).changePasswordHash("new-hash");
         order.verify(tokenProvider).revokeAllForUser(7L);
+    }
+
+    @Test
+    void doesNotCreatePasswordCredentialForOAuthOnlyUser() {
+        given(userRepository.findByEmailIgnoreCase("oauth@example.com")).willReturn(Optional.of(user));
+        given(user.hasPasswordCredential()).willReturn(false);
+        PasswordResetService service = new PasswordResetService(emailVerificationService, userRepository,
+                passwordEncoder, tokenProvider);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.reset(
+                "oauth@example.com", "verification-token", "new-password"))
+                .isInstanceOf(itda.common.exception.BusinessException.class)
+                .extracting(error -> ((itda.common.exception.BusinessException) error).getErrorCode())
+                .isEqualTo(itda.common.constants.ErrorCode.FORBIDDEN);
+
+        then(passwordEncoder).shouldHaveNoInteractions();
+        then(tokenProvider).shouldHaveNoInteractions();
     }
 }

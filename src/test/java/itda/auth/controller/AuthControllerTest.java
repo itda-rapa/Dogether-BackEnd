@@ -19,6 +19,8 @@ import itda.email.EmailVerificationService;
 import itda.email.dto.EmailVerificationChallengeResponse;
 import itda.email.dto.EmailVerificationConfirmedResponse;
 import itda.common.security.CurrentUser;
+import itda.oauth.domain.OAuthProvider;
+import itda.oauth.service.OAuthExchangeResult;
 import itda.user.domain.Role;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
@@ -298,6 +300,56 @@ class AuthControllerTest {
                         .andExpect(jsonPath("$.success").value(true))
                         .andExpect(jsonPath("$.data.accessToken").value("access-token"));
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: OAuth JSON endpoints")
+    class DescribeOAuth {
+
+        @Test
+        @DisplayName("existing OAuth identity exchange returns Dogether tokens")
+        void exchangeExistingIdentityReturnsTokens() throws Exception {
+            given(authService.exchangeOAuth(OAuthProvider.GOOGLE, "login-code"))
+                    .willReturn(new OAuthExchangeResult.ExistingUser<>(tokens()));
+
+            mockMvc.perform(post("/auth/oauth/exchange")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"provider\":\"GOOGLE\",\"loginCode\":\"login-code\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.accessToken").value("access-token"));
+            then(authService).should().exchangeOAuth(OAuthProvider.GOOGLE, "login-code");
+        }
+
+        @Test
+        @DisplayName("new OAuth identity exchange returns 202 signup token, never a password payload")
+        void exchangeNewIdentityReturnsSignupRequired() throws Exception {
+            given(authService.exchangeOAuth(OAuthProvider.GOOGLE, "login-code"))
+                    .willReturn(new OAuthExchangeResult.SignupRequired<>(
+                            "signup-token", ACCESS_TOKEN_EXPIRES_AT));
+
+            mockMvc.perform(post("/auth/oauth/exchange")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"provider\":\"GOOGLE\",\"loginCode\":\"login-code\"}"))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.data.profileCompletionRequired").value(true))
+                    .andExpect(jsonPath("$.data.signupToken").value("signup-token"))
+                    .andExpect(jsonPath("$.data.password").doesNotExist());
+        }
+
+        @Test
+        @DisplayName("OAuth signup returns 201 and forwards the trimmed profile completion data")
+        void signupOAuthReturnsCreated() throws Exception {
+            given(authService.signupOAuth("signup-token", "사용자", "1168010100")).willReturn(tokens());
+
+            mockMvc.perform(post("/auth/oauth/signup")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"signupToken":"signup-token","nickname":" 사용자 ","neighborhoodCode":" 1168010100 "}
+                                    """))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
+            then(authService).should().signupOAuth("signup-token", "사용자", "1168010100");
         }
     }
 

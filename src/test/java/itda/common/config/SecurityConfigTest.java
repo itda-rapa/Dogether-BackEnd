@@ -63,6 +63,14 @@ class SecurityConfigTest {
                 .andExpect(jsonPath("$.error.code").value(ErrorCode.UNAUTHORIZED.name()));
     }
 
+    @Test
+    void anonymousGoogleBrowserEndpointsPassSecurityBeforeTheirDisabledEndpointHandling() throws Exception {
+        mockMvc.perform(get("/oauth2/authorization/google"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/login/oauth2/code/google"))
+                .andExpect(status().isNotFound());
+    }
+
     @Nested
     @DisplayName("Describe: 인증되지 않은 보호된 POST 요청")
     class DescribeAnonymousProtectedPost {
@@ -139,6 +147,28 @@ class SecurityConfigTest {
             @DisplayName("It: 익명 요청은 Security에서 막지 않고 validation 400에 도달한다")
             void itPassesSecurityAndFailsOnlyValidation() throws Exception {
                 mockMvc.perform(post("/auth/password-reset")
+                                .contentType("application/json")
+                                .content("{}"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.VALIDATION_FAILED.name()));
+            }
+        }
+
+        @Nested
+        @DisplayName("Context: POST OAuth exchange/signup을 호출하면")
+        class WithOAuthPosts {
+
+            @Test
+            @DisplayName("It: 익명 요청은 Security에서 막지 않고 validation 400에 도달한다")
+            void oauthPostsArePermitAll() throws Exception {
+                mockMvc.perform(post("/auth/oauth/exchange")
+                                .contentType("application/json")
+                                .content("{}"))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.error.code")
+                                .value(ErrorCode.VALIDATION_FAILED.name()));
+                mockMvc.perform(post("/auth/oauth/signup")
                                 .contentType("application/json")
                                 .content("{}"))
                         .andExpect(status().isBadRequest())
