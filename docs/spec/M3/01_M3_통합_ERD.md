@@ -228,15 +228,18 @@ raw 좌표는 보관하지 않고 서버 비밀키 HMAC-SHA-256 fingerprint 만 
 
 ### `meeting_reviews`
 
-- meeting_id, reviewer_pet_id, content nullable, created_at
+- meeting_id, reviewer_pet_id, place_tag(VARCHAR(30) NOT NULL), content nullable, client_request_id(UUID 멱등키), created_at
 - `UNIQUE(meeting_id, reviewer_pet_id)`
-- 별점 없음
+- `UNIQUE(client_request_id)`
+- place_tag는 필수 장소 태그(공백 불가, 최대 30자). 허용 태그 enum/공용 DTO가 없어 String으로 저장.
+- content는 한 줄 후기(선택, 최대 500자). 별점 없음.
 
 ### `footprints`
 
 - meeting_id, receiver_pet_id, counterpart_pet_id, earned_date(KST), created_at
 - `UNIQUE(meeting_id, receiver_pet_id)`
-- 정규화 상대쌍+earned_date 중복 방지는 Service 또는 별도 pair key로 보장
+- `UNIQUE(receiver_pet_id, earned_date)`: 같은 Pet의 같은 Asia/Seoul 날짜 발자국 최대 1건(#150 확정 정책)
+- earned_date는 후기 제출 시각을 Asia/Seoul로 변환한 날짜. 같은 날 다른 Meeting 후기는 저장할 수 있고 이미 그날 발자국이 있으면 새 행을 만들지 않고 기존 행을 재사용한다.
 
 ## 7. 아침 약속 제안 스케줄러
 

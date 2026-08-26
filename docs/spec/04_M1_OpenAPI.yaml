@@ -1520,6 +1520,54 @@ paths:
         '410':
           $ref: '#/components/responses/Gone'
 
+  /meetings/{meetingId}/reviews:
+    post:
+      tags: [MeetingReview]
+      summary: 만남 후기 작성
+      operationId: submitMeetingReview
+      description: |
+        확정된 만남에 장소 태그와 선택형 한 줄 후기를 등록한다.
+        footprint.granted는 이번 HTTP 요청이 새 Footprint 행을 INSERT했는지를 뜻한다.
+        동일 clientRequestId replay나 같은 날 기존 daily Footprint 재사용이면 false다.
+        같은 날 다른 Meeting의 후기는 저장될 수 있으므로 Review와 Footprint는 항상 1:1이 아니다.
+      parameters:
+        - $ref: '#/components/parameters/MeetingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeetingReviewSubmitCommand'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '201':
+          description: 후기 저장 성공. 이번 요청의 신규 Footprint INSERT 여부는 footprint.granted로 확인한다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingReviewSubmitEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: ACTIVE_PET_REQUIRED 또는 REVIEW_NOT_PARTICIPANT(약속 참여 반려견만 후기를 작성할 수 있습니다.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: MEETING_NOT_FOUND(만남을 찾을 수 없습니다.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: REVIEW_ALREADY_EXISTS, REVIEW_REQUEST_CONFLICT 또는 REVIEW_CARD_NOT_OPEN(취소되거나 닫힌 약속 카드에는 후기를 작성할 수 없습니다.)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
   /me/blocks:
     post:
       tags: [Block]
@@ -1741,6 +1789,13 @@ components:
         format: int64
     CardId:
       name: cardId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    MeetingId:
+      name: meetingId
       in: path
       required: true
       schema:
@@ -2762,6 +2817,60 @@ components:
           type: string
           pattern: '^\d{4}$'
 
+    MeetingReviewSubmitCommand:
+      type: object
+      required: [clientRequestId, placeTag]
+      properties:
+        clientRequestId:
+          type: string
+          format: uuid
+        placeTag:
+          type: string
+          minLength: 1
+          maxLength: 30
+        content:
+          type: [string, 'null']
+          maxLength: 500
+
+    ReviewFootprintResult:
+      type: object
+      required: [granted, footprintId, duplicateDay, earnedDate]
+      properties:
+        granted:
+          type: boolean
+          description: 이번 HTTP 요청이 새 Footprint 행을 INSERT했는가. 최초 신규 적립만 true이며 멱등 replay나 같은 날 기존 발자국 재사용이면 false다.
+        footprintId:
+          type: [integer, 'null']
+          format: int64
+          description: 새로 만든 행 또는 같은 날 재사용한 기존 Footprint ID
+        duplicateDay:
+          type: boolean
+          description: 같은 Asia/Seoul 날짜의 기존 Footprint를 재사용했는가
+        earnedDate:
+          type: [string, 'null']
+          format: date
+          description: Asia/Seoul 기준 적립 날짜
+
+    MeetingReviewSubmitResult:
+      type: object
+      required: [reviewId, meetingId, placeTag, content, createdAt, footprint]
+      properties:
+        reviewId:
+          type: integer
+          format: int64
+        meetingId:
+          type: integer
+          format: int64
+        placeTag:
+          type: string
+        content:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        footprint:
+          $ref: '#/components/schemas/ReviewFootprintResult'
+
     BlockCreateRequest:
       type: object
       required: [targetPetId]
@@ -3209,6 +3318,14 @@ components:
         success: { type: boolean, const: true }
         message: { type: string }
         data: { $ref: '#/components/schemas/ConfirmationCodeResult' }
+        error: { type: 'null' }
+    MeetingReviewSubmitEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/MeetingReviewSubmitResult' }
         error: { type: 'null' }
     BlockEnvelope:
       type: object
