@@ -2949,7 +2949,7 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 | `placeText` | ㄴ | string / null | maxLength: 500 | - |
 | `meetAt` | ㄴ | string / null | format: date-time | - |
 | `fallback` | ㅇ | boolean | - | - |
-| `fallbackReason` | ㄴ | string / null | enum: TIMEOUT, MODEL_ERROR, INSUFFICIENT_CONTEXT, null | - |
+| `fallbackReason` | ㄴ | string / null | enum: TIMEOUT, MODEL_ERROR, INSUFFICIENT_CONTEXT, INVALID_REQUEST, null | - |
 | `createdAt` | ㅇ | string | format: date-time | - |
 
 <a id="schema-meetingcardcreaterequest"></a>

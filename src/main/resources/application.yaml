@@ -36,10 +36,26 @@ springdoc:
 
 
 app:
+  kakao:
+    local:
+      base-url: ${https://dapi.kakao.com}
+      rest-api-key: ${KAKAO_REST_API_KEY}
   meeting-card:
     ai:
       base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
       timeout: ${AI_TIMEOUT:5s}
+  meeting-suggestion:
+    # 아침 DIRECT 대화 약속 후보 제안 스케줄러. 기본값은 Risk Outbox/Storage Cleanup
+    # 패턴을 따랐으며 제품 정책이 아니다. 운영에서 환경 변수로 덮어쓴다.
+    enabled: ${MEETING_SUGGESTION_ENABLED:false}
+    zone: ${MEETING_SUGGESTION_ZONE:Asia/Seoul}
+    scheduler-cron: ${MEETING_SUGGESTION_SCHEDULER_CRON:0 0 7 * * *}
+    retry-delay-ms: ${MEETING_SUGGESTION_RETRY_DELAY_MS:60000}
+    batch-size: ${MEETING_SUGGESTION_BATCH_SIZE:10}
+    lease: ${MEETING_SUGGESTION_LEASE:1m}
+    max-attempts: ${MEETING_SUGGESTION_MAX_ATTEMPTS:10}
+    base-backoff: ${MEETING_SUGGESTION_BASE_BACKOFF:5s}
+    max-backoff: ${MEETING_SUGGESTION_MAX_BACKOFF:10m}
   setlog-upload:
     require-version-id: ${SETLOG_UPLOAD_REQUIRE_VERSION_ID:true}
   jwt:
@@ -67,6 +83,11 @@ app:
     heartbeat-send: 10s
     heartbeat-receive: 10s
     message-size-limit: 32KB
+  location:
+    # 유효한 저정확도 값은 거부하지 않고 Meeting의 확인 코드 fallback 신호로 반환한다.
+    max-capture-age: ${LOCATION_MAX_CAPTURE_AGE:5m}
+    future-tolerance: ${LOCATION_FUTURE_TOLERANCE:30s}
+    quality-threshold-meters: ${LOCATION_QUALITY_THRESHOLD_METERS:50}
   s3:
     # Credentials use the AWS SDK default chain, including AWS_ACCESS_KEY_ID /
     # AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) and IAM workload roles.

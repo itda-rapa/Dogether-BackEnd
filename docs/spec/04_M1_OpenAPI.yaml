@@ -2298,7 +2298,7 @@ components:
           type: boolean
         fallbackReason:
           type: [string, 'null']
-          enum: [TIMEOUT, MODEL_ERROR, INSUFFICIENT_CONTEXT, null]
+          enum: [TIMEOUT, MODEL_ERROR, INSUFFICIENT_CONTEXT, INVALID_REQUEST, null]
         createdAt:
           type: string
           format: date-time
