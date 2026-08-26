@@ -20,8 +20,8 @@ import itda.setlog.service.SetlogUploadCompletionService;
 import itda.setlog.service.SetlogDeleteService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -106,7 +106,9 @@ public class SetlogController implements SetlogSwaggerSupporter {
     ) {
         SetlogResponse setlog = setlogReadService.getSetlog(
                 currentUser.id(), setlogId);
-        return ResponseEntity.ok(ApiResponse.ok(setlog, "셋로그 상세 조회 성공"));
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ApiResponse.ok(setlog, "셋로그 상세 조회 성공"));
     }
 
     @DeleteMapping("/{setlogId}")

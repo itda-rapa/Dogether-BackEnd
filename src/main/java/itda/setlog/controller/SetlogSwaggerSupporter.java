@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import itda.common.dto.ApiResponse;
@@ -200,6 +201,11 @@ public interface SetlogSwaggerSupporter {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "셋로그 상세 조회 성공",
+            headers = @Header(
+                    name = "Cache-Control",
+                    description = "접근 민감 응답의 재사용을 막기 위한 no-store 정책",
+                    schema = @Schema(type = "string", example = "no-store")
+            ),
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     examples = @ExampleObject("""
@@ -251,7 +257,7 @@ public interface SetlogSwaggerSupporter {
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "403",
-            description = "비활성 계정 또는 Active Pet 미선택"
+            description = "비활성 계정 또는 저장된 Active Pet 상태 불일치"
     )
     ResponseEntity<ApiResponse<SetlogResponse>> getSetlog(
             @Parameter(hidden = true) CurrentUser currentUser,

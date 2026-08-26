@@ -382,6 +382,8 @@ class SetlogControllerTest {
 
         mockMvc.perform(get("/setlogs/{setlogId}", SETLOG_ID))
                 .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("셋로그 상세 조회 성공"))
                 .andExpect(jsonPath("$.data.setlogId").value(SETLOG_ID))

@@ -72,4 +72,16 @@ class SetlogUploadOpenApiTest {
                 .andExpect(jsonPath(operation + ".responses['404']").exists())
                 .andExpect(jsonPath(operation + ".responses['409']").exists());
     }
+
+    @Test
+    void runtimeOpenApiExposesSetlogDetailContract() throws Exception {
+        String operation = "$.paths['/setlogs/{setlogId}'].get";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(operation + ".responses['200']").exists())
+                .andExpect(jsonPath(operation
+                        + ".responses['200'].headers['Cache-Control'].schema.example")
+                        .value("no-store"));
+    }
 }
