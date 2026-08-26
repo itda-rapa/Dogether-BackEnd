@@ -21,6 +21,7 @@ import itda.media.service.MediaService;
 import itda.media.service.MediaService.OwnedPresignedDownload;
 import itda.media.service.MediaService.PresignedDownloadUrl;
 import itda.pet.service.query.PetDisplaySummary;
+import itda.setlog.dto.ShareableSetlogView;
 import itda.setlog.service.SetlogQueryService;
 import java.time.Instant;
 import java.util.Collection;
@@ -37,7 +38,7 @@ class ChatMessageResponseAssemblerTest {
         MediaService mediaService = mock(MediaService.class);
         SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
         ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
-                attachmentRepository, mediaService, setlogQueryService);
+                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
 
         ChatMessage imageMessage = mediaMessage(11L, MessageType.IMAGE);
         ChatMessage videoMessage = mediaMessage(12L, MessageType.VIDEO);
@@ -59,7 +60,7 @@ class ChatMessageResponseAssemblerTest {
         ));
 
         List<ChatMessageResponse> result = assembler.toResponses(
-                List.of(imageMessage, videoMessage), Map.<Long, PetDisplaySummary>of(), 1L, "나");
+                List.of(imageMessage, videoMessage), Map.<Long, PetDisplaySummary>of(), 1L, "나", 1L);
 
         ArgumentCaptor<Collection<Long>> mediaIds = ArgumentCaptor.forClass(Collection.class);
         verify(attachmentRepository).findAllByMessageIdIn(List.of(11L, 12L));
@@ -84,7 +85,7 @@ class ChatMessageResponseAssemblerTest {
         MediaService mediaService = mock(MediaService.class);
         SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
         ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
-                attachmentRepository, mediaService, setlogQueryService);
+                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
         ChatMessage first = mediaMessage(11L, MessageType.IMAGE);
         ChatMessage second = mediaMessage(12L, MessageType.IMAGE);
         ChatMessageAttachment firstAttachment = attachment(first, 101L, AttachmentType.IMAGE);
@@ -94,11 +95,65 @@ class ChatMessageResponseAssemblerTest {
                 .thenReturn(List.of(firstAttachment, secondAttachment));
         when(mediaService.getMediaDownloadsByIds(anyCollection())).thenReturn(Map.of());
 
-        assembler.toResponses(List.of(first, second), Map.of(), 1L, "나");
+        assembler.toResponses(List.of(first, second), Map.of(), 1L, "나", 1L);
 
         ArgumentCaptor<Collection<Long>> mediaIds = ArgumentCaptor.forClass(Collection.class);
         verify(mediaService).getMediaDownloadsByIds(mediaIds.capture());
         assertThat(mediaIds.getValue()).containsExactly(101L);
+    }
+
+    @Test
+    void batchHydratesSharedSetlogsOnceAndReturnsCardSummary() {
+        ChatMessageAttachmentRepository attachmentRepository = mock(ChatMessageAttachmentRepository.class);
+        MediaService mediaService = mock(MediaService.class);
+        SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
+        ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
+                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
+        ChatMessage first = setlogShareMessage(11L, 41L);
+        ChatMessage repeated = setlogShareMessage(12L, 41L);
+
+        ShareableSetlogView shareable = new ShareableSetlogView(
+                41L, true, 2L, "보리", "오늘의 산책", 501L, "IMAGE",
+                "https://storage.example/setlog", Instant.parse("2026-08-26T03:00:00Z"), 3);
+        when(mediaService.getMediaDownloadsByIds(anyCollection())).thenReturn(Map.of());
+        when(setlogQueryService.findShareableSetlogViews(anyCollection(), org.mockito.ArgumentMatchers.eq(1L)))
+                .thenReturn(Map.of(41L, shareable));
+
+        List<ChatMessageResponse> result = assembler.toResponses(
+                List.of(first, repeated), Map.of(), 1L, "나", 1L);
+
+        ArgumentCaptor<Collection<Long>> setlogIds = ArgumentCaptor.forClass(Collection.class);
+        verify(setlogQueryService).findShareableSetlogViews(
+                setlogIds.capture(), org.mockito.ArgumentMatchers.eq(1L));
+        assertThat(setlogIds.getValue()).containsExactly(41L);
+        assertThat(result).allSatisfy(response -> assertThat(response.sharedSetlog())
+                .extracting("setlogId", "available", "authorPetId", "authorPetNickname", "caption",
+                        "reactionCount", "detailPath")
+                .containsExactly(41L, true, 2L, "보리", "오늘의 산책", 3, "/setlogs/41"));
+        assertThat(result.get(0).sharedSetlog().media())
+                .extracting("mediaId", "mediaType", "url", "expiresAt")
+                .containsExactly(501L, "IMAGE", "https://storage.example/setlog",
+                        Instant.parse("2026-08-26T03:00:00Z"));
+    }
+
+    @Test
+    void unavailableSharedSetlogDoesNotExposeCardFields() {
+        ChatMessageAttachmentRepository attachmentRepository = mock(ChatMessageAttachmentRepository.class);
+        MediaService mediaService = mock(MediaService.class);
+        SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
+        ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
+                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
+        ChatMessage message = setlogShareMessage(11L, 42L);
+
+        when(mediaService.getMediaDownloadsByIds(anyCollection())).thenReturn(Map.of());
+        when(setlogQueryService.findShareableSetlogViews(List.of(42L), 1L)).thenReturn(Map.of());
+
+        ChatMessageResponse response = assembler.toResponses(List.of(message), Map.of(), 1L, "나", 1L).getFirst();
+
+        assertThat(response.sharedSetlog())
+                .extracting("setlogId", "available", "unavailableReason", "authorPetId", "authorPetNickname",
+                        "caption", "media", "reactionCount", "detailPath")
+                .containsExactly(42L, false, "SETLOG_UNAVAILABLE", null, null, null, null, null, null);
     }
 
     private ChatMessage mediaMessage(long id, MessageType type) {
@@ -112,6 +167,12 @@ class ChatMessageResponseAssemblerTest {
         when(message.getType()).thenReturn(type);
         when(message.getClientMessageId()).thenReturn("client-" + id);
         when(message.getCreatedAt()).thenReturn(Instant.parse("2026-08-26T02:00:00Z"));
+        return message;
+    }
+
+    private ChatMessage setlogShareMessage(long id, long setlogId) {
+        ChatMessage message = mediaMessage(id, MessageType.SETLOG_SHARE);
+        when(message.getSharedSetlogId()).thenReturn(setlogId);
         return message;
     }
 

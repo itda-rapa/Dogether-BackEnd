@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -170,6 +171,33 @@ class SetlogQueryServiceTest {
 
         assertThat(result).isEmpty();
         then(mediaService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void sharedSetlogFromBlockedAuthorIsUnavailableWithoutMediaUrl() {
+        Setlog setlog = mock(Setlog.class);
+        Pet authorPet = mock(Pet.class);
+        User author = mock(User.class);
+        given(setlog.getAuthorPet()).willReturn(authorPet);
+        given(authorPet.getOwner()).willReturn(author);
+        given(author.getId()).willReturn(AUTHOR_USER_ID);
+        given(setlogRepository.findAllByIdForShare(
+                List.of(SETLOG_ID),
+                SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
+        )).willReturn(List.of(setlog));
+        given(blockRelationshipQueryService.findBlockedUserIdsBetween(
+                USER_ID,
+                Set.of(AUTHOR_USER_ID)
+        )).willReturn(Set.of(AUTHOR_USER_ID));
+
+        Map<Long, itda.setlog.dto.ShareableSetlogView> result =
+                setlogQueryService.findShareableSetlogViews(List.of(SETLOG_ID), USER_ID);
+
+        assertThat(result.get(SETLOG_ID).available()).isFalse();
+        then(mediaService).shouldHaveNoInteractions();
+        then(blockRelationshipQueryService).should().findBlockedUserIdsBetween(
+                USER_ID, Set.of(AUTHOR_USER_ID));
     }
 
     private Setlog setlog() {
