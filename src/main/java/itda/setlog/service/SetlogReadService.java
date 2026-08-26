@@ -167,6 +167,7 @@ public class SetlogReadService {
     /**
      * 공유 카드의 상세 route 진입 시 피드와 같은 접근 정책을 다시 적용한다.
      * Media Presigned URL은 카드 값을 재사용하지 않고 이 조회에서 새로 발급한다.
+     * 서명 대상 Media는 상세 query가 이미 fetch join으로 가져오므로 다시 조회하지 않는다.
      */
     @Transactional(readOnly = true)
     public SetlogResponse getSetlog(Long userId, Long setlogId) {
@@ -196,8 +197,9 @@ public class SetlogReadService {
                 activePet, List.of(setlog));
         Map<Long, List<ReactionType>> myReactions = getMyReactions(
                 activePet, List.of(setlog));
-        PresignedDownloadUrl mediaUrl = mediaService.getPresignedDownloadUrl(
-                setlog.getMedia().getId());
+        Map<Long, PresignedDownloadUrl> mediaUrls =
+                mediaService.getPresignedDownloadUrls(
+                        List.of(setlog.getMedia()));
 
         return toResponse(
                 setlog,
@@ -205,7 +207,7 @@ public class SetlogReadService {
                 activePet,
                 relationships,
                 myReactions,
-                Map.of(setlog.getMedia().getId(), mediaUrl)
+                mediaUrls
         );
     }
 

@@ -115,6 +115,12 @@ public class SetlogQueryService {
                 getRelationships(activePet, visibleSetlogs);
         Map<Long, List<ReactionType>> myReactions =
                 getMyReactions(activePet, visibleSetlogs);
+        Map<Long, PresignedDownloadUrl> mediaUrls =
+                mediaService.getPresignedDownloadUrls(
+                        visibleSetlogs.stream()
+                                .map(Setlog::getMedia)
+                                .toList()
+                );
 
         return visibleSetlogs.stream()
                 .map(setlog -> toResponse(
@@ -122,7 +128,8 @@ public class SetlogQueryService {
                         authorPets.get(setlog.getAuthorPet().getId()),
                         activePet,
                         relationships,
-                        myReactions
+                        myReactions,
+                        mediaUrls
                 ))
                 .toList();
     }
@@ -191,12 +198,12 @@ public class SetlogQueryService {
             PetDisplaySummary authorPet,
             ActivePetContext activePet,
             Map<Long, FriendRelationship> relationships,
-            Map<Long, List<ReactionType>> myReactions
+            Map<Long, List<ReactionType>> myReactions,
+            Map<Long, PresignedDownloadUrl> mediaUrls
     ) {
-        PresignedDownloadUrl mediaUrl =
-                mediaService.getPresignedDownloadUrl(
-                        setlog.getMedia().getId()
-                );
+        PresignedDownloadUrl mediaUrl = mediaUrls.get(
+                setlog.getMedia().getId()
+        );
         boolean canInteract = activePet != null
                 && !activePet.ownerUserId().equals(authorPet.ownerUserId());
         FriendRelationship relationship = activePet == null

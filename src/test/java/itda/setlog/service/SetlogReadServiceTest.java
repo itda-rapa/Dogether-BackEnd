@@ -245,7 +245,8 @@ class SetlogReadServiceTest {
         given(setlogReactionRepository
                 .findAllBySetlog_IdInAndReactorPet_Id(List.of(30L), 9L))
                 .willReturn(List.of());
-        given(mediaService.getPresignedDownloadUrl(230L)).willReturn(url("fresh-detail"));
+        given(mediaService.getPresignedDownloadUrls(anyList()))
+                .willReturn(Map.of(230L, url("fresh-detail")));
 
         var result = service.getSetlog(USER_ID, 30L);
 
@@ -253,8 +254,35 @@ class SetlogReadServiceTest {
         assertThat(result.source()).isEqualTo(SetlogSource.USER);
         assertThat(result.mediaUrl()).isEqualTo("https://example.com/fresh-detail.mp4");
         assertThat(result.authorPet().relationship()).isEqualTo(FriendRelationship.FRIEND);
-        then(mediaService).should().getPresignedDownloadUrl(230L);
-        then(mediaService).should(never()).getPresignedDownloadUrls(anyList());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<Media>> mediaItems =
+                ArgumentCaptor.forClass(Collection.class);
+        then(mediaService).should().getPresignedDownloadUrls(mediaItems.capture());
+        assertThat(mediaItems.getValue())
+                .containsExactly(setlog.getMedia());
+        then(mediaService).should(never()).getPresignedDownloadUrl(any());
+    }
+
+    @Test
+    void detailSignsAlreadyFetchedMediaWithoutExtraMediaLookup() {
+        activeUser(false);
+        Setlog setlog = setlog(31L, 131L, 231L, "2026-08-11T06:00:00Z");
+        given(setlogRepository.findVisibleDetailById(
+                31L, USER_ID, SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED),
+                PetStatus.ACTIVE, AccountStatus.ACTIVE
+        )).willReturn(Optional.of(setlog));
+        given(petDisplayQueryService.getPetDisplaySummaries(List.of(131L)))
+                .willReturn(Map.of(131L, petSummary(131L, 4L)));
+        given(mediaService.getPresignedDownloadUrls(anyList()))
+                .willReturn(Map.of(231L, url("detail-batch")));
+
+        var result = service.getSetlog(USER_ID, 31L);
+
+        assertThat(result.mediaUrl()).isEqualTo("https://example.com/detail-batch.mp4");
+        then(mediaService).should().getPresignedDownloadUrls(anyList());
+        then(mediaService).should(never()).getPresignedDownloadUrl(any());
+        then(mediaService).shouldHaveNoMoreInteractions();
     }
 
     @Test

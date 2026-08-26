@@ -1,6 +1,8 @@
 package itda.setlog.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
@@ -31,6 +33,9 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.Mockito.never;
+
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -115,17 +120,19 @@ class SetlogQueryServiceTest {
                 USER_ID,
                 AUTHOR_USER_ID
         )).willReturn(false);
-        given(mediaService.getPresignedDownloadUrl(30L))
-                .willReturn(new PresignedDownloadUrl(
+        given(mediaService.getPresignedDownloadUrls(anyList()))
+                .willReturn(Map.of(30L, new PresignedDownloadUrl(
                         "https://example.com/seed.mp4",
                         Instant.parse("2026-07-30T01:10:00Z")
-                ));
+                )));
 
         List<SetlogResponse> result =
                 setlogQueryService.getSeedSetlogs(USER_ID);
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().setlogId()).isEqualTo(SETLOG_ID);
+        assertThat(result.getFirst().mediaUrl())
+                .isEqualTo("https://example.com/seed.mp4");
         assertThat(result.getFirst().myReactions()).isEmpty();
         assertThat(result.getFirst().canInteract()).isFalse();
         assertThat(result.getFirst().authorPet().relationship()).isNull();
@@ -198,6 +205,76 @@ class SetlogQueryServiceTest {
         then(mediaService).shouldHaveNoInteractions();
         then(blockRelationshipQueryService).should().findBlockedUserIdsBetween(
                 USER_ID, Set.of(AUTHOR_USER_ID));
+    }
+
+    @Test
+    void seedFeedSignsEveryMediaInOneBatchCall() {
+        User user = mock(User.class);
+        Setlog first = seedSetlog(11L, 31L);
+        Setlog second = seedSetlog(12L, 32L);
+        given(user.isActive()).willReturn(true);
+        given(user.hasActivePet()).willReturn(false);
+        given(userRepository.findById(USER_ID))
+                .willReturn(Optional.of(user));
+        given(setlogRepository.findVisibleSeedSetlogs(
+                SetlogStatus.VISIBLE,
+                List.of(MediaStatus.UPLOADED, MediaStatus.COMPLETED)
+        )).willReturn(List.of(first, second));
+        given(petDisplayQueryService.getPetDisplaySummaries(
+                List.of(AUTHOR_PET_ID, AUTHOR_PET_ID)
+        )).willReturn(Map.of(
+                AUTHOR_PET_ID,
+                new PetDisplaySummary(
+                        AUTHOR_PET_ID,
+                        AUTHOR_USER_ID,
+                        "몽이#A7K2",
+                        "몽이",
+                        null,
+                        true,
+                        PetStatus.ACTIVE,
+                        null
+                )
+        ));
+        given(blockRelationshipQueryService.existsBlockBetween(
+                USER_ID,
+                AUTHOR_USER_ID
+        )).willReturn(false);
+        given(mediaService.getPresignedDownloadUrls(anyList()))
+                .willReturn(Map.of(
+                        31L, new PresignedDownloadUrl(
+                                "https://example.com/seed-11.mp4",
+                                Instant.parse("2026-07-30T01:10:00Z")),
+                        32L, new PresignedDownloadUrl(
+                                "https://example.com/seed-12.mp4",
+                                Instant.parse("2026-07-30T01:10:00Z"))
+                ));
+
+        List<SetlogResponse> result =
+                setlogQueryService.getSeedSetlogs(USER_ID);
+
+        assertThat(result).extracting(SetlogResponse::mediaUrl)
+                .containsExactly(
+                        "https://example.com/seed-11.mp4",
+                        "https://example.com/seed-12.mp4"
+                );
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Collection<Media>> mediaItems =
+                ArgumentCaptor.forClass(java.util.Collection.class);
+        then(mediaService).should().getPresignedDownloadUrls(
+                mediaItems.capture());
+        assertThat(mediaItems.getValue()).extracting(Media::getId)
+                .containsExactly(31L, 32L);
+        then(mediaService).should(never()).getPresignedDownloadUrl(any());
+        then(mediaService).shouldHaveNoMoreInteractions();
+    }
+
+    private Setlog seedSetlog(Long setlogId, Long mediaId) {
+        Setlog setlog = setlog();
+        Media media = mock(Media.class);
+        given(setlog.getId()).willReturn(setlogId);
+        given(setlog.getMedia()).willReturn(media);
+        given(media.getId()).willReturn(mediaId);
+        return setlog;
     }
 
     private Setlog setlog() {
