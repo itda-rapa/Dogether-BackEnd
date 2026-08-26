@@ -166,7 +166,12 @@ public enum ErrorCode {
     LOCATION_STALE(HttpStatus.BAD_REQUEST, "수집된 지 오래된 위치 정보입니다."),
 
     // NODE
-    NODE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 좌표에 조회가능한 네트워크 노드가 없습니다.")
+    NODE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 좌표에 조회가능한 네트워크 노드가 없습니다."),
+
+    MEDICAL_SUPPORT_REVISION_NOT_FOUND(HttpStatus.NOT_FOUND, "의료비 지원사업 수집 이력을 찾을 수 없습니다."),
+    MEDICAL_SUPPORT_REVISION_ALREADY_CLOSED(HttpStatus.CONFLICT, "이미 검토가 종료된 수집 이력입니다."),
+    MEDICAL_SUPPORT_SOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "등록되지 않은 공식 수집원입니다."),
+    MEDICAL_SUPPORT_SOURCE_FAILED(HttpStatus.BAD_GATEWAY, "공식 수집원을 처리하지 못했습니다.")
 
     ;
 

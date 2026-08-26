@@ -1,0 +1,4 @@
+package itda.medicalsupport.domain;
+import jakarta.persistence.*; import lombok.*;
+@Getter @Entity @Table(name="medical_support_revision_hospitals") @NoArgsConstructor(access=AccessLevel.PROTECTED)
+public class MedicalSupportRevisionHospital { @Id @GeneratedValue(strategy=GenerationType.IDENTITY) private Long id; @ManyToOne(fetch=FetchType.LAZY) @JoinColumn(name="revision_id",nullable=false) private MedicalSupportRevision revision; @Column(nullable=false) private String name; private String address; private String phone; private String sidoName; private String sigunguName; public MedicalSupportRevisionHospital(MedicalSupportRevision r, itda.medicalsupport.ingestion.MedicalSupportCandidate.Hospital h){revision=r;name=h.name();address=h.address();phone=h.phone();sidoName=h.sidoName();sigunguName=h.sigunguName();}}
