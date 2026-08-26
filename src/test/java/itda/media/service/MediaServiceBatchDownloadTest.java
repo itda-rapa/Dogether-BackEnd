@@ -19,6 +19,7 @@ import itda.media.repository.MediaRepository;
 import itda.media.storage.ObjectMetadata;
 import itda.media.storage.ObjectStorage;
 import itda.media.storage.ObjectNotFoundException;
+import itda.media.storage.StorageProviderRejectedException;
 import itda.media.storage.StorageProviderUnavailableException;
 import itda.media.dto.uploaddto.MultipartUploaded;
 import itda.user.domain.User;
@@ -256,6 +257,39 @@ class MediaServiceBatchDownloadTest {
         assertThat(media.getStatus()).isEqualTo(MediaStatus.FAILED);
         then(mediaRepository).should().save(media);
         then(objectStorage).should().delete("users/1/video.mp4", "version-1");
+    }
+
+    @Test
+    void multipartCompletionMapsStorageFailuresToRetryableContractErrors() {
+        List<MultipartUploaded> parts = List.of(new MultipartUploaded(1, "etag"));
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(objectStorage.head("users/1/image.png"))
+                .willThrow(new ObjectNotFoundException("head", new IllegalStateException("missing")));
+
+        Media unavailable = new Media(MediaType.IMAGE, "users/1/image.png", 1L, 10L, "upload-1");
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(unavailable);
+        org.mockito.BDDMockito.willThrow(
+                        new StorageProviderUnavailableException("completeMultipartUpload",
+                                new IllegalStateException("503")))
+                .given(multipartService)
+                .completeMultipartUpload("users/1/image.png", "upload-1", parts);
+
+        assertMediaError(() -> mediaService.mediaUploaded(7L, parts, 1L),
+                ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        // 재시도 가능한 장애이므로 Media를 재사용 불가 상태로 만들지 않는다.
+        assertThat(unavailable.getStatus()).isEqualTo(MediaStatus.INIT);
+
+        Media rejected = new Media(MediaType.IMAGE, "users/1/image.png", 1L, 10L, "upload-1");
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(8L)).willReturn(rejected);
+        org.mockito.BDDMockito.willThrow(
+                        new StorageProviderRejectedException("completeMultipartUpload", 400,
+                                new IllegalStateException("rejected")))
+                .given(multipartService)
+                .completeMultipartUpload("users/1/image.png", "upload-1", parts);
+
+        assertMediaError(() -> mediaService.mediaUploaded(8L, parts, 1L),
+                ErrorCode.MEDIA_STORAGE_REJECTED);
     }
 
     @Test

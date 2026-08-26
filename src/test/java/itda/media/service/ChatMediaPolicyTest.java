@@ -73,6 +73,17 @@ class ChatMediaPolicyTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void appliesDurationLimitWithoutMillisecondFloorRounding() {
+        // timescale 1000 기준 5000.5ms. millisecond로 내림하면 5000이 되어 상한을 통과해버린다.
+        assertThat(Mp4DurationExtractor.durationMillis(mp4WithDuration(10_001, 2_000)))
+                .isEqualByComparingTo(BigInteger.valueOf(5_000));
+        assertThat(Mp4DurationExtractor.duration(mp4WithDuration(10_001, 2_000))
+                .exceedsMillis(ChatMediaPolicy.MAX_VIDEO_DURATION_MILLIS)).isTrue();
+        assertThat(Mp4DurationExtractor.duration(mp4WithDuration(10_000, 2_000))
+                .exceedsMillis(ChatMediaPolicy.MAX_VIDEO_DURATION_MILLIS)).isFalse();
+    }
+
     private static byte[] mp4WithDuration(long duration, long timescale) {
         ByteBuffer mvhdPayload = ByteBuffer.allocate(20).order(ByteOrder.BIG_ENDIAN);
         mvhdPayload.putInt(0); // version 0 + flags
