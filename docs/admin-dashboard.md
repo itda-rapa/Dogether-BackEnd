@@ -17,16 +17,18 @@
 | 지표 | 포함 기준 | 기간 기준 |
 |---|---|---|
 | User | 일반 사용자, 탈퇴 제외, 정지 포함 | `created_at` |
-| Pet | 논리 삭제 제외, 정지 포함 | `created_at` |
-| Setlog | `VISIBLE`, 비 Seed | `created_at` |
-| BoardPost | `PUBLISHED`, 미삭제 | `created_at` |
+| Pet | 논리 삭제 제외, 정지 Pet·소유자 포함, 탈퇴 소유자 제외 | `created_at` |
+| Setlog | `VISIBLE`, 비 Seed (작성 Pet/User의 이후 상태와 무관) | `created_at` |
+| BoardPost | `PUBLISHED`, 미삭제 (작성 Pet/User의 이후 상태와 무관) | `created_at` |
 | Report 생성 | 상태 무관 | `created_at` |
 | Report open | 현재 `OPEN` | 기간 무관 |
-| Risk | 기간 내 Signal 및 고유 actor(Safety의 subject) | `occurred_at` |
+| Risk | 기간 내 Signal 및 고유 위험 행위자(`actorUserId`) | `occurred_at` |
 | Safety open | 현재 `OPEN`, `REVIEWING` | 기간 무관 |
 | Storage | 현재 `PENDING`, `RETRY`, `FAILED` | 기간 무관 |
 
 최근 항목은 요청 기간과 무관한 Report·SafetyCase 전체 최신 10건이다. 정렬은 `created_at DESC, source ASC, id DESC`이며 Report 원문이나 Risk metadata는 조회하지 않는다.
+
+`signalsByType`은 서버가 지원하는 모든 `RiskSignalType`을 반환하며, 선택 기간에 발생하지 않은 유형의 값은 `0`이다.
 
 ## 쿼리와 운영 확인
 
