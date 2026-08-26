@@ -155,4 +155,7 @@ Open Chat:
 - Chat room, MeetingCard 생성·조회·취소
 - Open Chat room·invite·join·leave·card draft
 
+- 약속 제안 스케줄러는 사용자 API 를 추가하지 않는다. Scan/후보 목록 조회·수락/거절 UI 는 범위 제외.
+- M1 CardDraft `fallbackReason` enum 에 `INVALID_REQUEST`(AI HTTP 422) 가 추가됐다. 200 + 빈 폼 수렴 동작은 기존과 동일하다.
+
 기존 endpoint를 바꾸는 경우 M3 필드 추가가 하위 호환인지 검증한다.

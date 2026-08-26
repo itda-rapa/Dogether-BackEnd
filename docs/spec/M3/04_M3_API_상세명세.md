@@ -1409,6 +1409,8 @@ GPS 성공 응답:
 
 정확도 부족 응답:
 
+Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하지 않고 `LOW_ACCURACY`로 분류한다. Meeting은 이 결과를 받아 아래 `CODE_REQUIRED` 정상 응답으로 전환한다. 좌표 범위 밖·비수·음수 accuracy·허용 미래 시각 초과만 `LOCATION_INVALID`, 수집 허용 시간보다 오래된 위치만 `LOCATION_STALE`다. Location의 거리 utility는 두 좌표 사이의 미터 거리만 반환하고 100m 제한과 양쪽 제출 5분 제한은 Meeting이 판정한다.
+
 ```json
 {
   "success": true,

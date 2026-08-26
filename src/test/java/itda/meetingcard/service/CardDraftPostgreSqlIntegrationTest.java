@@ -315,6 +315,28 @@ class CardDraftPostgreSqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("수동 초안의 AI 422 도 200 + 빈 폼으로 수렴하고 fallbackReason=INVALID_REQUEST 다")
+    void restAi422BecomesEmptyFormWithInvalidRequest() throws Exception {
+        insertRecentTextMessages(2);
+        org.mockito.Mockito.when(productionAiClient.extract(
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(AiDraftResult.fallback(CardDraftFallbackReason.INVALID_REQUEST));
+
+        mockMvc.perform(post("/chat/rooms/{roomId}/card-drafts", roomId)
+                        .with(user(new CurrentUser(USER_1, "user1@test.com", Role.USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].fallback").value(true))
+                .andExpect(jsonPath("$.data[0].fallbackReason").value("INVALID_REQUEST"));
+
+        assertThat(countOf("card_drafts")).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select fallback_reason from card_drafts", String.class))
+                .isEqualTo("INVALID_REQUEST");
+    }
+
+    @Test
     @DisplayName("다건 초안 중 선택한 draftId로 약속 카드를 확정한다")
     void selectedMultiCandidateDraftCanConfirmCard() {
         insertTextMessages(2);

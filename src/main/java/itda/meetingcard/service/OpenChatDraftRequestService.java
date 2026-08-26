@@ -12,6 +12,7 @@ import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.meetingcard.ai.MeetingDraftAiProperties;
 import itda.meetingcard.domain.CardDraft;
 import itda.meetingcard.domain.CardDraftFallbackReason;
 import itda.meetingcard.domain.MeetingCardType;
@@ -35,7 +36,6 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -76,12 +76,11 @@ public class OpenChatDraftRequestService {
             CardDraftTransactionService transactionService,
             CardDraftRepository cardDraftRepository,
             CardDraftParticipantRepository cardDraftParticipantRepository,
-            @Value("${app.meeting-card.ai.base-url:http://127.0.0.1:8000}") String baseUrl,
-            @Value("${app.meeting-card.ai.timeout:5s}") Duration timeout
+            MeetingDraftAiProperties aiProperties
     ) {
         this(activePetQueryService, chatRoomRepository, participantRepository, messageRepository,
                 transactionService, cardDraftRepository, cardDraftParticipantRepository,
-                buildClient(baseUrl, timeout), Clock.systemUTC());
+                buildClient(aiProperties.baseUrl(), aiProperties.timeout()), Clock.systemUTC());
     }
 
     OpenChatDraftRequestService(
