@@ -200,16 +200,58 @@ public interface SetlogSwaggerSupporter {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "200",
             description = "셋로그 상세 조회 성공",
-            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = SetlogResponse.class))
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {
+                                "success":true,
+                                "message":"셋로그 상세 조회 성공",
+                                "data":{
+                                    "setlogId":1,
+                                    "source":"USER",
+                                    "authorPet":{
+                                        "petId":12,
+                                        "publicTag":"몽이#4A2F",
+                                        "nickname":"몽이",
+                                        "profileUrl":null,
+                                        "verified":true,
+                                        "relationship":"FRIEND"
+                                    },
+                                    "mediaUrl":"https://example.com/setlogs/1.mp4",
+                                    "mediaUrlExpiresAt":"2026-08-05T00:10:00Z",
+                                    "caption":"오늘 산책 완료",
+                                    "cuteCount":2,
+                                    "likeCount":1,
+                                    "myReactions":["LIKE"],
+                                    "canInteract":true,
+                                    "createdAt":"2026-08-05T00:00:00Z"
+                                },
+                                "error":null
+                            }
+                            """)
+            )
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "404",
-            description = "셋로그 없음, 표시 불가 상태 또는 양방향 차단으로 접근 불가"
+            description = "셋로그 없음, 표시 불가 상태 또는 양방향 차단으로 접근 불가",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject("""
+                            {
+                                "success":false,
+                                "message":"해당 요청이 실패되었습니다.",
+                                "data":null,
+                                "error":{
+                                    "code":"SETLOG_NOT_FOUND",
+                                    "message":"셋로그를 찾을 수 없습니다."
+                                }
+                            }
+                            """)
+            )
     )
     @io.swagger.v3.oas.annotations.responses.ApiResponse(
             responseCode = "403",
-            description = "비활성 계정 또는 Active Pet 불일치"
+            description = "비활성 계정 또는 Active Pet 미선택"
     )
     ResponseEntity<ApiResponse<SetlogResponse>> getSetlog(
             @Parameter(hidden = true) CurrentUser currentUser,
