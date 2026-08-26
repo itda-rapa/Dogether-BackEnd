@@ -250,6 +250,23 @@ class PostgreSqlFlywayIntegrationTest {
     }
 
     @Test
+    void oauthArtifactStatusAndConsumedAtMustRemainConsistent() {
+        for (String table : List.of("oauth_login_codes", "oauth_signup_tokens")) {
+            String unique = UUID.randomUUID().toString().replace("-", "");
+
+            insertOAuthArtifact(table, unique + "-available", "AVAILABLE", false);
+            insertOAuthArtifact(table, unique + "-consumed", "CONSUMED", true);
+
+            assertThatThrownBy(() ->
+                    insertOAuthArtifact(table, unique + "-available-with-consumed-at", "AVAILABLE", true))
+                    .isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() ->
+                    insertOAuthArtifact(table, unique + "-consumed-without-consumed-at", "CONSUMED", false))
+                    .isInstanceOf(RuntimeException.class);
+        }
+    }
+
+    @Test
     void oauthNewUserLifecycleCreatesPasswordlessUserAndSingleGoogleIdentity() {
         String unique = UUID.randomUUID().toString().replace("-", "");
         String email = unique + "@example.com";
@@ -422,6 +439,20 @@ class PostgreSqlFlywayIntegrationTest {
                 values (?, null, 'OAuth사용자', ?, 'USER', 'ACTIVE', '4113165000')
                 returning id
                 """, Long.class, email, publicTag);
+    }
+
+    private void insertOAuthArtifact(String table, String suffix, String status, boolean withConsumedAt) {
+        jdbcTemplate.update("""
+                insert into %s
+                    (token_hash, provider, provider_subject, verified_email, status, expires_at, created_at, consumed_at)
+                values (?, 'GOOGLE', ?, ?, ?, current_timestamp + interval '5 minutes', current_timestamp,
+                        case when ? then current_timestamp else null end)
+                """.formatted(table),
+                TokenHashing.sha256(table + "-" + suffix),
+                "subject-" + suffix,
+                suffix + "@example.com",
+                status,
+                withConsumedAt);
     }
 
     private void assertRefreshRejected(String refreshToken) {
