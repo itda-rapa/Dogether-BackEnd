@@ -2,6 +2,7 @@ package itda.dashboard.repository;
 
 import itda.dashboard.dto.AdminDashboardResponse.RecentItemResponse;
 import itda.dashboard.dto.AdminDashboardResponse.RecentItemSource;
+import itda.risk.contract.RiskSignalType;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -46,13 +47,16 @@ public class AdminDashboardJdbcRepository {
               cross join (
                   select
                       count(*) filter (
-                          where status <> 'DELETED' and deleted_at is null
+                          where pet.status <> 'DELETED' and pet.deleted_at is null
+                            and owner.account_status <> 'WITHDRAWN'
                       ) as pets_total,
                       count(*) filter (
-                          where status <> 'DELETED' and deleted_at is null
-                            and created_at >= ? and created_at < ?
+                          where pet.status <> 'DELETED' and pet.deleted_at is null
+                            and owner.account_status <> 'WITHDRAWN'
+                            and pet.created_at >= ? and pet.created_at < ?
                       ) as pets_new
-                    from pets
+                    from pets pet
+                    join users owner on owner.id = pet.owner_user_id
               ) pets
               cross join (
                   select
@@ -116,6 +120,9 @@ public class AdminDashboardJdbcRepository {
 
     public Map<String, Long> findSignalCounts(Instant fromInclusive, Instant toExclusive) {
         Map<String, Long> result = new LinkedHashMap<>();
+        for (RiskSignalType signalType : RiskSignalType.values()) {
+            result.put(signalType.name(), 0L);
+        }
         jdbc.query("""
                 select signal_type, count(*) as signal_count
                   from risk_signal_events

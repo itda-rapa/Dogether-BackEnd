@@ -1036,11 +1036,11 @@ Consumer는 DB/Backend가 검증한 ID를 기준으로 hydrate하거나 event에
 집계 기준(D-08):
 
 - User: `role=USER`이면서 탈퇴하지 않은 계정. 정지 계정은 포함한다.
-- Pet: 논리 삭제되지 않은 Pet. 정지 Pet은 포함한다.
-- Setlog: `VISIBLE`이며 Seed가 아닌 콘텐츠.
-- BoardPost: `PUBLISHED`이며 논리 삭제되지 않은 게시글.
+- Pet: 논리 삭제되지 않은 Pet이며 정지 Pet·소유자는 포함하되, 소유 User가 `WITHDRAWN`이면 제외한다.
+- Setlog: `VISIBLE`이며 Seed가 아닌 콘텐츠. 작성 Pet/User의 이후 삭제·탈퇴 상태는 집계에 영향을 주지 않는다.
+- BoardPost: `PUBLISHED`이며 논리 삭제되지 않은 게시글. 작성 Pet/User의 이후 삭제·탈퇴 상태는 집계에 영향을 주지 않는다.
 - Report: `createdInPeriod`는 생성 당시 상태와 무관하고, `open`은 조회 시점의 현재 `OPEN` 수다.
-- Safety: `detectedUsers`와 `signalsByType`은 기간 내 `occurredAt`, `openCases`는 현재 `OPEN`, `REVIEWING` 수다. 0건인 Signal type은 생략한다.
+- Safety: `detectedUsers`는 기간 내 고유 `actorUserId` 수이고 `signalsByType`은 기간 내 `occurredAt` 기준이다. 서버가 지원하는 모든 Signal type을 반환하며 0건은 `0`이다. `openCases`는 현재 `OPEN`, `REVIEWING` 수다.
 - StorageCleanup: 기간과 무관한 현재 `PENDING`, `RETRY`, `FAILED` backlog다.
 - `recentItems`는 기간과 무관한 Report·SafetyCase 전체 최신 10건이며 `createdAt DESC`, `source ASC`, `id DESC`로 정렬한다.
 - 이메일, 토큰, 신고 원문, Risk metadata, Media URL은 조회하거나 반환하지 않는다.
