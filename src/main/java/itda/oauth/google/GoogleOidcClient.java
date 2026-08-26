@@ -7,6 +7,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -148,7 +149,11 @@ public class GoogleOidcClient {
 
     private static OAuth2TokenValidator<Jwt> audienceValidator(GoogleOAuthProperties properties) {
         return jwt -> {
-            boolean expectedAudience = jwt.getAudience().contains(properties.clientId());
+            List<String> audience = jwt.getAudience();
+            // Dogether configures one Google client and no trusted additional audiences.
+            boolean expectedAudience = audience != null
+                    && audience.size() == 1
+                    && properties.clientId().equals(audience.getFirst());
             String authorizedParty = jwt.getClaimAsString("azp");
             // Google does not require azp for this client. If it is supplied, bind it to this client.
             boolean authorizedPartyValid = authorizedParty == null

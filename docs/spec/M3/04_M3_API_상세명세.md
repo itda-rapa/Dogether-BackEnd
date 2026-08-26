@@ -74,11 +74,11 @@ Google 인증
 → Front가 POST /auth/oauth/exchange 호출
 ```
 
-- ID token은 issuer(`accounts.google.com`), configured client ID audience, nonce, email 존재,
-  `email_verified=true`, subject를 검증한다. `azp`는 모든 ID Token의 필수 claim이 아니며 현재 adapter가
-  검증 대상으로 적용하는 경우에만 configured client ID와 일치해야 한다. `sub`는 providerSubject/identity
-  key이고 email은 identity key가 아니다. Gmail·Workspace·`hd` 여부를 추가 요구하지 않으므로 `hd` 없는
-  third-party verified email도 허용한다.
+- ID token은 issuer(`accounts.google.com`), configured client ID 단일 audience, nonce, email 존재,
+  `email_verified=true`, subject를 검증한다. OIDC는 복수 audience를 표현할 수 있지만 Dogether는 추가 audience를
+  신뢰하지 않아 실패시킨다. `azp`는 모든 ID Token의 필수 claim이 아니며, 제공되면 configured client ID와
+  일치해야 한다. `sub`는 providerSubject/identity key이고 email은 identity key가 아니다. Gmail·Workspace·`hd`
+  여부를 추가 요구하지 않으므로 `hd` 없는 third-party verified email도 허용한다.
 - Redirect URL에는 Access/Refresh Token, provider token, verified email, providerSubject 및 raw provider
   error/response를 포함하지 않는다. Provider token과 raw provider error/response는 저장하지 않으며 verified
   email은 loginCode/signupToken의 짧은 TTL + cleanup grace 동안에만 transient snapshot으로 DB row에 남을 수 있다.

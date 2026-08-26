@@ -43,7 +43,7 @@ class GoogleOidcClientValidationTest {
     }
 
     @Test
-    void validatorsRejectAbsentExpiryWrongIssuerWrongAudienceAndInvalidPresentAzp() {
+    void validatorsRequireExactlyOneConfiguredAudienceAndOptionalMatchingAzp() {
         OAuth2TokenValidator<Jwt> expiry = privateValidator("expirationClaimValidator");
         OAuth2TokenValidator<Jwt> issuer = privateValidator("issuerValidator");
         OAuth2TokenValidator<Jwt> audience = audienceValidator();
@@ -55,11 +55,13 @@ class GoogleOidcClientValidationTest {
         assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "https://accounts.google.com", List.of("wrong"), null))
                 .hasErrors()).isTrue();
         assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "https://accounts.google.com",
-                List.of("client-id", "other"), null)).hasErrors()).isFalse();
+                List.of("client-id", "other"), null)).hasErrors()).isTrue();
         assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "https://accounts.google.com",
                 List.of("client-id"), null)).hasErrors()).isFalse();
         assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "accounts.google.com",
-                List.of("client-id", "other"), "client-id")).hasErrors()).isFalse();
+                List.of("client-id"), "client-id")).hasErrors()).isFalse();
+        assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "accounts.google.com",
+                List.of("client-id", "other"), "client-id")).hasErrors()).isTrue();
         assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "accounts.google.com",
                 List.of("client-id"), "")).hasErrors()).isTrue();
         assertThat(audience.validate(jwt(Instant.now().plusSeconds(300), "accounts.google.com",
