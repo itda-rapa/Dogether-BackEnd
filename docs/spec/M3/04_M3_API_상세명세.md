@@ -934,6 +934,51 @@ Query:
 }
 ```
 
+### `GET /setlogs/{setlogId}`
+
+공유 메시지의 `sharedSetlog.detailPath`가 `/setlogs/{setlogId}`일 때 호출하는 상세 route다.
+인증된 활성 User는 Active Pet을 선택하지 않은 L1 상태에서도 조회할 수 있다. 이 경우
+`authorPet.relationship`은 `null`, `myReactions`는 빈 배열, `canInteract`는 `false`다.
+
+조회 시점에 `VISIBLE` Setlog, 삭제되지 않고 `UPLOADED` 또는 `COMPLETED` 상태인 Media,
+ACTIVE·미삭제 작성 Pet과 ACTIVE 작성 User, 호출자와 작성자 사이의 양방향 Block 부재를 모두
+재검증한다. 조건을 만족하지 않으면 존재 여부를 숨기기 위해 모두
+`404 SETLOG_NOT_FOUND`를 반환하며 Media URL을 발급하지 않는다. `source`는 `SEED` 또는
+`USER`이고, `mediaUrl`과 `mediaUrlExpiresAt`은 과거 카드 값을 재사용하지 않고 매 호출에
+새로 발급한다.
+
+성공 응답은 `200 ApiResponse<SetlogResponse>`이며 `Cache-Control: no-store`를 포함한다.
+`403`은 비활성 계정 또는 저장된 Active Pet 상태 불일치에만 사용하고, Active Pet **미선택**은
+403 사유가 아니다. 인증 실패는 `401 UNAUTHORIZED`다.
+
+```json
+{
+  "success": true,
+  "message": "셋로그 상세 조회 성공",
+  "data": {
+    "setlogId": 77,
+    "source": "USER",
+    "authorPet": {
+      "petId": 12,
+      "publicTag": "보리#A7K2",
+      "nickname": "보리",
+      "profileUrl": null,
+      "verified": true,
+      "relationship": "FRIEND"
+    },
+    "mediaUrl": "https://storage.example/presigned...",
+    "mediaUrlExpiresAt": "2026-08-20T09:15:00Z",
+    "caption": "오늘 한강 산책",
+    "cuteCount": 18,
+    "likeCount": 4,
+    "myReactions": ["LIKE"],
+    "canInteract": true,
+    "createdAt": "2026-08-20T09:00:00Z"
+  },
+  "error": null
+}
+```
+
 ### DIRECT WebSocket SEND
 
 - Publish: `/app/chat/direct/rooms/{roomId}/messages`

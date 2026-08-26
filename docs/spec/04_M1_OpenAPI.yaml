@@ -691,6 +691,51 @@ paths:
               schema:
                 $ref: '#/components/schemas/SetlogListEnvelope'
 
+  /setlogs/{setlogId}:
+    get:
+      tags: [Setlog]
+      summary: 공유 카드용 셋로그 상세 조회
+      operationId: getSetlogDetail
+      description: |
+        공유 카드의 detailPath(`/setlogs/{setlogId}`)로 진입할 때 현재 표시 가능 상태와
+        양방향 차단 관계를 재검증한다. Media Presigned GET URL은 매 조회마다 새로 발급하며,
+        응답은 `Cache-Control: no-store`다. Active Pet 미선택 L1 User도 조회할 수 있고
+        이때 authorPet.relationship은 null, myReactions는 빈 배열이다.
+      parameters:
+        - name: setlogId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '200':
+          description: 셋로그 상세와 조회 시점에 새로 발급한 Media URL
+          headers:
+            Cache-Control:
+              description: 접근 민감 응답의 재사용을 막기 위한 no-store 정책
+              schema:
+                type: string
+              example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetlogDetailEnvelope'
+        '403':
+          description: 비활성 계정 또는 저장된 Active Pet 상태 불일치
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: SETLOG_NOT_FOUND. 셋로그 없음, 비공개·삭제, 재생 불가 Media, 비활성 작성자 또는 양방향 차단을 구분하지 않는다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
   /setlogs/{setlogId}/reactions/{type}:
     parameters:
       - name: setlogId
@@ -1998,11 +2043,14 @@ components:
       enum: [CUTE, LIKE]
     Setlog:
       type: object
-      required: [setlogId, authorPet, mediaUrl, mediaUrlExpiresAt, caption, cuteCount, likeCount, myReactions, createdAt]
+      required: [setlogId, source, authorPet, mediaUrl, mediaUrlExpiresAt, caption, cuteCount, likeCount, myReactions, canInteract, createdAt]
       properties:
         setlogId:
           type: integer
           format: int64
+        source:
+          type: string
+          enum: [SEED, USER]
         authorPet:
           $ref: '#/components/schemas/PetSearchItem'
         mediaUrl:
@@ -2670,6 +2718,14 @@ components:
           minItems: 0
           maxItems: 3
           items: { $ref: '#/components/schemas/Setlog' }
+        error: { type: 'null' }
+    SetlogDetailEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/Setlog' }
         error: { type: 'null' }
     SetlogReactionEnvelope:
       type: object
