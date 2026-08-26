@@ -6,6 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.domain.MediaType;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.math.BigInteger;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class ChatMediaPolicyTest {
@@ -51,6 +55,49 @@ class ChatMediaPolicyTest {
                 .isEqualTo("image/jpeg");
         assertThat(ChatMediaPolicy.requireValidUpload(MediaType.VIDEO, " ", 1L))
                 .isEqualTo("video/mp4");
+    }
+
+    @Test
+    void readsVideoDurationFromActualMp4MovieHeader() {
+        assertThat(Mp4DurationExtractor.durationMillis(mp4WithDuration(5_000, 1_000)))
+                .isEqualByComparingTo(BigInteger.valueOf(5_000));
+        assertThat(Mp4DurationExtractor.durationMillis(mp4WithDuration(5_001, 1_000)))
+                .isEqualByComparingTo(BigInteger.valueOf(5_001));
+    }
+
+    @Test
+    void rejectsMalformedOrMissingMovieHeader() {
+        assertThatThrownBy(() -> Mp4DurationExtractor.durationMillis(new byte[8]))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Mp4DurationExtractor.durationMillis(box("ftyp", new byte[8])))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static byte[] mp4WithDuration(long duration, long timescale) {
+        ByteBuffer mvhdPayload = ByteBuffer.allocate(20).order(ByteOrder.BIG_ENDIAN);
+        mvhdPayload.putInt(0); // version 0 + flags
+        mvhdPayload.putInt(0); // creation time
+        mvhdPayload.putInt(0); // modification time
+        mvhdPayload.putInt(Math.toIntExact(timescale));
+        mvhdPayload.putInt(Math.toIntExact(duration));
+        return join(box("ftyp", new byte[8]), box("moov", box("mvhd", mvhdPayload.array())));
+    }
+
+    private static byte[] box(String type, byte[] payload) {
+        ByteBuffer value = ByteBuffer.allocate(8 + payload.length).order(ByteOrder.BIG_ENDIAN);
+        value.putInt(value.capacity());
+        value.put(type.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+        value.put(payload);
+        return value.array();
+    }
+
+    private static byte[] join(byte[]... values) {
+        int length = Arrays.stream(values).mapToInt(value -> value.length).sum();
+        ByteBuffer result = ByteBuffer.allocate(length);
+        for (byte[] value : values) {
+            result.put(value);
+        }
+        return result.array();
     }
 
     private void assertError(Runnable action, ErrorCode expected) {

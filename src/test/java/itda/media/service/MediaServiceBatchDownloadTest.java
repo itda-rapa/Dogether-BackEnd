@@ -19,11 +19,16 @@ import itda.media.repository.MediaRepository;
 import itda.media.storage.ObjectMetadata;
 import itda.media.storage.ObjectStorage;
 import itda.media.storage.ObjectNotFoundException;
+import itda.media.storage.StorageProviderUnavailableException;
 import itda.media.dto.uploaddto.MultipartUploaded;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -221,6 +226,8 @@ class MediaServiceBatchDownloadTest {
         Instant lastModified = Instant.parse("2026-08-26T01:00:00Z");
         given(objectStorage.head("users/1/video.mp4")).willReturn(
                 new ObjectMetadata(10L, "video/mp4", "etag", lastModified, "version-1"));
+        given(objectStorage.read("users/1/video.mp4", "version-1"))
+                .willReturn(mp4WithDuration(5_000, 1_000));
         given(mediaRepository.save(media)).willReturn(media);
 
         Media result = mediaService.mediaUploaded(7L, List.of(), 1L);
@@ -230,6 +237,56 @@ class MediaServiceBatchDownloadTest {
         assertThat(result.getObjectVersionId()).isEqualTo("version-1");
         assertThat(result.getVerifiedAt()).isNotNull();
         then(mediaRepository).should().save(media);
+    }
+
+    @Test
+    void uploadCompletionRejectsVideoExceedingContractDurationAndDeletesObject() {
+        Media media = new Media(MediaType.VIDEO, "users/1/video.mp4", 1L, 10L);
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+        given(objectStorage.head("users/1/video.mp4")).willReturn(
+                new ObjectMetadata(10L, "video/mp4", "etag", Instant.now(), "version-1"));
+        given(objectStorage.read("users/1/video.mp4", "version-1"))
+                .willReturn(mp4WithDuration(5_001, 1_000));
+
+        assertMediaError(() -> mediaService.mediaUploaded(7L, List.of(), 1L),
+                ErrorCode.MEDIA_DURATION_INVALID);
+
+        assertThat(media.getStatus()).isEqualTo(MediaStatus.FAILED);
+        then(mediaRepository).should().save(media);
+        then(objectStorage).should().delete("users/1/video.mp4", "version-1");
+    }
+
+    @Test
+    void multipartCompletionSkipsRepeatedCompleteAfterTransientHeadFailureRetry() {
+        Media media = new Media(MediaType.IMAGE, "users/1/image.png", 1L, 9L * 1024 * 1024, "upload-1");
+        User owner = owner(1L);
+        given(userRepository.findByIdOrThrow(1L)).willReturn(owner);
+        given(mediaRepository.findByIdAndDeletedAtIsNullOrThrow(7L)).willReturn(media);
+        given(mediaRepository.save(media)).willReturn(media);
+        List<MultipartUploaded> parts = List.of(new MultipartUploaded(1, "etag"));
+        ObjectMetadata verified = new ObjectMetadata(
+                9L * 1024 * 1024, "image/jpeg", "etag", Instant.now(), "version-1");
+        // 1) objectExists 선확인: 아직 병합 전 -> completeMultipartUpload 호출
+        // 2) headUploadedObject: 병합 직후 HEAD 일시 장애 -> 503, Media는 INIT 유지
+        // 3) 재시도 objectExists: 이미 병합된 객체 확인 -> completeMultipartUpload 재호출 생략
+        // 4) 재시도 headUploadedObject: 검증 성공 -> COMPLETED
+        given(objectStorage.head("users/1/image.png"))
+                .willThrow(new ObjectNotFoundException("head", new IllegalStateException("missing")))
+                .willThrow(new StorageProviderUnavailableException("head", new IllegalStateException("timeout")))
+                .willReturn(verified)
+                .willReturn(verified);
+
+        assertMediaError(() -> mediaService.mediaUploaded(7L, parts, 1L),
+                ErrorCode.MEDIA_STORAGE_UNAVAILABLE);
+        assertThat(media.getStatus()).isEqualTo(MediaStatus.INIT);
+
+        Media result = mediaService.mediaUploaded(7L, parts, 1L);
+
+        assertThat(result.getStatus()).isEqualTo(MediaStatus.COMPLETED);
+        then(multipartService).should(org.mockito.Mockito.times(1))
+                .completeMultipartUpload("users/1/image.png", "upload-1", parts);
     }
 
     private void assertMediaNotFound(Runnable invocation) {
@@ -261,5 +318,32 @@ class MediaServiceBatchDownloadTest {
         given(media.getStatus()).willReturn(status);
         given(media.getPath()).willReturn(path);
         return media;
+    }
+
+    private static byte[] mp4WithDuration(long duration, long timescale) {
+        ByteBuffer mvhdPayload = ByteBuffer.allocate(20).order(ByteOrder.BIG_ENDIAN);
+        mvhdPayload.putInt(0); // version 0 + flags
+        mvhdPayload.putInt(0); // creation time
+        mvhdPayload.putInt(0); // modification time
+        mvhdPayload.putInt(Math.toIntExact(timescale));
+        mvhdPayload.putInt(Math.toIntExact(duration));
+        return join(box("ftyp", new byte[8]), box("moov", box("mvhd", mvhdPayload.array())));
+    }
+
+    private static byte[] box(String type, byte[] payload) {
+        ByteBuffer value = ByteBuffer.allocate(8 + payload.length).order(ByteOrder.BIG_ENDIAN);
+        value.putInt(value.capacity());
+        value.put(type.getBytes(StandardCharsets.ISO_8859_1));
+        value.put(payload);
+        return value.array();
+    }
+
+    private static byte[] join(byte[]... values) {
+        int length = Arrays.stream(values).mapToInt(value -> value.length).sum();
+        ByteBuffer result = ByteBuffer.allocate(length);
+        for (byte[] value : values) {
+            result.put(value);
+        }
+        return result.array();
     }
 }
