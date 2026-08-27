@@ -131,7 +131,8 @@ public class OpenChatDraftRequestService {
         CardDraft draft = cardDraftRepository.findById(draftId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED));
         if (!draft.getRoomId().equals(roomId)
-                || !draft.getRequestedByPetId().equals(actor.petId())) {
+                || !cardDraftParticipantRepository.existsByCardDraftIdAndPetId(
+                        draftId, actor.petId())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }
         List<Long> participantPetIds = cardDraftParticipantRepository

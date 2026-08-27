@@ -177,6 +177,35 @@ public class ChatMessageService {
                 null, null, null);
     }
 
+    /** AI 장소 탐색 결과를 방 참여자에게 공유하는 서버 전용 MAP 메시지. */
+    @Transactional
+    public ChatMessageResult postMap(
+            long roomId,
+            long senderPetId,
+            long triggerMessageId,
+            String category,
+            String facilitiesJson
+    ) {
+        var room = chatRoomRepository.findByIdForUpdate(roomId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND));
+        if (!participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(roomId, senderPetId)) {
+            throw new BusinessException(ErrorCode.CHAT_SENDER_NOT_PARTICIPANT);
+        }
+        var existing = chatMessageRepository.findByRoomIdAndMapTriggerMessageId(
+                roomId, triggerMessageId);
+        if (existing.isPresent()) {
+            return new ChatMessageResult(existing.get(), false);
+        }
+
+        ChatMessage message = chatMessageRepository.saveAndFlush(ChatMessage.map(
+                room, senderPetId, triggerMessageId, category, facilitiesJson,
+                "map:" + triggerMessageId));
+        chatRoomRepository.activateAndTouchLastMessageAt(roomId);
+        eventPublisher.publishEvent(new ChatMessageCommittedEvent(
+                room.getType(), responseAssembler.toResponse(message, senderPetNickname(senderPetId))));
+        return new ChatMessageResult(message, true);
+    }
+
     private ChatMessageResult insertMedia(long roomId, long senderPetId, Long ownerUserId,
                                           ChatMessageCreateRequest request, MessageType type) {
         AttachmentType attachmentType = type == MessageType.IMAGE ? AttachmentType.IMAGE : AttachmentType.VIDEO;
@@ -329,6 +358,7 @@ public class ChatMessageService {
                     throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
                 }
             }
+            case MAP -> throw new BusinessException(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
         }
         if (clientMessageId != null && clientMessageId.length() > MAX_CLIENT_MESSAGE_ID_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);

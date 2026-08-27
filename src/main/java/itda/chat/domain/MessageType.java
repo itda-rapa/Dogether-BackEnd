@@ -6,6 +6,7 @@ public enum MessageType {
     IMAGE,
     VIDEO,
     SETLOG_SHARE,
+    MAP,
     SYSTEM;
 
     public boolean isUserSettable() {

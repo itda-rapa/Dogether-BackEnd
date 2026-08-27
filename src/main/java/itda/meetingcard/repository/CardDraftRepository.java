@@ -5,8 +5,11 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import java.util.List;
 
 public interface CardDraftRepository extends JpaRepository<CardDraft, Long> {
+
+    List<CardDraft> findByRequestIdOrderByCandidateIndexAsc(String requestId);
 
     @Modifying(flushAutomatically = true)
     @Query("delete from CardDraft d where d.roomId = :roomId")

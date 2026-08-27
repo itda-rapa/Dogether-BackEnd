@@ -13,6 +13,7 @@ public record ChatMessageResponse(
         String body,
         ChatMessageAttachmentResponse attachment,
         SharedSetlogResponse sharedSetlog,
+        ChatMapMessageResponse map,
         Long meetingCardId,
         String clientMessageId,
         Instant createdAt

@@ -118,7 +118,7 @@ public class MeetingCardService {
         List<Long> participantPetIds;
         Long sourceDraftId;
         if (room.isOpenChat()) {
-            sourceDraftId = resolveDraftId(request, actor.petId());
+            sourceDraftId = resolveDraftId(request, actor.petId(), true);
             if (sourceDraftId == null) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED);
             }
@@ -141,7 +141,7 @@ public class MeetingCardService {
             requireLockedActor(userId, actor, lockedPair);
             chatQueryService.requireParticipant(request.roomId(), actor.petId());
             chatQueryService.requireGreetingReplyCompleted(request.roomId());
-            sourceDraftId = resolveDraftId(request, actor.petId());
+            sourceDraftId = resolveDraftId(request, actor.petId(), false);
         }
 
         MeetingCard card = meetingCardRepository.save(new MeetingCard(
@@ -305,13 +305,21 @@ public class MeetingCardService {
      * 엉뚱한 방으로 새어 나간다. 중복 사용은 DB 의 {@code uk_meeting_card_source_draft} 가
      * 최종 방어선이고 여기서는 사용자에게 400 을 주기 위해 먼저 검사한다.
      */
-    private Long resolveDraftId(MeetingCardCreateRequest request, long actorPetId) {
+    private Long resolveDraftId(
+            MeetingCardCreateRequest request,
+            long actorPetId,
+            boolean openChat
+    ) {
         if (request.draftId() == null) {
             return null;
         }
         CardDraft draft = cardDraftRepository.findById(request.draftId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED));
-        if (!draft.getRequestedByPetId().equals(actorPetId)
+        boolean ownsDraft = draft.getRequestedByPetId().equals(actorPetId);
+        boolean participatesInDraft = openChat
+                && cardDraftParticipantRepository.existsByCardDraftIdAndPetId(
+                        request.draftId(), actorPetId);
+        if ((!ownsDraft && !participatesInDraft)
                 || !draft.getRoomId().equals(request.roomId())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }

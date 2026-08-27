@@ -5,6 +5,9 @@ import itda.chat.domain.ChatMessageAttachment;
 import itda.chat.domain.MessageType;
 import itda.chat.dto.response.ChatMessageAttachmentResponse;
 import itda.chat.dto.response.ChatMessageResponse;
+import itda.chat.dto.response.ChatMapMessageResponse;
+import itda.chat.dto.response.MapFacilitySnapshot;
+import itda.chat.dto.response.SetlogMediaResponse;
 import itda.chat.dto.response.SharedSetlogResponse;
 import itda.chat.repository.ChatMessageAttachmentRepository;
 import itda.media.service.MediaService;
@@ -18,6 +21,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * ChatMessage를 외부 응답 DTO로 변환하면서 IMAGE/VIDEO의 media와 SETLOG_SHARE의 setlog를
@@ -31,6 +36,7 @@ public class ChatMessageResponseAssembler {
     private final MediaService mediaService;
     private final SetlogQueryService setlogQueryService;
     private final SharedSetlogResponseMapper sharedSetlogResponseMapper;
+    private final ObjectMapper objectMapper;
 
     /**
      * 단일 메시지 변환(전송 응답·실시간 이벤트). 이미 알려진 발신자 닉네임을 받는다.
@@ -46,6 +52,7 @@ public class ChatMessageResponseAssembler {
                 message.getBody(),
                 attachmentOf(message),
                 sharedSetlogOf(message),
+                mapOf(message),
                 message.getMeetingCardId(),
                 message.getClientMessageId(),
                 message.getCreatedAt()
@@ -103,10 +110,24 @@ public class ChatMessageResponseAssembler {
                 message.getBody(),
                 attachmentOf(attachment, mediaDownloads),
                 sharedSetlogOf(message.getType(), message.getSharedSetlogId(), setlogViews),
+                mapOf(message),
                 message.getMeetingCardId(),
                 message.getClientMessageId(),
                 message.getCreatedAt()
         );
+    }
+
+    private ChatMapMessageResponse mapOf(ChatMessage message) {
+        if (message.getType() != MessageType.MAP) {
+            return null;
+        }
+        try {
+            List<MapFacilitySnapshot> facilities = objectMapper.readValue(
+                    message.getMapFacilitiesJson(), new TypeReference<>() { });
+            return new ChatMapMessageResponse(message.getMapCategory(), facilities);
+        } catch (Exception exception) {
+            throw new IllegalStateException("저장된 지도 메시지를 읽을 수 없습니다.", exception);
+        }
     }
 
     private ChatMessageAttachmentResponse attachmentOf(ChatMessage message) {

@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface CardDraftParticipantRepository extends JpaRepository<CardDraftParticipant, Long> {
 
     List<CardDraftParticipant> findByCardDraftIdOrderByIdAsc(Long cardDraftId);
+
+    boolean existsByCardDraftIdAndPetId(Long cardDraftId, Long petId);
 }

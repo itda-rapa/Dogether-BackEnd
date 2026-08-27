@@ -1,6 +1,8 @@
 package itda.chat.repository;
 
 import itda.chat.domain.ChatMessage;
+import itda.chat.domain.MessageType;
+import itda.chat.domain.SenderType;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,6 +18,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     int deleteByRoomId(@Param("roomId") long roomId);
 
     Optional<ChatMessage> findByRoomIdAndClientMessageId(Long roomId, String clientMessageId);
+
+    Optional<ChatMessage> findByRoomIdAndMapTriggerMessageId(Long roomId, Long mapTriggerMessageId);
 
     List<ChatMessage> findByRoomIdOrderByIdAsc(Long roomId);
 
@@ -116,5 +120,20 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             @Param("senderType") itda.chat.domain.SenderType senderType,
             @Param("type") itda.chat.domain.MessageType type,
             @Param("since") java.time.Instant since,
+            org.springframework.data.domain.Pageable pageable);
+
+    @Query("""
+            SELECT m FROM ChatMessage m
+            WHERE m.room.id = :roomId
+              AND m.id <= :triggerMessageId
+              AND m.senderType = :senderType
+              AND m.type = :type
+            ORDER BY m.id DESC
+            """)
+    List<ChatMessage> findContextUpTo(
+            @Param("roomId") long roomId,
+            @Param("triggerMessageId") long triggerMessageId,
+            @Param("senderType") SenderType senderType,
+            @Param("type") MessageType type,
             org.springframework.data.domain.Pageable pageable);
 }
