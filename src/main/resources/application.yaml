@@ -100,6 +100,22 @@ app:
     max-capture-age: ${LOCATION_MAX_CAPTURE_AGE:5m}
     future-tolerance: ${LOCATION_FUTURE_TOLERANCE:30s}
     quality-threshold-meters: ${LOCATION_QUALITY_THRESHOLD_METERS:50}
+  meeting-verification:
+    # 양쪽 제출 간격·거리 한도·약속 시간창은 Meeting 정책이다. Location 은 좌표·freshness·accuracy 만 판정한다.
+    distance-limit-meters: ${MEETING_VERIFICATION_DISTANCE_LIMIT_METERS:100}
+    submission-interval: ${MEETING_VERIFICATION_SUBMISSION_INTERVAL:5m}
+    meeting-time-window: ${MEETING_VERIFICATION_MEETING_TIME_WINDOW:1h}
+    # 동일 HMAC key 유지 동안 request replay를 보장하는 fingerprint secret. UTF-8 기준 32바이트
+    # 이상이어야 하며(운영 필수, startup fail-fast), 운영 환경에서 반드시 주입한다.
+    # .env.example 의 example placeholder 는 startup 에서 거절되므로 실제 무작위 secret 으로 교체한다.
+    hmac-secret: ${MEETING_VERIFICATION_HMAC_SECRET}
+    # SUBMITTED 만료 worker. meetAt + meeting-time-window 경과 후 raw 위치를 scrub 한다.
+    # raw GPS 파기는 opt-in 이 아니라 기본 활성(retention 안전값)이다. prod 에서 비활성화하면
+    # 만료 SUBMITTED 의 raw 위경도가 무기한 보관되므로 명시적 결정이 필요하다.
+    expiry:
+      enabled: ${MEETING_VERIFICATION_EXPIRY_ENABLED:true}
+      delay: ${MEETING_VERIFICATION_EXPIRY_DELAY:60s}
+      batch-size: ${MEETING_VERIFICATION_EXPIRY_BATCH_SIZE:50}
   s3:
     # Credentials use the AWS SDK default chain, including AWS_ACCESS_KEY_ID /
     # AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) and IAM workload roles.

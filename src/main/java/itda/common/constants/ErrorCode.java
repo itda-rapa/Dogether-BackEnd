@@ -131,6 +131,22 @@ public enum ErrorCode {
     MEETING_CARD_ALREADY_CANCELED(HttpStatus.CONFLICT, "이미 취소된 약속 카드입니다."),
     MEETING_CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "약속 카드를 찾을 수 없습니다."),
     MEETING_CARD_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "약속 카드는 DIRECT 채팅방에서만 만들 수 있습니다."),
+    MEETING_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "약속 참여 반려견만 위치를 제출할 수 있습니다."),
+    MEETING_CARD_NOT_OPEN(HttpStatus.CONFLICT, "취소된 약속 카드에는 위치를 제출할 수 없습니다."),
+    MEETING_VERIFICATION_REQUEST_CONFLICT(
+            HttpStatus.CONFLICT,
+            "같은 요청 식별자로 이미 다른 카드·반려견·내용의 위치 제출이 접수되었습니다."
+    ),
+    MEETING_VERIFICATION_CODE_REQUIRED(
+            HttpStatus.CONFLICT,
+            "위치 정확도가 낮아 확인 코드 절차가 필요합니다. GPS 재제출 대신 확인 코드를 진행해주세요."
+    ),
+    MEETING_TIME_WINDOW_EXCEEDED(
+            HttpStatus.CONFLICT,
+            "양쪽 서버 수신시각 간격 또는 약속 시각 대비 GPS 측위 시각이 허용 범위를 초과했습니다."
+    ),
+    MEETING_DISTANCE_EXCEEDED(HttpStatus.CONFLICT, "두 위치 사이의 거리가 허용 범위를 초과했습니다."),
+    MEETING_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 만남입니다."),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
     REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 

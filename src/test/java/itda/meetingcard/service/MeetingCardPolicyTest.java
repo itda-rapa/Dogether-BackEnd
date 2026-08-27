@@ -22,11 +22,13 @@ import itda.meetingcard.ai.MeetingDraftAiClient;
 import itda.meetingcard.domain.MeetingCardType;
 import itda.meetingcard.domain.CardDraft;
 import itda.meetingcard.domain.CardDraftParticipant;
+import itda.meetingcard.domain.MeetingCard;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
 import itda.meetingcard.repository.CardDraftRepository;
 import itda.meetingcard.repository.CardDraftParticipantRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
+import itda.meetingverification.repository.MeetingRepository;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
@@ -51,6 +53,7 @@ class MeetingCardPolicyTest {
     private static final long PET_1 = 11L;
     private static final long PET_2 = 22L;
     private static final long ROOM_ID = 100L;
+    private static final long CARD_ID = 300L;
     private static final Instant NOW = Instant.parse("2026-07-30T00:00:00Z");
 
     @Mock
@@ -77,6 +80,8 @@ class MeetingCardPolicyTest {
     private CardDraftParticipantRepository cardDraftParticipantRepository;
     @Mock
     private InteractionPairLockService interactionPairLockService;
+    @Mock
+    private MeetingRepository meetingRepository;
 
     private ActivePetContext actor;
 
@@ -132,6 +137,7 @@ class MeetingCardPolicyTest {
                 cardDraftRepository,
                 cardDraftParticipantRepository,
                 interactionPairLockService,
+                meetingRepository,
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
         MeetingCardCreateRequest request = new MeetingCardCreateRequest(
@@ -201,12 +207,31 @@ class MeetingCardPolicyTest {
         verify(meetingCardRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void cancelIsRejectedWhenMeetingAlreadyConfirmed() {
+        MeetingCardService service = meetingCardService();
+        when(meetingCardRepository.findByIdForUpdate(CARD_ID))
+                .thenReturn(Optional.of(new MeetingCard(
+                        ROOM_ID, PET_1, null, MeetingCardType.WALK, "중앙공원",
+                        NOW.plusSeconds(3600))));
+        when(meetingParticipantRepository.existsByMeetingCardIdAndPetId(CARD_ID, PET_1))
+                .thenReturn(true);
+        when(meetingRepository.existsByMeetingCardId(CARD_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.cancel(USER_1, CARD_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.MEETING_ALREADY_CONFIRMED);
+
+        verify(meetingCardRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
     private MeetingCardService meetingCardService() {
         return new MeetingCardService(
                 activePetQueryService, chatQueryService, chatRoomRepository,
                 chatMessageService, meetingCardRepository, meetingParticipantRepository,
                 cardDraftRepository, cardDraftParticipantRepository,
-                interactionPairLockService, Clock.fixed(NOW, ZoneOffset.UTC));
+                interactionPairLockService, meetingRepository, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private void stubOpenChatDraft(List<Long> snapshotPetIds) {

@@ -14,6 +14,20 @@ import org.springframework.data.repository.query.Param;
 public interface MeetingCardRepository extends JpaRepository<MeetingCard, Long> {
 
     /**
+     * Unlocked identity lookup for operations that must acquire the pair lock before the card
+     * row lock. A projection keeps the initial snapshot out of the persistence context so the
+     * subsequent {@code findByIdForUpdate} cannot reuse stale entity state.
+     */
+    @Query("SELECT c.id AS id, c.roomId AS roomId FROM MeetingCard c WHERE c.id = :cardId")
+    Optional<MeetingCardIdentity> findIdentityById(@Param("cardId") Long cardId);
+
+    interface MeetingCardIdentity {
+        Long getId();
+
+        Long getRoomId();
+    }
+
+    /**
      * Lists cards visible to the caller's active Pet without per-card room or block queries.
      * Archived rooms remain visible because sending to one may restore them to ACTIVE.
      */
@@ -124,6 +138,12 @@ public interface MeetingCardRepository extends JpaRepository<MeetingCard, Long> 
                           (low_pet.owner_user_id = :userB
                               AND high_pet.owner_user_id = :userA)
                       )
+               )
+               -- 확정 Meeting 이 있는 카드는 자동 취소(차단 정리)하지 않는다.
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM meetings meeting
+                    WHERE meeting.meeting_card_id = card.id
                )
             """, nativeQuery = true)
     int cancelOpenCardsBetweenUsers(
