@@ -89,7 +89,7 @@ class ChatMessageRealtimeListenerTest {
                 456L, 123L, "PET", 11L, "Mong", "SETLOG_SHARE", null, null,
                 new SharedSetlogResponse(77L, true, null, 11L, "Mong", "산책",
                         new SetlogMediaResponse(501L, "IMAGE", "https://storage.example/sender", Instant.now()),
-                        3, "/setlogs/77"), null, "client-1", null);
+                        3, "/setlogs/77"), null, null, "client-1", null);
 
         listener.onMessageCommitted(new ChatMessageCommittedEvent(RoomType.DIRECT, message));
 
@@ -118,7 +118,7 @@ class ChatMessageRealtimeListenerTest {
                 456L, 123L, "PET", 11L, "Mong", "SETLOG_SHARE", null, null,
                 new SharedSetlogResponse(77L, true, null, 11L, "Mong", "산책",
                         new SetlogMediaResponse(501L, "IMAGE", "https://storage.example/sender", Instant.now()),
-                        3, "/setlogs/77"), null, "client-1", null);
+                        3, "/setlogs/77"), null, null, "client-1", null);
 
         listener.onMessageCommitted(new ChatMessageCommittedEvent(RoomType.DIRECT, message));
 

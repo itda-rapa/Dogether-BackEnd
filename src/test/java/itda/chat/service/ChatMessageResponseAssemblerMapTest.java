@@ -28,6 +28,7 @@ class ChatMessageResponseAssemblerMapTest {
                 mock(ChatMessageAttachmentRepository.class),
                 mock(MediaService.class),
                 mock(SetlogQueryService.class),
+                new SharedSetlogResponseMapper(),
                 new ObjectMapper());
 
         var response = assembler.toResponse(message, "몽이");

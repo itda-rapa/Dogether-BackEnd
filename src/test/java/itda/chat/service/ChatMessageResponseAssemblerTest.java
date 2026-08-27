@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.ObjectMapper;
 
 class ChatMessageResponseAssemblerTest {
 
@@ -38,7 +39,8 @@ class ChatMessageResponseAssemblerTest {
         MediaService mediaService = mock(MediaService.class);
         SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
         ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
-                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
+                attachmentRepository, mediaService, setlogQueryService,
+                new SharedSetlogResponseMapper(), new ObjectMapper());
 
         ChatMessage imageMessage = mediaMessage(11L, MessageType.IMAGE);
         ChatMessage videoMessage = mediaMessage(12L, MessageType.VIDEO);
@@ -85,7 +87,8 @@ class ChatMessageResponseAssemblerTest {
         MediaService mediaService = mock(MediaService.class);
         SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
         ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
-                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
+                attachmentRepository, mediaService, setlogQueryService,
+                new SharedSetlogResponseMapper(), new ObjectMapper());
         ChatMessage first = mediaMessage(11L, MessageType.IMAGE);
         ChatMessage second = mediaMessage(12L, MessageType.IMAGE);
         ChatMessageAttachment firstAttachment = attachment(first, 101L, AttachmentType.IMAGE);
@@ -108,7 +111,8 @@ class ChatMessageResponseAssemblerTest {
         MediaService mediaService = mock(MediaService.class);
         SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
         ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
-                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
+                attachmentRepository, mediaService, setlogQueryService,
+                new SharedSetlogResponseMapper(), new ObjectMapper());
         ChatMessage first = setlogShareMessage(11L, 41L);
         ChatMessage repeated = setlogShareMessage(12L, 41L);
 
@@ -142,7 +146,8 @@ class ChatMessageResponseAssemblerTest {
         MediaService mediaService = mock(MediaService.class);
         SetlogQueryService setlogQueryService = mock(SetlogQueryService.class);
         ChatMessageResponseAssembler assembler = new ChatMessageResponseAssembler(
-                attachmentRepository, mediaService, setlogQueryService, new SharedSetlogResponseMapper());
+                attachmentRepository, mediaService, setlogQueryService,
+                new SharedSetlogResponseMapper(), new ObjectMapper());
         ChatMessage message = setlogShareMessage(11L, 42L);
 
         when(mediaService.getMediaDownloadsByIds(anyCollection())).thenReturn(Map.of());
