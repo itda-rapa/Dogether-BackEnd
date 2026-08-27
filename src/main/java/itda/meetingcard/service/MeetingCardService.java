@@ -246,11 +246,24 @@ public class MeetingCardService {
     public MeetingCardResponse cancel(Long userId, long cardId) {
         ActivePetContext actor = activePetQueryService.requireActivePet(userId);
 
-        // 잠금을 가장 먼저 잡는다. 이 앞에서 findById 로 카드를 한 번 읽으면 그 엔티티가
-        // 영속성 컨텍스트에 들어가고, 뒤이은 SELECT ... FOR UPDATE 가 실행돼도 Hibernate 는
+        // GPS submit은 Pair(User -> Pet) 뒤에 Card를 잠근다. 여기서 Card를 먼저 잠그고
+        // card.cancel()의 canceledByPet FK가 flush되면, submit과 Card <-> Pet 역순
+        // 대기가 생겨 PostgreSQL deadlock이 난다. identity projection은 영속성 컨텍스트에
+        // 엔티티를 넣지 않으므로 존재만 먼저 확인한 뒤 동일한 Pair -> Card 순서를 지킬 수 있다.
+        meetingCardRepository.findIdentityById(cardId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_CARD_NOT_FOUND));
+
+        // 취소가 실제로 FK를 참조하는 것은 취소자 Pet 하나다. 같은 Pet을 양쪽 인자로 주면
+        // InteractionPairLockService의 표준 User -> Pet 순서를 그대로 재사용하면서 그 행을
+        // Card보다 먼저 잠근다. DIRECT GPS 제출이 두 Pet을 잠근 상태와도 순서가 호환된다.
+        InteractionPairContext lockedActor = interactionPairLockService.lockInteractionPair(
+                actor.petId(), actor.petId());
+        requireLockedActor(userId, actor, lockedActor);
+
+        // Pair lock 뒤에 Card를 잡는다. 이 앞에서 findById로 카드를 읽으면 그 엔티티가
+        // 영속성 컨텍스트에 들어가고, 뒤이은 SELECT ... FOR UPDATE가 실행돼도 Hibernate는
         // 이미 관리 중인 인스턴스를 상태 갱신 없이 그대로 돌려준다. 그러면 패자가 잠금을
-        // 얻은 뒤에도 캐시에 남은 OPEN 을 보고 취소에 성공한다. 실제로 8스레드 전원이
-        // 성공하는 것을 테스트로 확인했다.
+        // 얻은 뒤에도 캐시에 남은 OPEN을 보고 취소에 성공한다.
         MeetingCard card = meetingCardRepository.findByIdForUpdate(cardId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_CARD_NOT_FOUND));
 
