@@ -6,6 +6,7 @@ import itda.common.filter.JwtFilter;
 import itda.common.properties.CorsProperties;
 import itda.common.properties.AdminBootstrapProperties;
 import itda.oauth.google.GoogleOAuthProperties;
+import itda.oauth.naver.NaverOAuthProperties;
 import itda.common.properties.JwtProperties;
 import itda.common.properties.MediaProperties;
 import itda.common.properties.S3Properties;
@@ -39,7 +40,8 @@ import tools.jackson.databind.ObjectMapper;
         MediaProperties.class,
         AdminBootstrapProperties.class,
         CorsProperties.class,
-        GoogleOAuthProperties.class
+        GoogleOAuthProperties.class,
+        NaverOAuthProperties.class
 })
 public class SecurityConfig {
 
@@ -93,7 +95,9 @@ public class SecurityConfig {
                                 HttpMethod.GET,
                                 "/neighborhoods",
                                 "/oauth2/authorization/google",
-                                "/login/oauth2/code/google"
+                                "/login/oauth2/code/google",
+                                "/oauth2/authorization/naver",
+                                "/login/oauth2/code/naver"
                         ).permitAll()
                         .requestMatchers(
                                 HttpMethod.POST,

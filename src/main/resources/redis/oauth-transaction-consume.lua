@@ -10,7 +10,6 @@ end
 
 if redis.call('HGET', KEYS[1], 'provider') ~= ARGV[2]
         or redis.call('HGET', KEYS[1], 'redirectUri') ~= ARGV[3] then
-    redis.call('DEL', KEYS[1])
     return {-1}
 end
 
@@ -26,10 +25,10 @@ end
 
 local codeVerifier = redis.call('HGET', KEYS[1], 'codeVerifier')
 local nonce = redis.call('HGET', KEYS[1], 'nonce')
-if not codeVerifier or not nonce then
+if not codeVerifier or (ARGV[2] == 'GOOGLE' and (not nonce or nonce == '')) then
     redis.call('DEL', KEYS[1])
     return {-1}
 end
 
 redis.call('DEL', KEYS[1])
-return {1, codeVerifier, nonce}
+return {1, codeVerifier, nonce or ''}

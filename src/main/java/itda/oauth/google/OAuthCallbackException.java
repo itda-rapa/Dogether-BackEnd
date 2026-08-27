@@ -1,14 +1,14 @@
 package itda.oauth.google;
 
-final class OAuthCallbackException extends RuntimeException {
+public final class OAuthCallbackException extends RuntimeException {
 
     private final OAuthCallbackFailure failure;
 
-    OAuthCallbackException(OAuthCallbackFailure failure) {
+    public OAuthCallbackException(OAuthCallbackFailure failure) {
         this.failure = failure;
     }
 
-    OAuthCallbackFailure failure() {
+    public OAuthCallbackFailure failure() {
         return failure;
     }
 }

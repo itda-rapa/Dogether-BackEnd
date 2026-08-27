@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class OAuthAuthorizationTransactionStore {
 
-    private static final String KEY_PREFIX = "dogether:oauth:v1:google:transaction:";
+    private static final String KEY_PREFIX = "dogether:oauth:v1:";
     private static final Pattern BROWSER_BINDING_PATTERN = Pattern.compile("[A-Za-z0-9_-]{43}");
 
     private final StringRedisTemplate redis;
@@ -58,20 +58,30 @@ public class OAuthAuthorizationTransactionStore {
     }
 
     public CreatedTransaction create(String browserBinding) {
+        return create(browserBinding, OAuthProvider.GOOGLE, properties.backendRedirectUri(),
+                properties.transactionTtl(), properties.transactionGraceTtl());
+    }
+
+    /** Shares only the Redis transaction invariant between providers; Google keeps its required nonce. */
+    public CreatedTransaction create(
+            String browserBinding,
+            OAuthProvider provider,
+            java.net.URI backendRedirectUri,
+            Duration logicalTtl,
+            Duration graceTtl
+    ) {
         if (!isValidBrowserBinding(browserBinding)) {
             throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_INVALID);
         }
-        Duration logicalTtl = properties.transactionTtl();
-        Duration graceTtl = properties.transactionGraceTtl();
         Instant expiresAt = clock.instant().plus(logicalTtl);
         Duration physicalTtl = logicalTtl.plus(graceTtl);
         for (int attempt = 0; attempt < 3; attempt++) {
             String state = tokenGenerator.generate();
             String codeVerifier = tokenGenerator.generate();
-            String nonce = tokenGenerator.generate();
-            Long result = redis.execute(issueScript, List.of(key(state)),
-                    OAuthProvider.GOOGLE.name(), codeVerifier, nonce,
-                    properties.backendRedirectUri().toString(), Long.toString(expiresAt.toEpochMilli()),
+            String nonce = requiresNonce(provider) ? tokenGenerator.generate() : null;
+            Long result = redis.execute(issueScript, List.of(key(provider, state)),
+                    provider.name(), codeVerifier, nonce == null ? "" : nonce,
+                    backendRedirectUri.toString(), Long.toString(expiresAt.toEpochMilli()),
                     TokenHashing.sha256(browserBinding), Long.toString(physicalTtl.toMillis()));
             if (Long.valueOf(1L).equals(result)) {
                 return new CreatedTransaction(state, codeVerifier, nonce, expiresAt);
@@ -84,12 +94,21 @@ public class OAuthAuthorizationTransactionStore {
     }
 
     public ConsumedTransaction consume(String state, String browserBinding) {
+        return consume(state, browserBinding, OAuthProvider.GOOGLE, properties.backendRedirectUri());
+    }
+
+    public ConsumedTransaction consume(
+            String state,
+            String browserBinding,
+            OAuthProvider provider,
+            java.net.URI backendRedirectUri
+    ) {
         if (state == null || state.isBlank() || !isValidBrowserBinding(browserBinding)) {
             throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_INVALID);
         }
-        List<?> result = redis.execute(consumeScript, List.of(key(state)),
-                Long.toString(clock.instant().toEpochMilli()), OAuthProvider.GOOGLE.name(),
-                properties.backendRedirectUri().toString(), TokenHashing.sha256(browserBinding));
+        List<?> result = redis.execute(consumeScript, List.of(key(provider, state)),
+                Long.toString(clock.instant().toEpochMilli()), provider.name(),
+                backendRedirectUri.toString(), TokenHashing.sha256(browserBinding));
         long status = status(result);
         if (status == -2L) {
             throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_EXPIRED);
@@ -99,10 +118,10 @@ public class OAuthAuthorizationTransactionStore {
         }
         String verifier = text(result.get(1));
         String nonce = text(result.get(2));
-        if (verifier == null || nonce == null) {
+        if (verifier == null || (requiresNonce(provider) && nonce == null)) {
             throw new OAuthCallbackException(OAuthCallbackFailure.OAUTH_STATE_INVALID);
         }
-        return new ConsumedTransaction(verifier, nonce);
+        return new ConsumedTransaction(state, verifier, nonce);
     }
 
     public static String pkceChallenge(String verifier) {
@@ -115,8 +134,12 @@ public class OAuthAuthorizationTransactionStore {
         }
     }
 
-    static boolean isValidBrowserBinding(String browserBinding) {
+    public static boolean isValidBrowserBinding(String browserBinding) {
         return browserBinding != null && BROWSER_BINDING_PATTERN.matcher(browserBinding).matches();
+    }
+
+    private static boolean requiresNonce(OAuthProvider provider) {
+        return provider == OAuthProvider.GOOGLE;
     }
 
     private long status(List<?> result) {
@@ -130,8 +153,9 @@ public class OAuthAuthorizationTransactionStore {
         return value instanceof String text && !text.isBlank() ? text : null;
     }
 
-    private String key(String state) {
-        return KEY_PREFIX + TokenHashing.sha256(state);
+    private String key(OAuthProvider provider, String state) {
+        return KEY_PREFIX + provider.name().toLowerCase(java.util.Locale.ROOT) + ":transaction:"
+                + TokenHashing.sha256(state);
     }
 
     public record CreatedTransaction(String state, String codeVerifier, String nonce, Instant expiresAt) {
@@ -140,6 +164,9 @@ public class OAuthAuthorizationTransactionStore {
         }
     }
 
-    public record ConsumedTransaction(String codeVerifier, String nonce) {
+    public record ConsumedTransaction(String state, String codeVerifier, String nonce) {
+        public ConsumedTransaction(String codeVerifier, String nonce) {
+            this(null, codeVerifier, nonce);
+        }
     }
 }

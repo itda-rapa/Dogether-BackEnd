@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import itda.oauth.service.OAuthOpaqueTokenGenerator;
+import itda.oauth.domain.OAuthProvider;
 import itda.common.security.TokenHashing;
 import java.net.URI;
 import java.time.Clock;
@@ -87,7 +88,7 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
 
         assertThat(store.consume(created.state(), BROWSER_BINDING_A))
                 .isEqualTo(new OAuthAuthorizationTransactionStore.ConsumedTransaction(
-                        created.codeVerifier(), created.nonce()));
+                        created.state(), created.codeVerifier(), created.nonce()));
         assertThat(template().hasKey(key(created.state()))).isFalse();
         assertInvalid(store, created.state());
     }
@@ -119,6 +120,37 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
 
         assertThat(store.consume(first.state(), BROWSER_BINDING_A)).isNotNull();
         assertThat(store.consume(second.state(), BROWSER_BINDING_A)).isNotNull();
+    }
+
+    @Test
+    void googleAndNaverTransactionsCanProceedInParallelFromTheSameBrowser() {
+        OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
+        var google = store.create(BROWSER_BINDING_A);
+        var naver = store.create(BROWSER_BINDING_A, OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver"),
+                Duration.ofSeconds(60), Duration.ofSeconds(5));
+
+        assertThat(store.consume(naver.state(), BROWSER_BINDING_A, OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver")).nonce()).isNull();
+        assertThat(store.consume(google.state(), BROWSER_BINDING_A).nonce()).isNotBlank();
+    }
+
+    @Test
+    void providerMismatchInEitherDirectionLeavesTheOriginalTransactionAvailable() {
+        OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
+        var google = store.create(BROWSER_BINDING_A);
+        var naver = store.create(BROWSER_BINDING_A, OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver"),
+                Duration.ofSeconds(60), Duration.ofSeconds(5));
+
+        assertProviderMismatch(store, google.state(), OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver"));
+        assertThat(store.consume(google.state(), BROWSER_BINDING_A)).isNotNull();
+
+        assertProviderMismatch(store, naver.state(), OAuthProvider.GOOGLE,
+                URI.create("https://api.example.com/login/oauth2/code/google"));
+        assertThat(store.consume(naver.state(), BROWSER_BINDING_A, OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver"))).isNotNull();
     }
 
     @Test
@@ -157,7 +189,7 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
     }
 
     @Test
-    void redirectBindingMismatchInvalidatesAndDeletesState() {
+    void redirectBindingMismatchIsRejectedWithoutConsumingTheOriginalTransaction() {
         Instant now = Instant.parse("2026-08-25T00:00:00Z");
         OAuthAuthorizationTransactionStore creator = store(now, properties());
         var created = creator.create(BROWSER_BINDING_A);
@@ -171,11 +203,12 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
-        assertThat(template().hasKey(key(created.state()))).isFalse();
+        assertThat(template().hasKey(key(created.state()))).isTrue();
+        assertThat(store(now, properties()).consume(created.state(), BROWSER_BINDING_A)).isNotNull();
     }
 
     @Test
-    void corruptVerifierOrNonceInvalidatesAndDeletesState() {
+    void corruptGoogleVerifierOrNonceInvalidatesAndDeletesStateWhileNaverNonceRemainsUnused() {
         OAuthAuthorizationTransactionStore store = store(Instant.parse("2026-08-25T00:00:00Z"));
         var missingVerifier = store.create(BROWSER_BINDING_A);
         template().opsForHash().delete(key(missingVerifier.state()), "codeVerifier");
@@ -186,6 +219,12 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
         assertInvalid(store, missingNonce.state());
         assertThat(template().hasKey(key(missingVerifier.state()))).isFalse();
         assertThat(template().hasKey(key(missingNonce.state()))).isFalse();
+
+        var naver = store.create(BROWSER_BINDING_A, OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver"),
+                Duration.ofSeconds(60), Duration.ofSeconds(5));
+        assertThat(store.consume(naver.state(), BROWSER_BINDING_A, OAuthProvider.NAVER,
+                URI.create("https://api.example.com/login/oauth2/code/naver")).nonce()).isNull();
     }
 
     @Test
@@ -247,6 +286,18 @@ class OAuthAuthorizationTransactionStoreIntegrationTest {
 
     private void assertInvalid(OAuthAuthorizationTransactionStore store, String state) {
         assertThatThrownBy(() -> store.consume(state, BROWSER_BINDING_A))
+                .isInstanceOf(OAuthCallbackException.class)
+                .extracting(error -> ((OAuthCallbackException) error).failure())
+                .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);
+    }
+
+    private void assertProviderMismatch(
+            OAuthAuthorizationTransactionStore store,
+            String state,
+            OAuthProvider provider,
+            URI redirectUri
+    ) {
+        assertThatThrownBy(() -> store.consume(state, BROWSER_BINDING_A, provider, redirectUri))
                 .isInstanceOf(OAuthCallbackException.class)
                 .extracting(error -> ((OAuthCallbackException) error).failure())
                 .isEqualTo(OAuthCallbackFailure.OAUTH_STATE_INVALID);

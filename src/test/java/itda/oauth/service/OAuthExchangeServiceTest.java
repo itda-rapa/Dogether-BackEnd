@@ -89,6 +89,27 @@ class OAuthExchangeServiceTest {
     }
 
     @Test
+    void naverSameEmailRequiresLinkDecisionAndLeavesTheLoginCodeAvailableForRetry() {
+        OAuthLoginCode code = OAuthLoginCode.issue(TokenHashing.sha256("naver-login-code"), OAuthProvider.NAVER,
+                "naver-sub", "existing@example.com", NOW.plusSeconds(300));
+        given(loginCodeRepository.findByTokenHashForUpdate(TokenHashing.sha256("naver-login-code")))
+                .willReturn(Optional.of(code));
+        given(identityRepository.findWithUserByProviderAndProviderSubject(OAuthProvider.NAVER, "naver-sub"))
+                .willReturn(Optional.empty());
+        given(userRepository.findByEmailIgnoreCase("existing@example.com")).willReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.exchange(
+                new OAuthExchangeCommand(OAuthProvider.NAVER, "naver-login-code"), ignored -> "never"))
+                .isInstanceOf(OAuthFlowException.class)
+                .extracting(error -> ((OAuthFlowException) error).getFailure())
+                .isEqualTo(OAuthFlowFailure.ACCOUNT_LINK_DECISION_REQUIRED);
+
+        assertThat(code.getStatus()).isEqualTo(OAuthArtifactStatus.AVAILABLE);
+        assertThat(code.getVerifiedEmail()).isEqualTo("existing@example.com");
+        then(signupTokenRepository).shouldHaveNoInteractions();
+    }
+
+    @Test
     void newIdentityIssuesSignupTokenAndConsumesLoginCode() {
         OAuthLoginCode code = availableCode("new@example.com");
         given(loginCodeRepository.findByTokenHashForUpdate(TokenHashing.sha256("login-code")))

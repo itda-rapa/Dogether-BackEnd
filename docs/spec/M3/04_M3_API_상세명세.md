@@ -56,12 +56,12 @@ Content-Type: application/json
 
 ## 2. OAuth
 
-### `GET /oauth2/authorization/google`
+### `GET /oauth2/authorization/google` 및 `GET /oauth2/authorization/naver`
 
 - 인증: 불필요. 브라우저 navigation 전용이며 JSON `ApiResponse` endpoint가 아니다.
-- Google OAuth가 enabled이면 Google authorization endpoint로 `302 Found`를 반환한다. disabled이면 `404`다.
-- scope는 정확히 `openid email`이다. 서버는 Redis에 일회용 state, PKCE verifier(S256), nonce, backend redirect URI와 browser binding hash를 저장한다. 시작 응답은 raw `__Host-dogether_oauth_browser_binding` cookie를 short-lived `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, Domain 없이 설정한다.
-- `NAVER`는 공통 enum/DB 제약에만 존재하며 runtime endpoint·adapter·설정은 없다.
+- 각 Provider가 enabled이면 해당 authorization endpoint로 `302 Found`를 반환한다. disabled이면 해당 endpoint가 `404`다.
+- Google scope는 정확히 `openid email`, Naver scope는 정확히 `openid`다. 서버는 Redis에 일회용 state, PKCE verifier(S256), provider별 필요한 nonce(Google만), backend redirect URI와 browser binding hash를 저장한다. 시작 응답은 raw `__Host-dogether_oauth_browser_binding` cookie를 short-lived `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, Domain 없이 설정한다.
+- Google은 scope `openid email`과 state·PKCE S256·nonce를 사용한다. Naver는 scope `openid`와 state·PKCE S256을 사용하며 nonce를 사용하지 않는다.
 
 Callback 흐름:
 
@@ -86,12 +86,19 @@ Google 인증
   `INTERNAL_ERROR`, `OAUTH_STATE_INVALID`, `OAUTH_STATE_EXPIRED`, `OAUTH_AUTHORIZATION_DENIED`,
   `OAUTH_IDENTITY_VERIFICATION_FAILED`, `OAUTH_PROVIDER_UNAVAILABLE`다.
 
-### `GET /login/oauth2/code/google`
+### `GET /login/oauth2/code/google` 및 `GET /login/oauth2/code/naver`
 
-- 인증: 불필요. Google이 `state`, `code` 또는 `error`를 전달하는 browser callback이다.
+- 인증: 불필요. 해당 Provider가 `state`, `code` 또는 `error`를 전달하는 browser callback이다.
 - callback은 authorization을 시작한 동일 browser correlation cookie를 요구한다. cookie가 없거나 malformed 또는 transaction과 불일치하면 state를 소비하지 않고 `OAUTH_STATE_INVALID`로 redirect한다.
 - 성공·실패 모두 위 callback URL로 `302`하며 JSON error envelope를 직접 반환하지 않는다.
 - OAuth가 disabled이면 `404`다.
+
+Naver callback은 ID Token의 JWKS RS256 서명, configured issuer, configured client ID 하나만 담긴 audience,
+`exp`, non-blank `sub`를 검증한다. OIDC 표준이 multiple audience를 허용하더라도 Dogether에는 trusted additional
+audience 정책이 없으므로 추가 audience는 거부하며, `azp`가 있으면 configured client ID와 같아야 한다. nonce는 검증하지 않는다.
+같은 검증된 token exchange access token으로 Naver userinfo를 호출해 성공 `response.email`의 존재·non-blank·유효 형식을 확인해 가입 및 동일 이메일 충돌 판단에 사용한다. 이는 Google `email_verified=true`와 같은 ownership claim이 아니다. resultcode 실패,
+response 누락 또는 email 누락/공백/형식 오류는 `OAUTH_IDENTITY_VERIFICATION_FAILED`다. Provider token과
+raw userinfo는 저장·로그·Front redirect에 남기지 않는다.
 
 ### `POST /auth/oauth/exchange`
 
