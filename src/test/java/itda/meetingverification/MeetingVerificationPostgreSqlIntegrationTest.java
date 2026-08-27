@@ -979,6 +979,14 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                             Instant.now().minus(10, ChronoUnit.SECONDS)));
         } catch (BusinessException exception) {
             return exception;
+        } catch (RuntimeException exception) {
+            // deadlock/lock-timeout은 BusinessException이 아니라 Spring DataAccessException으로
+            // 나오므로 outcomes에 담아 noneMatch(isDeadlockFailure)가 명시적으로 거부하게 한다.
+            // 그 외 예상 밖 RuntimeException은 그대로 던져 테스트가 실패하도록 유지한다.
+            if (isDeadlockFailure(exception)) {
+                return exception;
+            }
+            throw exception;
         }
     }
 
@@ -987,6 +995,11 @@ class MeetingVerificationPostgreSqlIntegrationTest {
             return meetingCardService.cancel(userId, cardId);
         } catch (BusinessException exception) {
             return exception;
+        } catch (RuntimeException exception) {
+            if (isDeadlockFailure(exception)) {
+                return exception;
+            }
+            throw exception;
         }
     }
 
