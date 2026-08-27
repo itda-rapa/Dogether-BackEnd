@@ -25,6 +25,7 @@ import itda.comment.service.BoardPostCommentService;
 import itda.comment.service.CommentReactionQueryService;
 import itda.common.exception.BusinessException;
 import itda.notification.service.NotificationCommandService;
+import itda.notification.domain.NotificationType;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
@@ -141,6 +142,7 @@ class BoardPostCommentServiceTest {
         given(blocks.existsBlockBetween(1L, 2L)).willReturn(false);
         given(comments.save(any(BoardPostComment.class))).willReturn(created);
         given(petDisplays.getPetDisplaySummary(3L)).willReturn(summary(3L));
+        given(petDisplays.getProfileAssetId(3L)).willReturn(555L);
 
         var response = service().createReply(1L, 30L, new CommentCreateRequest("reply"));
 
@@ -151,6 +153,24 @@ class BoardPostCommentServiceTest {
         assertThat(saved.getValue().getDepth()).isEqualTo((short) 1);
         assertThat(response.parentCommentId()).isEqualTo(30L);
         assertThat(response.depth()).isEqualTo((short) 1);
+        then(notificationCommandService).should().notifyCommentCreated(20L, 3L, "pet", 555L,
+                NotificationType.BOARD_REPLY_CREATED, 31L, 10L, "reply");
+    }
+
+    @Test
+    void rootCommentNotifiesPostAuthor() {
+        BoardPost post = publishedPost(10L, 20L, "4113111500");
+        BoardPostComment created = comment(30L, 10L, 1L, 2L, "comment", 0L);
+        given(actorGuard.require(1L)).willReturn(actor(1L, 2L, "4113111500"));
+        given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.of(post));
+        given(comments.save(any(BoardPostComment.class))).willReturn(created);
+        given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
+        given(petDisplays.getProfileAssetId(2L)).willReturn(555L);
+
+        service().create(1L, 10L, new CommentCreateRequest("comment"));
+
+        then(notificationCommandService).should().notifyCommentCreated(20L, 2L, "pet", 555L,
+                NotificationType.BOARD_COMMENT_CREATED, 30L, 10L, "comment");
     }
 
     @Test

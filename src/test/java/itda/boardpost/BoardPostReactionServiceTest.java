@@ -25,6 +25,8 @@ import itda.common.exception.BusinessException;
 import itda.media.repository.MediaRepository;
 import itda.media.service.MediaService;
 import itda.notification.service.NotificationCommandService;
+import itda.notification.domain.NotificationTargetType;
+import itda.notification.domain.NotificationType;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
@@ -201,6 +203,22 @@ class BoardPostReactionServiceTest {
         then(reactions).should().insertIgnore(101L, 10L, "HELPFUL");
         then(reactions).should().deleteReaction(101L, 10L, "HELPFUL");
         then(reactions).should(never()).insertIgnore(101L, 10L, "LIKE");
+    }
+
+    @Test
+    void createsTypeSpecificPostReactionNotificationOnlyForNewReaction() {
+        BoardPost post = post(101L, 2L, 20L, "4113111500");
+        given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
+        given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.of(post));
+        given(reactions.insertIgnore(101L, 10L, "HELPFUL")).willReturn(1);
+        given(reactions.countForPost(101L, "HELPFUL")).willReturn(1L);
+        given(petDisplays.getPetDisplaySummary(10L)).willReturn(summary(10L));
+        given(petDisplays.getProfileAssetId(10L)).willReturn(555L);
+
+        service().addReaction(1L, 101L, BoardPostReactionType.HELPFUL);
+
+        then(notificationCommandService).should().notifyReaction(20L, 10L, "pet", 555L,
+                NotificationType.BOARD_POST_HELPFUL, NotificationTargetType.BOARD_POST, 101L, 101L, null);
     }
 
     private void assertBusiness(ThrowingAction action, ErrorCode expected) {

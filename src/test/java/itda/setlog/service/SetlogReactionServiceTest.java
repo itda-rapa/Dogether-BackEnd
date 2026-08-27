@@ -12,6 +12,8 @@ import itda.block.service.BlockRelationshipQueryService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.domain.MediaStatus;
+import itda.notification.domain.NotificationTargetType;
+import itda.notification.domain.NotificationType;
 import itda.notification.service.NotificationCommandService;
 import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.dto.LockedPetContext;
@@ -104,6 +106,26 @@ class SetlogReactionServiceTest {
                 ));
         then(fixture.setlog()).should()
                 .incrementReaction(ReactionType.CUTE);
+        then(notificationCommandService).should().notifyReaction(
+                AUTHOR_PET_ID, ACTIVE_PET_ID, "나", null, NotificationType.SETLOG_CUTE,
+                NotificationTargetType.SETLOG, SETLOG_ID, null, SETLOG_ID
+        );
+    }
+
+    @Test
+    void likeCreatesSetlogLikeNotification() {
+        Fixture fixture = stubValidContext();
+        given(setlogReactionRepository.findBySetlog_IdAndReactorPet_IdAndType(
+                SETLOG_ID, ACTIVE_PET_ID, ReactionType.LIKE)).willReturn(Optional.empty());
+        given(fixture.setlog().getCuteCount()).willReturn(0);
+        given(fixture.setlog().getLikeCount()).willReturn(1);
+
+        setlogReactionService.addReaction(USER_ID, SETLOG_ID, ReactionType.LIKE);
+
+        then(notificationCommandService).should().notifyReaction(
+                AUTHOR_PET_ID, ACTIVE_PET_ID, "나", null, NotificationType.SETLOG_LIKE,
+                NotificationTargetType.SETLOG, SETLOG_ID, null, SETLOG_ID
+        );
     }
 
     @Test
@@ -268,6 +290,7 @@ class SetlogReactionServiceTest {
         lenient().when(petRepository.findById(ACTIVE_PET_ID))
                 .thenReturn(Optional.of(reactorPet));
         lenient().when(reactorPet.getId()).thenReturn(ACTIVE_PET_ID);
+        lenient().when(reactorPet.getNickname()).thenReturn("나");
         return new Fixture(setlog, reactorPet);
     }
 

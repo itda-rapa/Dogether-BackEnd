@@ -52,6 +52,14 @@ public class PetDisplayQueryService {
         );
     }
 
+    /** Immutable notification facts need the asset identifier, not a presigned URL. */
+    @Transactional(readOnly = true)
+    public Long getProfileAssetId(Long petId) {
+        return petRepository.findByIdWithOwnerAndProfileAsset(petId)
+                .map(pet -> pet.getProfileAsset() == null ? null : pet.getProfileAsset().getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.PET_NOT_FOUND));
+    }
+
     @Transactional(readOnly = true)
     public Optional<PetDisplaySummary> findSearchablePetDisplaySummary(
             String publicTag

@@ -99,7 +99,7 @@ public class BoardPostCommentService {
                 request.content()
         ));
         notificationCommandService.notifyCommentCreated(post.getAuthorPetId(), actor.petId(),
-                petDisplays.getPetDisplaySummary(actor.petId()).nickname(), null,
+                petDisplays.getPetDisplaySummary(actor.petId()).nickname(), petDisplays.getProfileAssetId(actor.petId()),
                 NotificationType.BOARD_COMMENT_CREATED, comment.getId(), post.getId(), comment.getContent());
         return CommentResponse.of(
                 comment,
@@ -151,7 +151,7 @@ public class BoardPostCommentService {
                 (short) (parent.getDepth() + 1)
         ));
         notificationCommandService.notifyCommentCreated(parent.getAuthorPetId(), actor.petId(),
-                petDisplays.getPetDisplaySummary(actor.petId()).nickname(), null,
+                petDisplays.getPetDisplaySummary(actor.petId()).nickname(), petDisplays.getProfileAssetId(actor.petId()),
                 NotificationType.BOARD_REPLY_CREATED, reply.getId(), post.getId(), reply.getContent());
         return CommentResponse.of(
                 reply,
@@ -282,7 +282,8 @@ public class BoardPostCommentService {
         ReactionTarget target = reactionTarget(userId, commentId);
         if (reactions.insertIgnore(commentId, target.actor().petId(), type.name()) == 1) {
             notificationCommandService.notifyReaction(target.comment().getAuthorPetId(), target.actor().petId(),
-                    petDisplays.getPetDisplaySummary(target.actor().petId()).nickname(), null,
+                    petDisplays.getPetDisplaySummary(target.actor().petId()).nickname(),
+                    petDisplays.getProfileAssetId(target.actor().petId()),
                     NotificationType.BOARD_COMMENT_HELPFUL, NotificationTargetType.BOARD_COMMENT, commentId,
                     target.comment().getPostId(), null);
         }

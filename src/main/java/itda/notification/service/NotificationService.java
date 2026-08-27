@@ -44,7 +44,8 @@ public class NotificationService {
                         notifications.stream().map(Notification::getRoomId).filter(Objects::nonNull)
                                 .collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(ChatRoom::getId, Function.identity()));
-        return notifications.stream().map(n -> toResponse(n, activePet, actors, rooms)).toList();
+        Map<Long, Boolean> availability = targetAvailabilityService.resolveAll(notifications, activePet, rooms);
+        return notifications.stream().map(n -> toResponse(n, actors, rooms, availability.getOrDefault(n.getId(), false))).toList();
     }
 
     @Transactional(readOnly = true)
@@ -63,12 +64,14 @@ public class NotificationService {
         Pet actor = petRepository.findById(notification.getActorPetId()).orElse(null);
         ChatRoom room = notification.getRoomId() == null ? null
                 : chatRoomRepository.findById(notification.getRoomId()).orElse(null);
-        return toResponse(notification, activePet, actor == null ? Map.of() : Map.of(actor.getId(), actor),
-                room == null ? Map.of() : Map.of(room.getId(), room));
+        Map<Long, ChatRoom> rooms = room == null ? Map.of() : Map.of(room.getId(), room);
+        boolean available = targetAvailabilityService.resolveAll(List.of(notification), activePet, rooms)
+                .getOrDefault(notification.getId(), false);
+        return toResponse(notification, actor == null ? Map.of() : Map.of(actor.getId(), actor), rooms, available);
     }
 
-    private NotificationResponse toResponse(Notification notification, ActivePetContext recipient, Map<Long, Pet> actors,
-            Map<Long, ChatRoom> rooms) {
+    private NotificationResponse toResponse(Notification notification, Map<Long, Pet> actors,
+            Map<Long, ChatRoom> rooms, boolean targetAvailable) {
         Pet actor = actors.get(notification.getActorPetId());
         ChatRoom room = rooms.get(notification.getRoomId());
         String nickname = notification.getActorPetNicknameSnapshot() != null
@@ -78,10 +81,12 @@ public class NotificationService {
                 ? notification.getActorProfileAssetIdSnapshot()
                 : actor == null || actor.getProfileAsset() == null ? null : actor.getProfileAsset().getId();
         return new NotificationResponse(notification.getId(), notification.getType(), notification.getTargetType(),
-                notification.getTargetId(), notification.getRoomId(), room == null ? "오픈채팅방" : room.getTitle(),
+                notification.getTargetId(), notification.getRoomId(), notification.getTargetType()
+                        == itda.notification.domain.NotificationTargetType.OPEN_CHAT_ROOM
+                        ? room == null ? "오픈채팅방" : room.getTitle() : null,
                 notification.getPostId(), notification.getSetlogId(), notification.getActorPetId(), nickname,
                 profileAssetId, notification.getCommentPreviewSnapshot(),
-                targetAvailabilityService.isAvailable(notification, recipient, room),
+                targetAvailable,
                 notification.getCreatedAt(), notification.getReadAt());
     }
 }
