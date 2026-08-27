@@ -6,6 +6,9 @@ import itda.common.exception.BusinessException;
 import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.service.InteractionPairLockService;
 import itda.media.domain.MediaStatus;
+import itda.notification.domain.NotificationTargetType;
+import itda.notification.domain.NotificationType;
+import itda.notification.service.NotificationCommandService;
 import itda.pet.domain.Pet;
 import itda.pet.domain.PetStatus;
 import itda.pet.repository.PetRepository;
@@ -36,6 +39,7 @@ public class SetlogReactionService {
     private final ActivePetQueryService activePetQueryService;
     private final InteractionPairLockService interactionPairLockService;
     private final BlockRelationshipQueryService blockRelationshipQueryService;
+    private final NotificationCommandService notificationCommandService;
 
     public SetlogReactionService(
             SetlogRepository setlogRepository,
@@ -43,7 +47,8 @@ public class SetlogReactionService {
             PetRepository petRepository,
             ActivePetQueryService activePetQueryService,
             InteractionPairLockService interactionPairLockService,
-            BlockRelationshipQueryService blockRelationshipQueryService
+            BlockRelationshipQueryService blockRelationshipQueryService,
+            NotificationCommandService notificationCommandService
     ) {
         this.setlogRepository = setlogRepository;
         this.setlogReactionRepository = setlogReactionRepository;
@@ -51,6 +56,7 @@ public class SetlogReactionService {
         this.activePetQueryService = activePetQueryService;
         this.interactionPairLockService = interactionPairLockService;
         this.blockRelationshipQueryService = blockRelationshipQueryService;
+        this.notificationCommandService = notificationCommandService;
     }
 
     /**
@@ -80,6 +86,11 @@ public class SetlogReactionService {
                     )
             );
             context.setlog().incrementReaction(type);
+            notificationCommandService.notifyReaction(context.setlog().getAuthorPet().getId(),
+                    context.activePet().getId(), context.activePet().getNickname(),
+                    context.activePet().getProfileAsset() == null ? null : context.activePet().getProfileAsset().getId(),
+                    type == ReactionType.LIKE ? NotificationType.SETLOG_LIKE : NotificationType.SETLOG_CUTE,
+                    NotificationTargetType.SETLOG, setlogId, null, setlogId);
         }
         return toResponse(context.setlog(), type, true);
     }

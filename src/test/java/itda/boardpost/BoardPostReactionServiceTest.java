@@ -24,6 +24,9 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.repository.MediaRepository;
 import itda.media.service.MediaService;
+import itda.notification.service.NotificationCommandService;
+import itda.notification.domain.NotificationTargetType;
+import itda.notification.domain.NotificationType;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
@@ -53,6 +56,7 @@ class BoardPostReactionServiceTest {
     @Mock private MediaService mediaService;
     @Mock private BoardPostReactionRepository reactions;
     @Mock private BoardPostReactionQueryService reactionQueries;
+    @Mock private NotificationCommandService notificationCommandService;
 
     @Test
     void putAndDeleteUseIdempotentCommandsAndReturnObservedCount() {
@@ -201,6 +205,19 @@ class BoardPostReactionServiceTest {
         then(reactions).should(never()).insertIgnore(101L, 10L, "LIKE");
     }
 
+    @Test
+    void createsTypeSpecificPostReactionNotificationOnlyForNewReaction() {
+        BoardPost post = post(101L, 2L, 20L, "4113111500");
+        given(actorGuard.require(1L)).willReturn(actor(1L, 10L, "4113111500"));
+        given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.of(post));
+        given(reactions.insertIgnore(101L, 10L, "HELPFUL")).willReturn(1);
+        given(reactions.countForPost(101L, "HELPFUL")).willReturn(1L);
+        service().addReaction(1L, 101L, BoardPostReactionType.HELPFUL);
+
+        then(notificationCommandService).should().notifyReaction(20L, 10L, "pet", 555L,
+                NotificationType.BOARD_POST_HELPFUL, NotificationTargetType.BOARD_POST, 101L, 101L, null);
+    }
+
     private void assertBusiness(ThrowingAction action, ErrorCode expected) {
         assertThatThrownBy(action::run).isInstanceOf(BusinessException.class)
                 .extracting(error -> ((BusinessException) error).getErrorCode())
@@ -209,11 +226,11 @@ class BoardPostReactionServiceTest {
 
     private BoardPostService service() {
         return new BoardPostService(posts, postMedia, boards, users, actorGuard, petDisplays, blocks,
-                media, mediaService, reactions, reactionQueries);
+                media, mediaService, reactions, reactionQueries, notificationCommandService);
     }
 
     private LockedActivePetCommandGuard.LockedActor actor(long userId, long petId, String neighborhood) {
-        return new LockedActivePetCommandGuard.LockedActor(userId, petId, neighborhood);
+        return new LockedActivePetCommandGuard.LockedActor(userId, petId, neighborhood, "pet", 555L);
     }
 
     private BoardPost post(long id, long authorUserId, long authorPetId, String neighborhood) {

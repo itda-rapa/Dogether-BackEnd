@@ -6,6 +6,7 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.notification.domain.Notification;
 import itda.notification.dto.NotificationResponse;
+import itda.notification.dto.NotificationUnreadCountResponse;
 import itda.notification.repository.NotificationRepository;
 import itda.pet.domain.Pet;
 import itda.pet.repository.PetRepository;
@@ -14,6 +15,7 @@ import itda.pet.service.query.ActivePetQueryService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ public class NotificationService {
     private final ActivePetQueryService activePetQueryService;
     private final PetRepository petRepository;
     private final ChatRoomRepository chatRoomRepository;
+    private final NotificationTargetAvailabilityService targetAvailabilityService;
 
     @Transactional(readOnly = true)
     public List<NotificationResponse> list(long userId) {
@@ -34,12 +37,22 @@ public class NotificationService {
         List<Notification> notifications = notificationRepository
                 .findTop100ByTargetPetIdOrderByCreatedAtDescIdDesc(activePet.petId());
         Map<Long, Pet> actors = petRepository.findAllById(
-                        notifications.stream().map(Notification::getActorPetId).collect(Collectors.toSet()))
+                        notifications.stream().map(Notification::getActorPetId).filter(Objects::nonNull)
+                                .collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(Pet::getId, Function.identity()));
         Map<Long, ChatRoom> rooms = chatRoomRepository.findAllById(
-                        notifications.stream().map(Notification::getRoomId).collect(Collectors.toSet()))
+                        notifications.stream().map(Notification::getRoomId).filter(Objects::nonNull)
+                                .collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(ChatRoom::getId, Function.identity()));
-        return notifications.stream().map(n -> toResponse(n, actors, rooms)).toList();
+        Map<Long, Boolean> availability = targetAvailabilityService.resolveAll(notifications, activePet, rooms);
+        return notifications.stream().map(n -> toResponse(n, actors, rooms, availability.getOrDefault(n.getId(), false))).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationUnreadCountResponse unreadCount(long userId) {
+        ActivePetContext activePet = activePetQueryService.requireActivePet(userId);
+        return new NotificationUnreadCountResponse(
+                notificationRepository.countByTargetPetIdAndReadAtIsNull(activePet.petId()));
     }
 
     @Transactional
@@ -49,17 +62,31 @@ public class NotificationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         notification.markRead(Instant.now());
         Pet actor = petRepository.findById(notification.getActorPetId()).orElse(null);
-        ChatRoom room = chatRoomRepository.findById(notification.getRoomId()).orElse(null);
-        return toResponse(notification, actor == null ? Map.of() : Map.of(actor.getId(), actor),
-                room == null ? Map.of() : Map.of(room.getId(), room));
+        ChatRoom room = notification.getRoomId() == null ? null
+                : chatRoomRepository.findById(notification.getRoomId()).orElse(null);
+        Map<Long, ChatRoom> rooms = room == null ? Map.of() : Map.of(room.getId(), room);
+        boolean available = targetAvailabilityService.resolveAll(List.of(notification), activePet, rooms)
+                .getOrDefault(notification.getId(), false);
+        return toResponse(notification, actor == null ? Map.of() : Map.of(actor.getId(), actor), rooms, available);
     }
 
     private NotificationResponse toResponse(Notification notification, Map<Long, Pet> actors,
-            Map<Long, ChatRoom> rooms) {
+            Map<Long, ChatRoom> rooms, boolean targetAvailable) {
         Pet actor = actors.get(notification.getActorPetId());
         ChatRoom room = rooms.get(notification.getRoomId());
-        return new NotificationResponse(notification.getId(), notification.getType(), notification.getRoomId(),
-                room == null ? "오픈채팅방" : room.getTitle(), notification.getActorPetId(),
-                actor == null ? "친구" : actor.getNickname(), notification.getCreatedAt(), notification.getReadAt());
+        String nickname = notification.getActorPetNicknameSnapshot() != null
+                ? notification.getActorPetNicknameSnapshot()
+                : actor == null ? "친구" : actor.getNickname();
+        Long profileAssetId = notification.getActorProfileAssetIdSnapshot() != null
+                ? notification.getActorProfileAssetIdSnapshot()
+                : actor == null || actor.getProfileAsset() == null ? null : actor.getProfileAsset().getId();
+        return new NotificationResponse(notification.getId(), notification.getType(), notification.getTargetType(),
+                notification.getTargetId(), notification.getRoomId(), notification.getTargetType()
+                        == itda.notification.domain.NotificationTargetType.OPEN_CHAT_ROOM
+                        ? room == null ? "오픈채팅방" : room.getTitle() : null,
+                notification.getPostId(), notification.getSetlogId(), notification.getActorPetId(), nickname,
+                profileAssetId, notification.getCommentPreviewSnapshot(),
+                targetAvailable,
+                notification.getCreatedAt(), notification.getReadAt());
     }
 }

@@ -43,7 +43,9 @@ public class LockedActivePetCommandGuard {
         return new LockedActor(
                 user.getId(),
                 pet.getId(),
-                user.getNeighborhoodCode()
+                user.getNeighborhoodCode(),
+                pet.getNickname(),
+                pet.getProfileAsset() == null ? null : pet.getProfileAsset().getId()
         );
     }
 
@@ -51,6 +53,10 @@ public class LockedActivePetCommandGuard {
         return new BusinessException(ErrorCode.ACTIVE_PET_REQUIRED);
     }
 
-    public record LockedActor(Long userId, Long petId, String neighborhoodCode) {
+    public record LockedActor(Long userId, Long petId, String neighborhoodCode,
+            String nickname, Long profileAssetId) {
+        public LockedActor(Long userId, Long petId, String neighborhoodCode) {
+            this(userId, petId, neighborhoodCode, null, null);
+        }
     }
 }

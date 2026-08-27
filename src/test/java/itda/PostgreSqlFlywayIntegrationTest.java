@@ -99,6 +99,37 @@ class PostgreSqlFlywayIntegrationTest {
     }
 
     @Test
+    void reactionNotificationUniqueIndexAllowsOnlyOneConcurrentInsert() throws Exception {
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> insert = () -> jdbcTemplate.update("""
+                    insert into notifications (
+                        target_pet_id, actor_pet_id, type, target_type, target_id,
+                        created_at, updated_at
+                    ) values (2001, 1001, 'BOARD_POST_LIKE', 'BOARD_POST', 3001,
+                              current_timestamp, current_timestamp)
+                    on conflict do nothing
+                    """);
+            int inserted = executor.invokeAll(List.of(insert, insert)).stream().mapToInt(result -> {
+                try {
+                    return result.get();
+                } catch (Exception exception) {
+                    throw new AssertionError(exception);
+                }
+            }).sum();
+
+            assertThat(inserted).isEqualTo(1);
+            assertThat(jdbcTemplate.queryForObject("""
+                    select count(*) from notifications
+                     where actor_pet_id = 1001 and target_pet_id = 2001
+                       and type = 'BOARD_POST_LIKE' and target_type = 'BOARD_POST' and target_id = 3001
+                    """, Integer.class)).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void expiredRefreshTokenIsPersistentlyRevoked() {
         String unique = UUID.randomUUID().toString().replace("-", "");
         Long userId = jdbcTemplate.queryForObject("""
