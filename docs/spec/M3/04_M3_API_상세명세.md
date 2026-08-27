@@ -1818,3 +1818,7 @@ HTTP 원칙:
 - 413/415/422: 파일 크기·MIME·도메인 검증
 - 429: 시도·Provider rate limit
 - 502/503: Storage·AI·외부 Provider 장애
+
+## Medical support detail
+
+VERIFY는 직전 VERIFIED Revision과 정규화 의미 필드만 비교해 `NEW`/`UPDATED`/`UNCHANGED`를 결정한다. REJECT 및 FAILED Attempt는 current Program/current hospital 결과를 바꾸지 않는다.

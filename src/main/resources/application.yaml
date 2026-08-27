@@ -189,6 +189,11 @@ app:
     token-ttl: ${PET_VERIFICATION_TOKEN_TTL:15m}
     connect-timeout: ${PET_VERIFICATION_CONNECT_TIMEOUT:3s}
     read-timeout: ${PET_VERIFICATION_READ_TIMEOUT:5s}
+  medical-support:
+    http:
+      # Official-source collection fails into an auditable FAILED attempt on either timeout.
+      connect-timeout: ${MEDICAL_SUPPORT_CONNECT_TIMEOUT:3s}
+      read-timeout: ${MEDICAL_SUPPORT_READ_TIMEOUT:5s}
   chat-room:
     lifecycle:
       enabled: ${CHAT_ROOM_LIFECYCLE_ENABLED:true}

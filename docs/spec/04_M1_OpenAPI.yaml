@@ -30,6 +30,7 @@ tags:
   - name: Block
   - name: Report
   - name: Admin
+  - name: MedicalSupport
 
 paths:
   /neighborhoods:
@@ -1549,6 +1550,90 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /medical-support/programs:
+    get:
+      tags: [MedicalSupport]
+      summary: 현재 사용자 거주 지역의 검증된 반려동물 의료비 지원사업 목록
+      operationId: listMedicalSupportPrograms
+      responses:
+        '200': { description: VERIFIED Program 목록. 각 항목은 canonical Neighborhood `regionScope`(SIDO/SIGUNGU)와 `regionCode`를 적용 범위 정본으로 반환하고 `region`은 표시용 snapshot으로만 사용한다. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /medical-support/programs/{programId}:
+    get:
+      tags: [MedicalSupport]
+      summary: 현재 사용자 지역에 공개된 검증 사업 상세
+      operationId: getMedicalSupportProgram
+      parameters:
+        - name: programId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200': { description: current VERIFIED Revision 및 현재 지정병원. `regionScope`와 `regionCode`가 canonical Neighborhood 적용 범위이며 `region`은 표시용 snapshot이다. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/medical-support/sources/{sourceKey}/ingestions:
+    post:
+      tags: [Admin, MedicalSupport]
+      summary: 공식 Source 수집 실행
+      operationId: ingestMedicalSupportSource
+      parameters:
+        - name: sourceKey
+          in: path
+          required: true
+          schema: { type: string, enum: [seoul, seongnam] }
+      responses:
+        '200':
+          description: 수집 결과 Revision. 신규 수집이면 `created=true`이고 `reviewStatus=PENDING_REVIEW`이며, 기존 수집 이력을 재사용하면 `created=false`이고 해당 Revision의 현재 검토 상태를 그대로 반환한다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MedicalSupportIngestionEnvelope'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '502': { description: FAILED ingestion attempt recorded }
+  /admin/medical-support/revisions/{revisionId}/verify:
+    post:
+      tags: [Admin, MedicalSupport]
+      summary: PENDING_REVIEW Revision 검증
+      operationId: verifyMedicalSupportRevision
+      parameters:
+        - name: revisionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200': { description: NEW, UPDATED 또는 UNCHANGED로 검증 완료 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /admin/medical-support/revisions/{revisionId}/reject:
+    post:
+      tags: [Admin, MedicalSupport]
+      summary: PENDING_REVIEW Revision 반려
+      operationId: rejectMedicalSupportRevision
+      parameters:
+        - name: revisionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '200': { description: 반려 완료 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2953,4 +3038,27 @@ components:
         success: { type: boolean, const: true }
         message: { type: string }
         data: { $ref: '#/components/schemas/AdminReportDetail' }
+        error: { type: 'null' }
+    MedicalSupportIngestion:
+      type: object
+      required: [revisionId, created, reviewStatus]
+      properties:
+        revisionId:
+          type: integer
+          format: int64
+          description: 수집된 Revision의 식별자다. 기존 수집 이력을 재사용해도 같은 Revision을 가리킨다.
+        created:
+          type: boolean
+          description: 신규 Revision 생성 여부다. true면 새로 수집된 Revision이고 false면 기존 Revision을 재사용한다.
+        reviewStatus:
+          type: string
+          enum: [PENDING_REVIEW, VERIFIED, REJECTED]
+          description: Revision 검토 상태다. 신규 수집 결과는 항상 PENDING_REVIEW다.
+    MedicalSupportIngestionEnvelope:
+      type: object
+      required: [success, message, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        message: { type: string }
+        data: { $ref: '#/components/schemas/MedicalSupportIngestion' }
         error: { type: 'null' }

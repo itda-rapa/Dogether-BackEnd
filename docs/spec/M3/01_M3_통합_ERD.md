@@ -321,3 +321,7 @@ Media의 `attributes`에는 원본 파일명, contentType, durationMs 등 검증
 모든 인덱스는 실제 Query와 `EXPLAIN ANALYZE`로 확인하고 중복 인덱스를 피한다.
 
 HELPFUL 평판 aggregate는 `/pets/me`의 최대 5개 Pet ID를 batch 처리한다. 10,500+ row·background Pet 분산 fixture의 `EXPLAIN ANALYZE`에서 Post/Comment 모두 target table의 author Pet filter가 약 10,000 rows를 제거하는 Seq Scan으로 나타났고, undeleted `(author_pet_id, id)` partial index가 scan 범위·buffer·cost·실행 시간을 유의미하게 줄였다. 따라서 V33에 `ix_board_posts_visible_author_pet_id`와 `ix_board_post_comments_visible_author_pet_id`를 추가한다. 이는 모든 운영 분포를 보장한다는 뜻이 아니라, 이번 현실적 fixture 범위에서는 speculative index가 아니라는 근거에 따른 결정이다.
+
+## Medical support ingestion
+
+`medical_support_ingestion_attempts`는 성공/실패 수집 감사 이력이고, `medical_support_revisions`는 검토 가능한 정상 후보만 보관한다. Program은 current VERIFIED Revision을 참조하고 병원은 Revision 단위로 이력을 보존한다.

@@ -176,4 +176,8 @@ Open Chat:
 - 약속 제안 스케줄러는 사용자 API 를 추가하지 않는다. Scan/후보 목록 조회·수락/거절 UI 는 범위 제외.
 - M1 CardDraft `fallbackReason` enum 에 `INVALID_REQUEST`(AI HTTP 422) 가 추가됐다. 200 + 빈 폼 수렴 동작은 기존과 동일하다.
 
+## Medical support API
+
+`GET /medical-support/programs`와 상세는 인증 사용자의 Neighborhood canonical hierarchy에 해당하는 VERIFIED Program만 반환한다. `regionScope=SIDO`는 canonical SIDO code, `regionScope=SIGUNGU`는 canonical SIGUNGU code와 비교하며, 응답의 `region` 이름은 표시용 snapshot이다. `/admin/medical-support/**`는 ADMIN/SUPER_ADMIN만 수집·VERIFY·REJECT할 수 있으며, 신규 Revision은 PENDING_REVIEW로 시작한다.
+
 기존 endpoint를 바꾸는 경우 M3 필드 추가가 하위 호환인지 검증한다.
