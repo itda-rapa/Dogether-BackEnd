@@ -12,7 +12,9 @@ import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.user.dto.ActivePetUpdateRequest;
 import itda.user.dto.MeResponse;
+import itda.user.dto.MeUpdateRequest;
 import org.springframework.http.MediaType;
+import tools.jackson.databind.JsonNode;
 
 @Tag(name = "Me", description = "내 정보 관련 API")
 @SecurityRequirement(name = "bearerAuth")
@@ -24,6 +26,7 @@ public interface MeSwaggerSupporter {
             description = "내 정보 조회 성공",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(ref = "#/components/schemas/ApiResponseMeResponse"),
                     examples = @ExampleObject("""
                             {
                                 "success":true,
@@ -41,6 +44,46 @@ public interface MeSwaggerSupporter {
     )
     ApiResponse<MeResponse> getMe(
             @Parameter(hidden = true) CurrentUser currentUser
+    );
+
+    @Operation(summary = "내 정보 수정", description = "nickname, neighborhoodCode, weightKg 중 수정할 사용자 항목만 포함하는 API")
+    @RequestBody(required = true, content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = MeUpdateRequest.class),
+            examples = @ExampleObject("""
+                    {
+                        "nickname":"도기",
+                        "weightKg":12.50
+                    }
+                    """)
+    ))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200",
+            description = "내 정보 수정 성공"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "400",
+            description = "엄격한 요청 본문 검증 실패 (VALIDATION_FAILED)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "401",
+            description = "인증 실패 (UNAUTHORIZED)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "404",
+            description = "사용자 없음 (USER_NOT_FOUND)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "409",
+            description = "동시 수정 충돌 (CONCURRENT_UPDATE_CONFLICT)"
+    )
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "422",
+            description = "활성 동네 코드가 아님 (NEIGHBORHOOD_NOT_FOUND)"
+    )
+    ApiResponse<MeResponse> updateMe(
+            @Parameter(hidden = true) CurrentUser currentUser,
+            JsonNode requestBody
     );
 
     @Operation(summary = "Active Pet 변경", description = "대표 Pet을 변경하는 API")

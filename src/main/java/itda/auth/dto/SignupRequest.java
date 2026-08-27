@@ -1,8 +1,14 @@
 package itda.auth.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 public record SignupRequest(
         @NotBlank
@@ -24,7 +30,22 @@ public record SignupRequest(
 
         @NotBlank
         @Size(min = 20, max = 256)
-        String verificationToken
+        String verificationToken,
+
+        @JsonDeserialize(using = StrictBigDecimalDeserializer.class)
+        @DecimalMin("1.00")
+        @DecimalMax("500.00")
+        @Digits(integer = 3, fraction = 2)
+        @Schema(
+                description = "사용자 체중(kg). JSON 숫자만 허용하며 소수 둘째 자리까지 입력할 수 있습니다.",
+                types = {"number", "null"},
+                nullable = true,
+                requiredMode = Schema.RequiredMode.NOT_REQUIRED,
+                minimum = "1.00",
+                maximum = "500.00",
+                example = "72.50"
+        )
+        BigDecimal weightKg
 ) {
 
     public SignupRequest {
@@ -33,5 +54,15 @@ public record SignupRequest(
         neighborhoodCode = neighborhoodCode == null
                 ? null
                 : neighborhoodCode.trim();
+    }
+
+    public SignupRequest(
+            String email,
+            String password,
+            String nickname,
+            String neighborhoodCode,
+            String verificationToken
+    ) {
+        this(email, password, nickname, neighborhoodCode, verificationToken, null);
     }
 }

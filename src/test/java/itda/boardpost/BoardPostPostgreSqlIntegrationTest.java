@@ -23,6 +23,8 @@ import itda.common.exception.BusinessException;
 import itda.media.repository.MediaRepository;
 import itda.pet.service.ActivePetSelectionService;
 import itda.pet.service.query.PetDisplayQueryService;
+import itda.user.dto.MeUpdateCommand;
+import itda.user.service.MeUpdateService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -74,6 +76,7 @@ class BoardPostPostgreSqlIntegrationTest {
     @Autowired private BoardPostService postService;
     @Autowired private BoardDeletionService boardDeletionService;
     @Autowired private ActivePetSelectionService activePetSelectionService;
+    @Autowired private MeUpdateService meUpdateService;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private PetDisplayQueryService petDisplays;
     @Autowired private jakarta.persistence.EntityManagerFactory entityManagerFactory;
@@ -259,6 +262,37 @@ class BoardPostPostgreSqlIntegrationTest {
 
         List<BoardPost> afterTieHigh = posts.findVisibleFeed(board, "4113165000", viewer, tie, highId, 10);
         assertThat(afterTieHigh).extracting(BoardPost::getId).containsExactly(lowId);
+    }
+
+    @Test
+    void profileNeighborhoodChangeKeepsPublishedPostSnapshotAndFeedsFromNewUserNeighborhood() {
+        long board = createBoard();
+        Author movingUser = createAuthor("moving-user", "4113165000");
+        Author newNeighborhoodAuthor = createAuthor("new-neighborhood", "4113351000");
+        Instant createdAt = Instant.parse("2026-08-10T00:00:00Z");
+
+        long oldNeighborhoodPost = insertPost(
+                board, movingUser, "4113165000", "old neighborhood", "PUBLISHED", createdAt, null
+        );
+        long newNeighborhoodPost = insertPost(
+                board, newNeighborhoodAuthor, "4113351000", "new neighborhood", "PUBLISHED",
+                createdAt.plusSeconds(1), null
+        );
+
+        meUpdateService.update(movingUser.userId(), new MeUpdateCommand(
+                false, null, true, "4113351000", false, null
+        ));
+
+        assertThat(jdbc.queryForObject(
+                "select neighborhood_code from users where id = ?", String.class, movingUser.userId()
+        )).isEqualTo("4113351000");
+        assertThat(jdbc.queryForObject(
+                "select neighborhood_code from board_posts where id = ?", String.class, oldNeighborhoodPost
+        )).isEqualTo("4113165000");
+        assertThat(postService.feed(movingUser.userId(), board, null, 20).items())
+                .extracting(BoardPostResponse::postId)
+                .containsExactly(newNeighborhoodPost)
+                .doesNotContain(oldNeighborhoodPost);
     }
 
     @Test

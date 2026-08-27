@@ -111,7 +111,8 @@ public class AuthService {
                     passwordHash,
                     request.nickname().trim(),
                     publicTagGenerator.generate(request.nickname()),
-                    request.neighborhoodCode()
+                    request.neighborhoodCode(),
+                    request.weightKg()
             );
 
             try {
@@ -176,9 +177,18 @@ public class AuthService {
             String nickname,
             String neighborhoodCode
     ) {
+        return signupOAuth(signupToken, nickname, neighborhoodCode, null);
+    }
+
+    public AuthTokensResponse signupOAuth(
+            String signupToken,
+            String nickname,
+            String neighborhoodCode,
+            java.math.BigDecimal weightKg
+    ) {
         try {
             return oauthSignupService.complete(
-                    new OAuthSignupCommand(signupToken, nickname, neighborhoodCode),
+                    new OAuthSignupCommand(signupToken, nickname, neighborhoodCode, weightKg),
                     user -> AuthTokensResponse.from(tokenProvider.issueTokens(user))
             );
         } catch (OAuthFlowException exception) {

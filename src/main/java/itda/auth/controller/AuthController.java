@@ -128,10 +128,14 @@ public class AuthController implements AuthSwaggerSupporter {
     public ResponseEntity<ApiResponse<AuthTokensResponse>> signupOAuth(
             @Valid @RequestBody OAuthSignupRequest request
     ) {
+        AuthTokensResponse tokens = authService.signupOAuth(
+                request.signupToken(),
+                request.nickname(),
+                request.neighborhoodCode(),
+                request.weightKg()
+        );
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.created(
-                authService.signupOAuth(
-                        request.signupToken(), request.nickname(), request.neighborhoodCode()
-                ),
+                tokens,
                 "OAuth 회원가입이 완료되었습니다."
         ));
     }
