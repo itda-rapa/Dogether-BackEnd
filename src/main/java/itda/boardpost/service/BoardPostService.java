@@ -26,6 +26,9 @@ import itda.media.domain.MediaStatus;
 import itda.media.domain.MediaType;
 import itda.media.repository.MediaRepository;
 import itda.media.service.MediaService;
+import itda.notification.domain.NotificationTargetType;
+import itda.notification.domain.NotificationType;
+import itda.notification.service.NotificationCommandService;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
 import itda.user.domain.User;
@@ -60,6 +63,7 @@ public class BoardPostService {
     private final MediaService mediaService;
     private final BoardPostReactionRepository reactions;
     private final BoardPostReactionQueryService reactionQueries;
+    private final NotificationCommandService notificationCommandService;
 
     public BoardPostService(
             BoardPostRepository posts,
@@ -72,7 +76,8 @@ public class BoardPostService {
             MediaRepository media,
             MediaService mediaService,
             BoardPostReactionRepository reactions,
-            BoardPostReactionQueryService reactionQueries
+            BoardPostReactionQueryService reactionQueries,
+            NotificationCommandService notificationCommandService
     ) {
         this.posts = posts;
         this.postMedia = postMedia;
@@ -85,6 +90,7 @@ public class BoardPostService {
         this.mediaService = mediaService;
         this.reactions = reactions;
         this.reactionQueries = reactionQueries;
+        this.notificationCommandService = notificationCommandService;
     }
 
     @Transactional
@@ -293,8 +299,12 @@ public class BoardPostService {
             Long postId,
             BoardPostReactionType type
     ) {
-        LockedActivePetCommandGuard.LockedActor actor = reactionActor(userId, postId);
-        reactions.insertIgnore(postId, actor.petId(), type.name());
+        ReactionTarget target = reactionTarget(userId, postId);
+        if (reactions.insertIgnore(postId, target.actor().petId(), type.name()) == 1) {
+            notificationCommandService.notifyReaction(target.post().getAuthorPetId(), target.actor().petId(),
+                    petDisplays.getPetDisplaySummary(target.actor().petId()).nickname(), null,
+                    notificationType(type), NotificationTargetType.BOARD_POST, postId, postId, null);
+        }
         return reactionResponse(postId, type, true);
     }
 
@@ -304,12 +314,12 @@ public class BoardPostService {
             Long postId,
             BoardPostReactionType type
     ) {
-        LockedActivePetCommandGuard.LockedActor actor = reactionActor(userId, postId);
-        reactions.deleteReaction(postId, actor.petId(), type.name());
+        ReactionTarget target = reactionTarget(userId, postId);
+        reactions.deleteReaction(postId, target.actor().petId(), type.name());
         return reactionResponse(postId, type, false);
     }
 
-    private LockedActivePetCommandGuard.LockedActor reactionActor(
+    private ReactionTarget reactionTarget(
             Long userId,
             Long postId
     ) {
@@ -324,7 +334,14 @@ public class BoardPostService {
         if (post.getAuthorUserId().equals(actor.userId())) {
             throw new BusinessException(ErrorCode.BOARD_POST_SELF_REACTION_FORBIDDEN);
         }
-        return actor;
+        return new ReactionTarget(actor, post);
+    }
+
+    private NotificationType notificationType(BoardPostReactionType type) {
+        return switch (type) {
+            case LIKE -> NotificationType.BOARD_POST_LIKE;
+            case HELPFUL -> NotificationType.BOARD_POST_HELPFUL;
+        };
     }
 
     private BoardPostReactionResponse reactionResponse(
@@ -386,6 +403,9 @@ public class BoardPostService {
 
     private BusinessException notFound() {
         return new BusinessException(ErrorCode.BOARD_POST_NOT_FOUND);
+    }
+
+    private record ReactionTarget(LockedActivePetCommandGuard.LockedActor actor, BoardPost post) {
     }
 
     private BoardPostReactionSnapshot reactionState(Long userId, Long postId) {

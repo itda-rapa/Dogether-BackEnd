@@ -29,6 +29,7 @@ import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import itda.media.service.MediaService;
 import itda.media.repository.MediaRepository;
+import itda.notification.service.NotificationCommandService;
 import itda.common.exception.BusinessException;
 import java.time.Instant;
 import java.util.List;
@@ -56,6 +57,7 @@ class BoardPostServiceTest {
     @Mock private MediaService mediaService;
     @Mock private BoardPostReactionRepository reactions;
     @Mock private BoardPostReactionQueryService reactionQueries;
+    @Mock private NotificationCommandService notificationCommandService;
 
     @Test
     void feedDeduplicatesAuthorPetIdsAndUsesOneBatchDisplayQuery() {
@@ -492,7 +494,7 @@ class BoardPostServiceTest {
 
     private BoardPostService service() {
         return new BoardPostService(posts, postMedia, boards, users, actorGuard, petDisplays, blocks,
-                media, mediaService, reactions, reactionQueries);
+                media, mediaService, reactions, reactionQueries, notificationCommandService);
     }
 
     private itda.media.domain.Media media(long id, long userId) {

@@ -66,7 +66,8 @@ public class OpenChatInviteService {
         } else {
             participantRepository.save(ChatRoomParticipant.join(room, targetPetId));
         }
-        notificationRepository.save(Notification.openChatInvite(targetPetId, actor.petId(), roomId));
+        notificationRepository.save(Notification.openChatInvite(
+                targetPetId, actor.petId(), roomId, actor.nickname(), null));
         cacheParticipantAfterCommit(roomId, targetPetId);
         return new OpenChatInviteResponse(roomId, targetPetId, true, activeParticipants + 1);
     }

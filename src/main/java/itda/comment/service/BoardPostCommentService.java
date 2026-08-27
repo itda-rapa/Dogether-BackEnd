@@ -21,6 +21,9 @@ import itda.comment.support.CommentCursorCodec;
 import itda.comment.support.CommentCursorCodec.CursorPayload;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
+import itda.notification.domain.NotificationTargetType;
+import itda.notification.domain.NotificationType;
+import itda.notification.service.NotificationCommandService;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
 import itda.user.domain.User;
@@ -49,6 +52,7 @@ public class BoardPostCommentService {
     private final BlockRelationshipQueryService blocks;
     private final BoardPostCommentReactionRepository reactions;
     private final CommentReactionQueryService reactionQueries;
+    private final NotificationCommandService notificationCommandService;
 
     public BoardPostCommentService(
             BoardPostCommentRepository comments,
@@ -58,7 +62,8 @@ public class BoardPostCommentService {
             PetDisplayQueryService petDisplays,
             BlockRelationshipQueryService blocks,
             BoardPostCommentReactionRepository reactions,
-            CommentReactionQueryService reactionQueries
+            CommentReactionQueryService reactionQueries,
+            NotificationCommandService notificationCommandService
     ) {
         this.comments = comments;
         this.posts = posts;
@@ -68,6 +73,7 @@ public class BoardPostCommentService {
         this.blocks = blocks;
         this.reactions = reactions;
         this.reactionQueries = reactionQueries;
+        this.notificationCommandService = notificationCommandService;
     }
 
     @Transactional
@@ -92,6 +98,9 @@ public class BoardPostCommentService {
                 actor.petId(),
                 request.content()
         ));
+        notificationCommandService.notifyCommentCreated(post.getAuthorPetId(), actor.petId(),
+                petDisplays.getPetDisplaySummary(actor.petId()).nickname(), null,
+                NotificationType.BOARD_COMMENT_CREATED, comment.getId(), post.getId(), comment.getContent());
         return CommentResponse.of(
                 comment,
                 petDisplays.getPetDisplaySummary(actor.petId())
@@ -141,6 +150,9 @@ public class BoardPostCommentService {
                 root.getId(),
                 (short) (parent.getDepth() + 1)
         ));
+        notificationCommandService.notifyCommentCreated(parent.getAuthorPetId(), actor.petId(),
+                petDisplays.getPetDisplaySummary(actor.petId()).nickname(), null,
+                NotificationType.BOARD_REPLY_CREATED, reply.getId(), post.getId(), reply.getContent());
         return CommentResponse.of(
                 reply,
                 petDisplays.getPetDisplaySummary(actor.petId())
@@ -268,7 +280,12 @@ public class BoardPostCommentService {
             CommentReactionType type
     ) {
         ReactionTarget target = reactionTarget(userId, commentId);
-        reactions.insertIgnore(commentId, target.actor().petId(), type.name());
+        if (reactions.insertIgnore(commentId, target.actor().petId(), type.name()) == 1) {
+            notificationCommandService.notifyReaction(target.comment().getAuthorPetId(), target.actor().petId(),
+                    petDisplays.getPetDisplaySummary(target.actor().petId()).nickname(), null,
+                    NotificationType.BOARD_COMMENT_HELPFUL, NotificationTargetType.BOARD_COMMENT, commentId,
+                    target.comment().getPostId(), null);
+        }
         return reactionResponse(commentId, type, true);
     }
 

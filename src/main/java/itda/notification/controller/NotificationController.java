@@ -3,6 +3,7 @@ package itda.notification.controller;
 import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.notification.dto.NotificationResponse;
+import itda.notification.dto.NotificationUnreadCountResponse;
 import itda.notification.service.NotificationService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,13 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<List<NotificationResponse>>> list(
             @AuthenticationPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(ApiResponse.ok(notificationService.list(currentUser.id()), "알림 목록을 조회했습니다."));
+    }
+
+    @GetMapping("/unread-count")
+    public ResponseEntity<ApiResponse<NotificationUnreadCountResponse>> unreadCount(
+            @AuthenticationPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(ApiResponse.ok(notificationService.unreadCount(currentUser.id()),
+                "읽지 않은 알림 수를 조회했습니다."));
     }
 
     @PatchMapping("/{notificationId}/read")

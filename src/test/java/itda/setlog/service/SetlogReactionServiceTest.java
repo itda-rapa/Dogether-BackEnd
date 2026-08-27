@@ -12,6 +12,7 @@ import itda.block.service.BlockRelationshipQueryService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.domain.MediaStatus;
+import itda.notification.service.NotificationCommandService;
 import itda.interaction.dto.InteractionPairContext;
 import itda.interaction.dto.LockedPetContext;
 import itda.interaction.dto.LockedUserContext;
@@ -58,6 +59,8 @@ class SetlogReactionServiceTest {
     private InteractionPairLockService interactionPairLockService;
     @Mock
     private BlockRelationshipQueryService blockRelationshipQueryService;
+    @Mock
+    private NotificationCommandService notificationCommandService;
 
     private SetlogReactionService setlogReactionService;
 
@@ -69,7 +72,8 @@ class SetlogReactionServiceTest {
                 petRepository,
                 activePetQueryService,
                 interactionPairLockService,
-                blockRelationshipQueryService
+                blockRelationshipQueryService,
+                notificationCommandService
         );
     }
 

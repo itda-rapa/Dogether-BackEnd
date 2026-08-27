@@ -24,6 +24,7 @@ import itda.comment.repository.BoardPostCommentReactionRepository;
 import itda.comment.service.BoardPostCommentService;
 import itda.comment.service.CommentReactionQueryService;
 import itda.common.exception.BusinessException;
+import itda.notification.service.NotificationCommandService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
@@ -52,6 +53,7 @@ class BoardPostCommentServiceTest {
     @Mock private BlockRelationshipQueryService blocks;
     @Mock private BoardPostCommentReactionRepository reactions;
     @Mock private CommentReactionQueryService reactionQueries;
+    @Mock private NotificationCommandService notificationCommandService;
 
     @Test
     void createSnapshotsTheLockedActorsUserAndActivePetAndPreservesContent() {
@@ -314,7 +316,8 @@ class BoardPostCommentServiceTest {
 
     private BoardPostCommentService fullService() {
         return new BoardPostCommentService(
-                comments, posts, users, actorGuard, petDisplays, blocks, reactions, reactionQueries
+                comments, posts, users, actorGuard, petDisplays, blocks, reactions, reactionQueries,
+                notificationCommandService
         );
     }
 

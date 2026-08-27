@@ -33,13 +33,14 @@ class NotificationServiceTest {
     @Mock private ActivePetQueryService activePetQueryService;
     @Mock private PetRepository petRepository;
     @Mock private ChatRoomRepository chatRoomRepository;
+    @Mock private NotificationTargetAvailabilityService targetAvailabilityService;
 
     private NotificationService service;
 
     @BeforeEach
     void setUp() {
         service = new NotificationService(notificationRepository, activePetQueryService,
-                petRepository, chatRoomRepository);
+                petRepository, chatRoomRepository, targetAvailabilityService);
         when(activePetQueryService.requireActivePet(1L)).thenReturn(
                 new ActivePetContext(10L, 1L, "target#1", "target", null, false));
     }
@@ -83,5 +84,15 @@ class NotificationServiceTest {
                 .extracting(error -> ((BusinessException) error).getErrorCode())
                 .isEqualTo(ErrorCode.RESOURCE_NOT_FOUND);
         verify(notificationRepository, never()).findById(99L);
+    }
+
+    @Test
+    void returnsUnreadCountForActivePet() {
+        when(notificationRepository.countByTargetPetIdAndReadAtIsNull(10L)).thenReturn(4L);
+
+        var result = service.unreadCount(1L);
+
+        assertThat(result.unreadCount()).isEqualTo(4L);
+        verify(notificationRepository).countByTargetPetIdAndReadAtIsNull(10L);
     }
 }

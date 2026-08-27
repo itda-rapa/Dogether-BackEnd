@@ -24,6 +24,7 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.media.repository.MediaRepository;
 import itda.media.service.MediaService;
+import itda.notification.service.NotificationCommandService;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.PetDisplayQueryService;
 import itda.pet.service.query.PetDisplaySummary;
@@ -53,6 +54,7 @@ class BoardPostReactionServiceTest {
     @Mock private MediaService mediaService;
     @Mock private BoardPostReactionRepository reactions;
     @Mock private BoardPostReactionQueryService reactionQueries;
+    @Mock private NotificationCommandService notificationCommandService;
 
     @Test
     void putAndDeleteUseIdempotentCommandsAndReturnObservedCount() {
@@ -209,7 +211,7 @@ class BoardPostReactionServiceTest {
 
     private BoardPostService service() {
         return new BoardPostService(posts, postMedia, boards, users, actorGuard, petDisplays, blocks,
-                media, mediaService, reactions, reactionQueries);
+                media, mediaService, reactions, reactionQueries, notificationCommandService);
     }
 
     private LockedActivePetCommandGuard.LockedActor actor(long userId, long petId, String neighborhood) {
