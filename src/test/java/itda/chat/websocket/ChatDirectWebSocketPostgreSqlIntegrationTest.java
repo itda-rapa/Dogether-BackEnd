@@ -526,7 +526,7 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
     }
 
     @Test
-    void invalidPayloadReturnsValidationErrorAndKeepsSessionOpen() throws Exception {
+    void blankClientMessageIdReturnsIdempotencyKeyErrorAndKeepsSessionOpen() throws Exception {
         long roomId = createFixture();
         String tokenA = issueToken(1L);
         WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
@@ -545,7 +545,7 @@ class ChatDirectWebSocketPostgreSqlIntegrationTest {
             ChatWebSocketErrorPayload error = errors.poll(10, TimeUnit.SECONDS);
             assertThat(error).isNotNull();
             assertThat(error.eventType()).isEqualTo(ChatWebSocketEventType.CHAT_ERROR);
-            assertThat(error.code()).isEqualTo("VALIDATION_FAILED");
+            assertThat(error.code()).isEqualTo("CHAT_CLIENT_MESSAGE_ID_REQUIRED");
             assertThat(error.roomId()).isEqualTo(roomId);
             assertThat(session.isConnected()).isTrue();
         } finally {

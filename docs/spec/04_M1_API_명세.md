@@ -1925,7 +1925,7 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
 
 - operationId: `sendChatMessage`
 - 인증: Bearer Token 필요
-- 설명: clientMessageId로 재시도 멱등성을 보장한다. 사용자 전송 타입(TEXT/IMAGE/VIDEO/SETLOG_SHARE)은 모두 clientMessageId가 필요하며, IMAGE/VIDEO의 body는 반드시 null이고 caption은 지원하지 않는다.
+- 설명: clientMessageId로 재시도 멱등성을 보장한다. 사용자 전송 타입(TEXT/IMAGE/VIDEO/SETLOG_SHARE)은 모두 clientMessageId가 필요하며, 누락·공백이면 `CHAT_CLIENT_MESSAGE_ID_REQUIRED`다. TEXT는 body, IMAGE/VIDEO는 mediaId, SETLOG_SHARE는 setlogId를 사용한다. IMAGE/VIDEO의 body는 반드시 null이고 caption은 지원하지 않는다.
 
 **파라미터**
 
@@ -1970,9 +1970,12 @@ SAME_OWNER_INTERACTION_FORBIDDEN`을 반환한다.
     "roomId": 1,
     "senderType": "PET",
     "senderPetId": 1,
+    "senderPetNickname": "도기",
     "type": "TEXT",
     "body": "안녕하세요.",
-    "meetingCardId": 1,
+    "attachment": null,
+    "sharedSetlog": null,
+    "meetingCardId": null,
     "clientMessageId": "550e8400-e29b-41d4-a716-446655440000",
     "createdAt": "2026-07-24T09:00:00Z"
   },
@@ -2921,7 +2924,10 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 | 필드 | 필수 | 타입 | 제약 | 설명 |
 |---|---:|---|---|---|
 | `clientMessageId` | ㅇ | string | maxLength: 64 | - |
-| `body` | ㅇ | string | minLength: 1<br>maxLength: 2000 | - |
+| `type` | ㄴ | string | enum: TEXT, IMAGE, VIDEO, SETLOG_SHARE | 생략하면 body만 있는 legacy TEXT 요청으로 처리. CARD/SYSTEM은 서버 전용 |
+| `body` | 조건부 | string / null | TEXT: minLength 1<br>maxLength 2000 | TEXT에서 필수. IMAGE/VIDEO/SETLOG_SHARE에서는 null |
+| `mediaId` | 조건부 | integer / null | format: int64 | IMAGE/VIDEO에서 필수, 그 외 null |
+| `setlogId` | 조건부 | integer / null | format: int64 | SETLOG_SHARE에서 필수, 그 외 null |
 
 <a id="schema-chatmessage"></a>
 ### `ChatMessage`
@@ -2932,8 +2938,11 @@ string, `neutered`는 boolean, `weightKg`는 number, `personalityTags`는 string
 | `roomId` | ㅇ | integer | format: int64 | - |
 | `senderType` | ㅇ | string | enum: PET, SYSTEM | - |
 | `senderPetId` | ㄴ | integer / null | format: int64 | - |
-| `type` | ㅇ | string | enum: TEXT, CARD, SYSTEM | - |
+| `senderPetNickname` | ㄴ | string / null | - | SYSTEM 메시지는 null |
+| `type` | ㅇ | string | enum: TEXT, CARD, IMAGE, VIDEO, SETLOG_SHARE, SYSTEM | - |
 | `body` | ㄴ | string / null | - | - |
+| `attachment` | ㄴ | object / null | - | IMAGE/VIDEO 상세 메시지에서만 채움 |
+| `sharedSetlog` | ㄴ | object / null | - | SETLOG_SHARE 상세 메시지에서만 현재 접근성을 재검증해 채움 |
 | `meetingCardId` | ㄴ | integer / null | format: int64 | - |
 | `clientMessageId` | ㄴ | string / null | - | - |
 | `createdAt` | ㅇ | string | format: date-time | - |

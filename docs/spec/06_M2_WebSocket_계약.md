@@ -15,7 +15,7 @@
 - **방 생성은 이 계약의 범위가 아니다.** WebSocket으로 방을 만들 수 없다 — §11 참고.
 - M2 SimpleBroker는 `replicas=1`을 전제로 한다. sticky session만으로 다중 인스턴스 문제가 해결되지 않는다.
 - 다중 replica가 필요해지면 외부 broker relay, Kafka 또는 Redis 방식을 BE-2와 BE-4가 먼저 확정한다. **`RedisConfig`(이메일 인증·캐시·분산락·멱등성 4개 DB 전용)와 `KafkaProducerConfig`(공용 `KafkaTemplate<String, Object>`)는 이미 저장소에 있지만 둘 다 WebSocket broker relay 용도로 만든 것이 아니다**(`07_M2_마일스톤_WBS.md` `M2-008`). `deployment/local/docker-compose.yml`의 Redis·Kafka도 로컬 단일 노드 구성이라 그 자체가 다중 replica 해결책은 아니다. 다중 replica 전환은 이 문서가 별도로 다루지 않은 새 구성 요소가 필요하다.
-- SockJS, DIRECT Kafka, Outbox, 읽음 표시, 타이핑, 온라인 상태, 메시지 수정·삭제, 미디어 메시지는 이 계약 범위에 없다.
+- SockJS, DIRECT Kafka, Outbox, 읽음 표시, 타이핑, 온라인 상태, 메시지 수정·삭제는 이 계약 범위에 없다. DIRECT의 IMAGE/VIDEO/SETLOG_SHARE typed 메시지는 REST와 동일하게 이 계약 범위에 포함한다.
 - `ChatRoomLifecycleScheduler`(기본 60초 주기, `app.chat-room.lifecycle.*`)는 무응답 인사 방을 물리 삭제하되 **네 가지 예외가 있다** — 신고 이력이 있는 방(`ReportRepository.existsByRoomId`), 이미 답변된 인사, 다른 인사가 아직 대기 중인 방, 친구 관계인 방은 삭제하지 않는다. "무응답이면 반드시 사라진다"고 전제하지 않는다. 또한 **친구가 아닌** 30일 무활동 방을 `ARCHIVED`로 전환한다. 친구 관계인 방은 보관 대상이 아니다 — `03_M1_상태전이.md`의 "답변한 비친구 방 30일 무활동"과 `ChatRoomLifecycleTransactionService.archiveIfEligible`의 친구 관계 검사가 정본이다. 이 배치는 `ChatMessageService`의 공통 insert 경로를 거치지 않으므로 실시간 이벤트를 발행하지 않는다 — §5, §10 참고.
 
 ## 2. STOMP destination
@@ -96,13 +96,16 @@ GROUP destination은 BE-4가 구현하되, 공통 인증·Principal·이벤트 �
 ```json
 {
   "clientMessageId": "client-generated-id",
-  "body": "메시지 내용"
+  "type": "TEXT",
+  "body": "메시지 내용",
+  "mediaId": null,
+  "setlogId": null
 }
 ```
 
-- 사용자 입력은 `TEXT`만 허용한다. `CARD`, `SYSTEM`은 서버가 발행한다. 페이로드에 `type` 필드 자체가 없다 — `ChatMessageCreateRequest`는 위 두 필드뿐이며, 방은 destination에서, 발신 Pet은 인증된 Active Pet에서 온다.
+- 사용자 입력은 `TEXT`, `IMAGE`, `VIDEO`, `SETLOG_SHARE`를 허용한다. `CARD`, `SYSTEM`은 서버가 발행한다. TEXT는 body, IMAGE/VIDEO는 mediaId, SETLOG_SHARE는 setlogId를 각각 사용하고 나머지 payload 필드는 null이어야 한다. 방은 destination에서, 발신 Pet은 인증된 Active Pet에서 온다.
 - **모르는 필드는 REST와 똑같이 무시한다.** REST는 본문에 `senderPetId`를 넣어도 무시하고 Active Pet을 발신자로 쓴다(`ChatApiContractPostgreSqlIntegrationTest.senderPetIdInBodyIsIgnored`가 보장). WebSocket도 Boot 자동 구성 덕분에 기본적으로 같지만, 메시지 컨버터를 직접 갈아끼우면 깨진다 — §6.2 참고.
-- **제약은 REST와 동일하다** — `clientMessageId`는 `@NotBlank @Size(max = 64)`, `body`는 `@NotBlank @Size(max = 2000)`. 위반은 §7의 `VALIDATION_FAILED`다. 프론트가 전송 전에 같은 값으로 막는다.
+- **제약은 REST와 동일하다** — `clientMessageId`는 공백 불가·최대 64이며 누락·공백은 서비스가 `CHAT_CLIENT_MESSAGE_ID_REQUIRED`로 거부한다. TEXT body는 공백 불가·최대 2000이다. typed payload 불일치는 `CHAT_MESSAGE_PAYLOAD_INVALID`다.
 - `clientMessageId`는 REST와 WebSocket에서 같은 멱등성 키로 사용한다. **유일성 범위는 방 단위**다 — 제약이 `uk_chat_message_client UNIQUE (room_id, client_message_id)`이므로 다른 방에서는 같은 키를 다시 써도 충돌하지 않는다. 그래도 클라이언트는 전역 유일값(UUID 등)을 쓰는 편이 안전하다.
 - WebSocket 컨트롤러는 `ChatMessageService`의 어떤 메서드도 직접 호출하지 않는다. `sendText()`는 물론 `sendGreetingText()`·`postCard()`·`postSystem()`도 마찬가지다. 특히 `sendGreetingText()`는 인사 답변 게이트를 **의도적으로 우회**하는 서버 전용 경로다.
 - 반드시 `ChatQueryService.sendMessage(userId, roomId, request)`를 호출한다.
@@ -117,7 +120,7 @@ GROUP destination은 BE-4가 구현하되, 공통 인증·Principal·이벤트 �
 - 저장은 기존 도메인 서비스의 트랜잭션을 사용한다.
 - 메시지 저장 트랜잭션 안에서 완성된 immutable DTO를 만든다.
 - `AFTER_COMMIT` 이벤트에는 JPA 엔티티를 싣지 않는다. 커밋 이후 lazy 연관 접근의 동작이 보장되지 않기 때문이다.
-- **`roomType`은 기존 `ChatMessageResponse`에 없는 필드다.** 현재 `ChatMessageResponse`는 `messageId, roomId, senderType, senderPetId, type, body, meetingCardId, clientMessageId, createdAt` 9개뿐이다. `roomType`을 얻으려면 `message.getRoom().getType()`을 읽어야 하고, 이는 위 항목이 금지한 커밋 이후 lazy 접근에 정확히 해당한다. 따라서 **트랜잭션 안에서 room type을 읽어 이벤트 봉투에 채운다** — §6.2 참고.
+- **`roomType`은 `ChatMessageResponse` 바깥의 이벤트 봉투 필드다.** 응답에는 `attachment`와 `sharedSetlog`까지 포함하며, `roomType`은 트랜잭션 안에서 읽어 AFTER_COMMIT 이벤트 봉투에 채운다. 커밋 뒤 JPA 연관을 다시 읽지 않는다.
 - `ChatMessageService`의 공통 insert 경로에서 이벤트를 발행한다. 따라서 REST TEXT, WebSocket TEXT, 인사 TEXT, CARD, SYSTEM 메시지가 동일한 실시간 발행 경로를 사용한다.
 - 이벤트 발행 실패가 이미 커밋된 DB 저장을 실패로 바꾸면 안 된다. 실패는 로그로 남기고 REST 폴링으로 복구한다.
 - 신규 메시지(`created=true`)만 대화 이벤트를 발행한다. 멱등 재전송(`created=false`)은 대화 이벤트를 다시 발행하지 않는다.
@@ -126,7 +129,7 @@ GROUP destination은 BE-4가 구현하되, 공통 인증·Principal·이벤트 �
 
 ## 6. 이벤트 계약
 
-**모든 WebSocket 이벤트는 평면 JSON이며 REST의 `ApiResponse` 봉투를 쓰지 않는다.** REST는 `{success, message, data, error}`로 감싸지만 WebSocket 이벤트에는 그 네 필드가 없고 `eventType`으로 종류를 구분한다. 필드 이름·타입이 REST DTO와 같다고 해서 봉투까지 같다고 읽으면 안 된다.
+**WebSocket 이벤트는 REST의 `ApiResponse` 봉투를 쓰지 않는다.** REST는 `{success, message, data, error}`로 감싸지만 WebSocket 이벤트는 `eventType`으로 종류를 구분한다. `CHAT_MESSAGE_CREATED`는 `roomType`과 `message`를 가진 이벤트 봉투이고, `message`가 REST의 `ChatMessageResponse`와 같은 필드 의미를 쓴다.
 
 ### 6.1 전송 ACK
 
@@ -153,16 +156,20 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 ```json
 {
   "eventType": "CHAT_MESSAGE_CREATED",
-  "messageId": 456,
-  "roomId": 123,
   "roomType": "DIRECT",
-  "senderType": "PET",
-  "senderPetId": 11,
-  "type": "TEXT",
-  "body": "메시지 내용",
-  "meetingCardId": null,
-  "clientMessageId": "client-generated-id",
-  "createdAt": "2026-08-05T12:00:00Z"
+  "message": {
+    "messageId": 456,
+    "roomId": 123,
+    "senderType": "PET",
+    "senderPetId": 11,
+    "type": "TEXT",
+    "body": "메시지 내용",
+    "attachment": null,
+    "sharedSetlog": null,
+    "meetingCardId": null,
+    "clientMessageId": "client-generated-id",
+    "createdAt": "2026-08-05T12:00:00Z"
+  }
 }
 ```
 
@@ -170,15 +177,17 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 
 **깨뜨리지만 않으면 된다.** `WebSocketMessageBrokerConfigurer.configureMessageConverters(List<MessageConverter>)`를 오버라이드해 컨버터 목록을 비우거나 자체 JSON 컨버터를 앞에 끼워 넣으면, Boot가 연결해 둔 `JsonMapper`가 아닌 다른 매퍼가 쓰일 수 있다. 그때부터 `createdAt`이 epoch 숫자로 나가거나 모르는 필드에서 실패한다. 컨버터를 손봐야 한다면 애플리케이션 `JsonMapper`를 명시적으로 다시 넣는다. 이 프로젝트는 **Jackson 3**(`tools.jackson`)이므로 Jackson 2 시절의 `MappingJackson2*` 예제를 그대로 옮기지 않는다.
 
-이 payload는 REST의 `ChatMessageResponse`를 그대로 직렬화한 것이 **아니다**. `eventType`과 `roomType` 두 필드를 더한 봉투이며, 나머지 9개 필드는 `ChatMessageResponse`와 이름·타입이 같다. REST DTO에 `roomType`을 추가하는 방식은 채택하지 않는다 — REST 응답 계약(`04_M1_API_명세.md`)을 M2가 건드리게 되기 때문이다.
+이 payload는 REST의 `ChatMessageResponse`를 그대로 직렬화한 것이 **아니다**. `eventType`, `roomType`, `message`로 된 봉투이며 `message`의 필드 이름·타입이 REST 응답과 같다. REST DTO에 `roomType`을 추가하지 않는다.
 
 위 예시는 **TEXT 한 가지 경우**다. `ck_chat_message_payload`·`ck_chat_message_sender` CHECK 제약 때문에 `type`마다 채워지는 필드가 다르다.
 
-| `type` | `senderType` | `senderPetId` | `body` | `meetingCardId` |
-|---|---|---|---|---|
-| `TEXT` | `PET` | 값 있음 | 값 있음(공백 불가) | `null` |
-| `CARD` | `PET` | 값 있음 | **`null`** | 값 있음 |
-| `SYSTEM` | `SYSTEM` | **`null`** | 값 있음(공백 불가) | `null` |
+| `type` | `body` | `attachment` | `sharedSetlog` |
+|---|---|---|---|
+| `TEXT` | 값 있음(공백 불가) | `null` | `null` |
+| `IMAGE` / `VIDEO` | `null` | 해당 Media 상세 | `null` |
+| `SETLOG_SHARE` | `null` | `null` | 수신자별 접근 재검증 요약 |
+| `CARD` | `null` | `null` | `null` |
+| `SYSTEM` | 값 있음(공백 불가) | `null` | `null` |
 
 프론트가 `body`만 보고 렌더링하면 CARD 이벤트가 빈 말풍선이 되고, `senderPetId`로 발신자를 찾으면 SYSTEM에서 깨진다. `type`으로 먼저 분기한다.
 
@@ -264,9 +273,7 @@ ACK는 **요청을 보낸 STOMP 세션에만** 전송한다. handler는 `@SendTo
 
 SEND에서 나올 수 있는 오류 집합은 REST `POST /chat/rooms/{roomId}/messages`와 같다 — `VALIDATION_FAILED`(400), `ACTIVE_PET_REQUIRED`(403), `CHAT_ROOM_NOT_FOUND`(404), `GREETING_REPLY_REQUIRED`·`CHAT_DUPLICATE_MESSAGE`(409), 그리고 인증 축의 `UNAUTHORIZED`(401). 이 목록은 코드 기준이다.
 
-여기에 **`CHAT_CLIENT_MESSAGE_ID_REQUIRED`(400)** 가 하나 더 있다. 사용자 전송 타입인 `TEXT`·`IMAGE`·`VIDEO`·`SETLOG_SHARE` 모두 `clientMessageId`가 필요하며, 서비스가 누락을 직접 거부한다. REST의 `@Valid @RequestBody`에서 누락되면 `VALIDATION_FAILED`가 먼저 나갈 수 있지만, 서비스·WebSocket 계약의 오류 문구는 "사용자 전송 메시지는 clientMessageId가 필요합니다."로 동일하다. `04_M1_OpenAPI.yaml`의 대표 오류 서술에는 `ACTIVE_PET_REQUIRED`가 빠져 있다.
-
-> **`04_M1_OpenAPI.yaml`의 대표 오류 목록에 `BLOCKED_USER`(403)가 적혀 있으나 채팅 전송 경로는 이 코드를 던지지 않는다.** 저장소 전체에서 `BLOCKED_USER`는 friend·greeting·setlog에서만 발생하고, 채팅에서 차단은 `ChatQueryService.requireParticipant`가 `404 CHAT_ROOM_NOT_FOUND`로 숨긴다. **WebSocket에 `BLOCKED_USER`를 넣으면 차단 사실이 노출된다.** OpenAPI 쪽이 틀렸으며 별도로 정정해야 한다.
+여기에 **`CHAT_CLIENT_MESSAGE_ID_REQUIRED`(400)** 가 있다. 사용자 전송 타입인 `TEXT`·`IMAGE`·`VIDEO`·`SETLOG_SHARE` 모두 `clientMessageId`가 필요하며, REST와 WebSocket 모두 서비스가 누락·공백을 직접 거부한다. `04_M1_OpenAPI.yaml`의 대표 오류 서술에는 `ACTIVE_PET_REQUIRED`가 빠져 있다.
 
 ### 7.1 `canSend`를 전송 가능 판정으로 쓰지 않는다
 

@@ -870,8 +870,7 @@ SETLOG_SHARE 응답:
 오류:
 
 - `404 CHAT_ROOM_NOT_FOUND`
-- `403 CHAT_SENDER_NOT_PARTICIPANT`
-- `403 BLOCKED_USER`
+- 비참여자·차단 관계는 존재를 숨기기 위해 모두 `404 CHAT_ROOM_NOT_FOUND`
 - `400 CHAT_CLIENT_MESSAGE_ID_REQUIRED`는 모든 사용자 전송 타입의 `clientMessageId` 누락에 사용
 - `409 CHAT_DUPLICATE_MESSAGE`는 같은 ID·다른 payload일 때만 사용
 - `409 CHAT_MEDIA_ALREADY_ATTACHED`는 다른 `clientMessageId`로 이미 첨부된 Media를 재사용할 때 사용. 같은 ID·같은 payload의 멱등 재시도는 기존 메시지를 반환한다.
@@ -999,7 +998,7 @@ Ack:
   "roomId": 31,
   "messageId": 9001,
   "clientMessageId": "550e8400-e29b-41d4-a716-446655440001",
-  "duplicate": false
+  "replayed": false
 }
 ```
 

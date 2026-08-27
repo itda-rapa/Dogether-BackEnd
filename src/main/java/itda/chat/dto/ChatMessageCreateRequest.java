@@ -1,7 +1,7 @@
 package itda.chat.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import itda.chat.domain.MessageType;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -18,10 +18,23 @@ import jakarta.validation.constraints.Size;
  * Explicit typed requests (IMAGE/VIDEO/SETLOG_SHARE) still require {@code type}.
  */
 public record ChatMessageCreateRequest(
-        @NotBlank @Size(max = 64) String clientMessageId,
+        @Schema(
+                description = "클라이언트가 생성하는 방 단위 재시도 멱등 키",
+                maxLength = 64,
+                requiredMode = Schema.RequiredMode.REQUIRED
+        )
+        @Size(max = 64) String clientMessageId,
+        @Schema(
+                description = "사용자 전송 타입. CARD/SYSTEM은 서버 전용이다. "
+                        + "생략하면 body만 가진 legacy TEXT 요청으로 처리한다.",
+                allowableValues = {"TEXT", "IMAGE", "VIDEO", "SETLOG_SHARE"}
+        )
         MessageType type,
+        @Schema(description = "TEXT에서 필수. IMAGE/VIDEO/SETLOG_SHARE에서는 null이어야 한다.", maxLength = 2000)
         @Size(max = 2000) String body,
+        @Schema(description = "IMAGE/VIDEO에서 필수. 다른 타입에서는 null이어야 한다.")
         Long mediaId,
+        @Schema(description = "SETLOG_SHARE에서 필수. 다른 타입에서는 null이어야 한다.")
         Long setlogId
 ) {
 

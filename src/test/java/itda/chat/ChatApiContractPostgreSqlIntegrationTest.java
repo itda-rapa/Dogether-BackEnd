@@ -180,6 +180,17 @@ class ChatApiContractPostgreSqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("clientMessageId 누락은 REST에서도 CHAT_CLIENT_MESSAGE_ID_REQUIRED다")
+    void missingClientMessageIdUsesDomainIdempotencyError() throws Exception {
+        mockMvc.perform(post("/chat/rooms/{roomId}/messages", roomId)
+                        .with(user(principal(USER_1)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"TEXT\",\"body\":\"hello\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("CHAT_CLIENT_MESSAGE_ID_REQUIRED"));
+    }
+
+    @Test
     @DisplayName("요청 본문의 senderPetId는 무시되고 Active Pet이 발신자가 된다")
     void senderPetIdInBodyIsIgnored() throws Exception {
         String forged = """
