@@ -48,6 +48,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 /**
  * GPS 만남 위치 제출·양쪽 확인(#111)을 실제 PostgreSQL 에서 검증한다.
@@ -73,7 +74,8 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres =
-            new PostgreSQLContainer("postgres:16-alpine");
+            new PostgreSQLContainer(DockerImageName.parse("pgrouting/pgrouting:16-3.5-4.0")
+                    .asCompatibleSubstituteFor("postgres"));
 
     @Autowired
     private MeetingVerificationService meetingVerificationService;
@@ -108,9 +110,10 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         jdbcTemplate.execute("""
                 truncate meeting_verification_requests, meeting_verifications, meetings,
                          meeting_participants, meeting_cards, card_drafts, chat_messages,
-                         chat_room_participants, chat_rooms, pets, users
+                         chat_room_participants, chat_rooms, pets, users, neighborhoods
                 restart identity cascade
                 """);
+        insertNeighborhood();
         insertUser(USER_1);
         insertUser(USER_2);
         insertPet(PET_1, USER_1);
@@ -500,8 +503,8 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     }
 
     @Test
-    @DisplayName("카드 취소와 최종 GPS 제출이 경합하면 GPS Meeting+OPEN 또는 Meeting0+CANCELED 만 허용한다")
-    void cancelRacingGpsSubmissionIsResolved() throws Exception {
+    @DisplayName("카드 취소와 최종 GPS 제출이 Pair→Card 순서로 교착 없이 수렴한다")
+    void cancelRacingGpsSubmissionDoesNotDeadlock() throws Exception {
         // 상대 SUBMITTED fixture 를 먼저 만든다.
         submit(USER_1, UUID.randomUUID(), 37.5665, 126.978, 24.5);
 
@@ -510,6 +513,7 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                 () -> captureSubmit(USER_2, cardId, UUID.randomUUID()));
 
         assertThat(outcomes).hasSize(2);
+        assertThat(outcomes).noneMatch(this::isDeadlockFailure);
         String status = jdbcTemplate.queryForObject(
                 "select status from meeting_cards where id = ?", String.class, cardId);
         int meetingCount = countOf("meetings");
@@ -571,7 +575,11 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                         values (?, 'WIFI', now())
                         """, otherCardId))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("ck_meeting_verification_method");
+                // WIFI 는 허용 방식이 아니므로 방식 제약과 GPS/CODE 거리 제약을 함께
+                // 위반한다. PostgreSQL 의 CHECK 평가 순서는 계약이 아니다.
+                .satisfies(exception -> assertThat(exception.getMessage())
+                        .containsAnyOf("ck_meeting_verification_method",
+                                "ck_meeting_distance_by_method"));
     }
 
     @Test
@@ -663,7 +671,11 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                         values (?, ?, 'BOGUS', 37.5, 126.9, 10.0, now(), now(), ?)
                         """, otherCardId, PET_1, UUID.randomUUID()))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("ck_meeting_verification_status");
+                // BOGUS 는 허용 상태가 아니므로 상태 제약과 raw-location 상태 제약을
+                // 함께 위반한다. 어느 CHECK 가 먼저 보고되는지에는 의존하지 않는다.
+                .satisfies(exception -> assertThat(exception.getMessage())
+                        .containsAnyOf("ck_meeting_verification_status",
+                                "ck_meeting_verification_raw"));
     }
 
     // ── 기존 MeetingCard lifecycle 회귀 ────────────────────────────────────
@@ -967,6 +979,14 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                             Instant.now().minus(10, ChronoUnit.SECONDS)));
         } catch (BusinessException exception) {
             return exception;
+        } catch (RuntimeException exception) {
+            // deadlock/lock-timeout은 BusinessException이 아니라 Spring DataAccessException으로
+            // 나오므로 outcomes에 담아 noneMatch(isDeadlockFailure)가 명시적으로 거부하게 한다.
+            // 그 외 예상 밖 RuntimeException은 그대로 던져 테스트가 실패하도록 유지한다.
+            if (isDeadlockFailure(exception)) {
+                return exception;
+            }
+            throw exception;
         }
     }
 
@@ -975,6 +995,11 @@ class MeetingVerificationPostgreSqlIntegrationTest {
             return meetingCardService.cancel(userId, cardId);
         } catch (BusinessException exception) {
             return exception;
+        } catch (RuntimeException exception) {
+            if (isDeadlockFailure(exception)) {
+                return exception;
+            }
+            throw exception;
         }
     }
 
@@ -1013,6 +1038,13 @@ class MeetingVerificationPostgreSqlIntegrationTest {
         // 약속 시간창(±1h) 안에 들어가도록 한다.
         return new MeetingCardCreateRequest(roomId, null, MeetingCardType.WALK,
                 "중앙공원", Instant.now());
+    }
+
+    private void insertNeighborhood() {
+        jdbcTemplate.update("""
+                insert into neighborhoods (code, sido_name, sigungu_name, eupmyeondong_name)
+                values (?, '경기도', '성남시', '수내동')
+                """, NEIGHBORHOOD);
     }
 
     private void insertUser(long userId) {
