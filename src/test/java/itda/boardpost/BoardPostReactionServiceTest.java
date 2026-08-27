@@ -212,8 +212,6 @@ class BoardPostReactionServiceTest {
         given(posts.findPublishedByIdForShare(101L)).willReturn(Optional.of(post));
         given(reactions.insertIgnore(101L, 10L, "HELPFUL")).willReturn(1);
         given(reactions.countForPost(101L, "HELPFUL")).willReturn(1L);
-        given(petDisplays.getPetDisplaySummary(10L)).willReturn(summary(10L));
-
         service().addReaction(1L, 101L, BoardPostReactionType.HELPFUL);
 
         then(notificationCommandService).should().notifyReaction(20L, 10L, "pet", 555L,
