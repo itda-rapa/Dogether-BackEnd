@@ -84,8 +84,8 @@ public class ChatMessageRealtimeListener {
         return new ChatMessageResponse(
                 message.messageId(), message.roomId(), message.senderType(), message.senderPetId(),
                 message.senderPetNickname(), message.type(), message.body(), message.attachment(),
-                sharedSetlogResponseMapper.toResponse(view), message.meetingCardId(), message.clientMessageId(),
-                message.createdAt()
+                sharedSetlogResponseMapper.toResponse(view), message.map(), message.meetingCardId(),
+                message.clientMessageId(), message.createdAt()
         );
     }
 }
