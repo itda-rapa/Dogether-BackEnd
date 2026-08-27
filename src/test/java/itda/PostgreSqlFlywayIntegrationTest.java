@@ -140,7 +140,7 @@ class PostgreSqlFlywayIntegrationTest {
         assertThat(jdbcTemplate.queryForObject("""
                 select count(*)
                   from flyway_schema_history
-                 where version = '42.2' and success
+                 where version = '44' and success
                 """, Integer.class)).isEqualTo(1);
         // The Spring context has already started with ddl-auto=validate (see @TestPropertySource).
     }

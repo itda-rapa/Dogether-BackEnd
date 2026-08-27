@@ -217,6 +217,7 @@ raw userinfo는 저장·로그·Front redirect에 남기지 않는다.
 - `401 OAUTH_LOGIN_CODE_INVALID`
 - `410 OAUTH_LOGIN_CODE_EXPIRED`
 - `410 OAUTH_LOGIN_CODE_CONSUMED`
+- `403 ACCOUNT_NOT_ACTIVE`
 - `409 OAUTH_ACCOUNT_LINK_DECISION_REQUIRED` (동일 email의 미연결 기존 계정; 자동 연결·신규 User 생성·link endpoint 없음, loginCode 미소비). 이는 최종 account-link 정책이 아닌 현재 안전 경계다.
 - loginCode는 logical expiry 뒤 약 1분 cleanup grace 안에는 `OAUTH_LOGIN_CODE_EXPIRED`, physical delete 뒤에는
   `OAUTH_LOGIN_CODE_INVALID`다.
