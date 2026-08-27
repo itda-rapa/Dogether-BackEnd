@@ -1,8 +1,7 @@
 package itda.oauth.domain;
 
 /**
- * Providers that may be represented in the common OAuth persistence model.
- * Only GOOGLE has a runtime adapter in this milestone.
+ * Providers supported by the common OAuth persistence and runtime flow.
  */
 public enum OAuthProvider {
     GOOGLE,
