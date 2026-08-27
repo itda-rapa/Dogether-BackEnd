@@ -21,6 +21,7 @@ import itda.meetingcard.repository.MeetingCardRepository;
 import itda.meetingcard.repository.MeetingParticipantRepository;
 import itda.meetingcard.support.MeetingCardCursorCodec;
 import itda.meetingcard.support.MeetingCardCursorCodec.CursorPayload;
+import itda.meetingverification.repository.MeetingRepository;
 import itda.chat.dto.response.CursorPage;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
@@ -58,6 +59,7 @@ public class MeetingCardService {
     private final CardDraftRepository cardDraftRepository;
     private final CardDraftParticipantRepository cardDraftParticipantRepository;
     private final InteractionPairLockService interactionPairLockService;
+    private final MeetingRepository meetingRepository;
     private final Clock clock;
 
     // 프로젝트 관행대로 주 생성자가 Clock 을 받고 편의 생성자가 기본값을 넘긴다.
@@ -71,11 +73,12 @@ public class MeetingCardService {
                               MeetingParticipantRepository meetingParticipantRepository,
                               CardDraftRepository cardDraftRepository,
                               CardDraftParticipantRepository cardDraftParticipantRepository,
-                              InteractionPairLockService interactionPairLockService) {
+                              InteractionPairLockService interactionPairLockService,
+                              MeetingRepository meetingRepository) {
         this(activePetQueryService, chatQueryService, chatRoomRepository, chatMessageService,
                 meetingCardRepository, meetingParticipantRepository, cardDraftRepository,
                 cardDraftParticipantRepository,
-                interactionPairLockService, Clock.systemUTC());
+                interactionPairLockService, meetingRepository, Clock.systemUTC());
     }
 
     MeetingCardService(ActivePetQueryService activePetQueryService,
@@ -87,6 +90,7 @@ public class MeetingCardService {
                        CardDraftRepository cardDraftRepository,
                        CardDraftParticipantRepository cardDraftParticipantRepository,
                        InteractionPairLockService interactionPairLockService,
+                       MeetingRepository meetingRepository,
                        Clock clock) {
         this.activePetQueryService = activePetQueryService;
         this.chatQueryService = chatQueryService;
@@ -97,6 +101,7 @@ public class MeetingCardService {
         this.cardDraftRepository = cardDraftRepository;
         this.cardDraftParticipantRepository = cardDraftParticipantRepository;
         this.interactionPairLockService = interactionPairLockService;
+        this.meetingRepository = meetingRepository;
         this.clock = clock;
     }
 
@@ -256,6 +261,12 @@ public class MeetingCardService {
         }
 
         chatQueryService.requireParticipant(card.getRoomId(), actor.petId());
+
+        // 확정 Meeting 이 있는 카드는 수동 취소를 금지한다. GPS 확정·취소는 모두 이 카드의
+        // PESSIMISTIC_WRITE 경계에서 직렬화되므로 여기서 확정 여부를 안전하게 판단한다.
+        if (meetingRepository.existsByMeetingCardId(cardId)) {
+            throw new BusinessException(ErrorCode.MEETING_ALREADY_CONFIRMED);
+        }
 
         // 이미 취소면 MEETING_CARD_ALREADY_CANCELED(409). 동시 취소의 패자가 여기로 온다.
         card.cancel(actor.petId(), clock.instant());
