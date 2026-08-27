@@ -2,14 +2,18 @@ package itda;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.then;
 
 import itda.auth.dto.AuthTokensResponse;
+import itda.auth.dto.SignupRequest;
 import itda.auth.service.AuthService;
 import itda.auth.service.UserRegistrationService;
 import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.common.security.TokenHashing;
 import itda.common.security.dto.IssuedTokens;
+import itda.email.EmailVerificationPurpose;
+import itda.email.EmailVerificationService;
 import itda.common.security.service.TokenProvider;
 import itda.oauth.domain.OAuthProvider;
 import itda.oauth.service.OAuthExchangeCommand;
@@ -22,8 +26,11 @@ import itda.oauth.service.OAuthSignupCommand;
 import itda.oauth.service.OAuthSignupService;
 import itda.oauth.service.OAuthVerifiedIdentity;
 import itda.user.domain.User;
-import java.util.UUID;
+import itda.user.dto.MeUpdateCommand;
+import itda.user.service.MeUpdateService;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +43,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -83,6 +91,12 @@ class PostgreSqlFlywayIntegrationTest {
     @Autowired
     private OAuthSignupService oauthSignupService;
 
+    @Autowired
+    private MeUpdateService meUpdateService;
+
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
+
     @Test
     void appliesAllMigrationsToPostgreSql() {
         assertThat(flyway.info().pending()).isEmpty();
@@ -96,6 +110,117 @@ class PostgreSqlFlywayIntegrationTest {
                 """,
                 Integer.class
         )).isEqualTo(1);
+    }
+
+    @Test
+    void userWeightColumnIsNullableUnconstrainedNumericAfterFlywayMigration() {
+        assertThat(jdbcTemplate.queryForObject("""
+                select data_type
+                  from information_schema.columns
+                 where table_schema = current_schema()
+                   and table_name = 'users'
+                   and column_name = 'weight_kg'
+                """, String.class)).isEqualTo("numeric");
+        assertThat(jdbcTemplate.queryForObject("""
+                select is_nullable
+                  from information_schema.columns
+                 where table_schema = current_schema()
+                   and table_name = 'users'
+                   and column_name = 'weight_kg'
+                """, String.class)).isEqualTo("YES");
+        assertThat(jdbcTemplate.queryForObject("""
+                select attribute.atttypmod
+                  from pg_attribute attribute
+                  join pg_class relation on relation.oid = attribute.attrelid
+                  join pg_namespace namespace on namespace.oid = relation.relnamespace
+                 where namespace.nspname = current_schema()
+                   and relation.relname = 'users'
+                   and attribute.attname = 'weight_kg'
+                """, Integer.class)).isEqualTo(-1);
+        assertThat(jdbcTemplate.queryForObject("""
+                select count(*)
+                  from flyway_schema_history
+                 where version = '44' and success
+                """, Integer.class)).isEqualTo(1);
+        // The Spring context has already started with ddl-auto=validate (see @TestPropertySource).
+    }
+
+    @Test
+    void userWeightColumnAllowsNullAndInclusiveBoundaryValues() {
+        Long nullWeightUserId = insertUserWithWeight(null);
+        Long minimumWeightUserId = insertUserWithWeight(new BigDecimal("1.00"));
+        Long maximumWeightUserId = insertUserWithWeight(new BigDecimal("500.00"));
+
+        assertThat(weightKgOf(nullWeightUserId)).isNull();
+        assertThat(weightKgOf(minimumWeightUserId)).isEqualByComparingTo("1.00");
+        assertThat(weightKgOf(maximumWeightUserId)).isEqualByComparingTo("500.00");
+    }
+
+    @Test
+    void userWeightConstraintRejectsOutOfRangeAndOverPrecisionValuesWithoutRounding() {
+        Long userId = insertUserWithWeight(new BigDecimal("72.50"));
+
+        for (String invalidWeight : List.of("0.99", "500.01", "72.123")) {
+            assertThatThrownBy(() -> jdbcTemplate.update(
+                    "update users set weight_kg = ? where id = ?",
+                    new BigDecimal(invalidWeight), userId
+            )).isInstanceOf(RuntimeException.class);
+
+            // PostgreSQL must reject 72.123 rather than silently store a rounded 72.12.
+            assertThat(weightKgOf(userId)).isEqualByComparingTo("72.50");
+        }
+    }
+
+    @Test
+    void userRegistrationServicePersistsPreconstructedWeightExactly() {
+        User user = newUser();
+        user.changeWeightKg(new BigDecimal("72.50"));
+
+        userRegistrationService.registerAndIssue(user);
+
+        assertThat(weightKgOf(user.getId())).isEqualByComparingTo("72.50");
+    }
+
+    @Test
+    void authServiceNormalSignupPropagatesWeightExactlyToPostgreSql() {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        String email = unique + "@example.com";
+        String verificationToken = "verification-" + unique;
+
+        authService.signup(new SignupRequest(
+                email,
+                "long-password",
+                "가입사용자",
+                "4113165000",
+                verificationToken,
+                new BigDecimal("72.50")
+        ));
+
+        Long userId = jdbcTemplate.queryForObject(
+                "select id from users where email = ?", Long.class, email
+        );
+        assertThat(weightKgOf(userId)).isEqualByComparingTo("72.50");
+        then(emailVerificationService).should().consume(
+                verificationToken, email, EmailVerificationPurpose.SIGNUP
+        );
+    }
+
+    @Test
+    void scaleEquivalentProfileWeightUpdateDoesNotIncrementVersion() {
+        User user = newUser();
+        user.changeWeightKg(new BigDecimal("72.5"));
+        userRegistrationService.registerAndIssue(user);
+        Long versionBefore = jdbcTemplate.queryForObject(
+                "select version from users where id = ?", Long.class, user.getId());
+
+        meUpdateService.update(user.getId(), new MeUpdateCommand(
+                false, null, false, null, true, new BigDecimal("72.50")
+        ));
+
+        assertThat(weightKgOf(user.getId())).isEqualByComparingTo("72.50");
+        assertThat(jdbcTemplate.queryForObject(
+                "select version from users where id = ?", Long.class, user.getId()))
+                .isEqualTo(versionBefore);
     }
 
     @Test
@@ -277,9 +402,10 @@ class PostgreSqlFlywayIntegrationTest {
                 new OAuthExchangeCommand(OAuthProvider.GOOGLE, loginCode), user -> user);
         String signupToken = ((OAuthExchangeResult.SignupRequired<User>) exchange).signupToken();
         User completed = oauthSignupService.complete(new OAuthSignupCommand(
-                signupToken, "OAuth사용자", "4113165000"), user -> user);
+                signupToken, "OAuth사용자", "4113165000", new BigDecimal("88.80")), user -> user);
 
         assertThat(completed.hasPasswordCredential()).isFalse();
+        assertThat(weightKgOf(completed.getId())).isEqualByComparingTo("88.80");
         assertThat(jdbcTemplate.queryForObject("""
                 select count(*) from oauth_identities
                 where user_id = ? and provider = 'GOOGLE' and provider_subject = ?
@@ -439,6 +565,28 @@ class PostgreSqlFlywayIntegrationTest {
                 values (?, null, 'OAuth사용자', ?, 'USER', 'ACTIVE', '4113165000')
                 returning id
                 """, Long.class, email, publicTag);
+    }
+
+    private Long insertUserWithWeight(BigDecimal weightKg) {
+        String unique = UUID.randomUUID().toString().replace("-", "");
+        return jdbcTemplate.queryForObject("""
+                insert into users (
+                    email,
+                    password_hash,
+                    nickname,
+                    public_tag,
+                    role,
+                    account_status,
+                    neighborhood_code,
+                    weight_kg
+                ) values (?, 'encoded', '사용자', ?, 'USER', 'ACTIVE', '4113165000', ?)
+                returning id
+                """, Long.class, unique + "@example.com", "weight#" + unique.substring(0, 8), weightKg);
+    }
+
+    private BigDecimal weightKgOf(Long userId) {
+        return jdbcTemplate.queryForObject(
+                "select weight_kg from users where id = ?", BigDecimal.class, userId);
     }
 
     private void insertOAuthArtifact(String table, String suffix, String status, boolean withConsumedAt) {

@@ -2,8 +2,11 @@ package itda.user.controller;
 
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -15,9 +18,13 @@ import itda.common.security.CurrentUser;
 import itda.pet.service.ActivePetSelectionService;
 import itda.user.domain.AccountStatus;
 import itda.user.domain.Role;
+import itda.user.domain.User;
 import itda.user.dto.AccessLevel;
+import itda.user.dto.MeUpdateCommand;
+import itda.user.dto.MeUpdateRequestParser;
 import itda.user.dto.MeResponse;
 import itda.user.service.MeQueryService;
+import itda.user.service.MeUpdateService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,6 +36,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -47,6 +55,12 @@ class MeControllerTest {
 
     @MockitoBean
     private MeQueryService meQueryService;
+
+    @MockitoBean
+    private MeUpdateService meUpdateService;
+
+    @MockitoBean
+    private MeUpdateRequestParser meUpdateRequestParser;
 
     @MockitoBean
     private ActivePetSelectionService activePetSelectionService;
@@ -101,8 +115,88 @@ class MeControllerTest {
                     .andExpect(jsonPath("$.data.accessLevel").value("L1"))
                     .andExpect(jsonPath("$.data.neighborhoodCode")
                             .value("4113111500"))
-                    .andExpect(jsonPath("$.data.activePetId").isEmpty());
+                    .andExpect(jsonPath("$.data.activePetId").isEmpty())
+                    .andExpect(jsonPath("$.data.weightKg").isEmpty());
             then(meQueryService).should().getMe(USER_ID);
+        }
+
+        @Test
+        @DisplayName("It: weightKg가 있으면 기존 응답 필드와 함께 반환한다")
+        void itReturnsWeightKgWhenPresent() throws Exception {
+            given(meQueryService.getMe(USER_ID)).willReturn(new MeResponse(
+                    USER_ID, "user@example.com", "사용자", "사용자#A7K2",
+                    Role.USER, AccountStatus.ACTIVE, AccessLevel.L1,
+                    "4113111500", null, new java.math.BigDecimal("72.50")
+            ));
+
+            mockMvc.perform(get("/me"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.nickname").value("사용자"))
+                    .andExpect(jsonPath("$.data.publicTag").value("사용자#A7K2"))
+                    .andExpect(jsonPath("$.data.weightKg").value(72.5));
+        }
+    }
+
+    @Nested
+    @DisplayName("Describe: PATCH /me")
+    class DescribePatchMe {
+
+        @Test
+        @DisplayName("It: 엄격한 요청을 Service에 전달하고 수정된 내 정보를 반환한다")
+        void itUpdatesMe() throws Exception {
+            MeUpdateCommand command = new MeUpdateCommand(
+                    true, "새이름", false, null, true,
+                    new java.math.BigDecimal("72.50")
+            );
+            given(meUpdateRequestParser.parse(any())).willReturn(command);
+            given(meUpdateService.update(eq(USER_ID), any(MeUpdateCommand.class)))
+                    .willReturn(new MeResponse(
+                            USER_ID, "user@example.com", "새이름", "사용자#A7K2",
+                            Role.USER, AccountStatus.ACTIVE, AccessLevel.L1,
+                            "4113111500", null, new java.math.BigDecimal("72.50")
+                    ));
+
+            mockMvc.perform(patch("/me")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":\"새이름\",\"weightKg\":72.50}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.nickname").value("새이름"))
+                    .andExpect(jsonPath("$.data.publicTag").value("사용자#A7K2"))
+                    .andExpect(jsonPath("$.data.weightKg").value(72.5));
+            then(meUpdateRequestParser).should().parse(any());
+            then(meUpdateService).should().update(eq(USER_ID), any(MeUpdateCommand.class));
+        }
+
+        @Test
+        @DisplayName("It: malformed JSON은 400 VALIDATION_FAILED를 반환하고 Service를 호출하지 않는다")
+        void itRejectsMalformedJson() throws Exception {
+            mockMvc.perform(patch("/me")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.VALIDATION_FAILED.name()));
+            then(meUpdateService).shouldHaveNoInteractions();
+            then(meUpdateRequestParser).shouldHaveNoInteractions();
+        }
+
+        @Test
+        @DisplayName("It: Service flush의 optimistic lock 충돌을 409로 변환한다")
+        void itMapsOptimisticLockConflict() throws Exception {
+            given(meUpdateRequestParser.parse(any())).willReturn(
+                    new MeUpdateCommand(true, "새이름", false, null, false, null)
+            );
+            org.mockito.BDDMockito.willThrow(
+                    new ObjectOptimisticLockingFailureException(User.class, USER_ID)
+            ).given(meUpdateService).update(eq(USER_ID), any(MeUpdateCommand.class));
+
+            mockMvc.perform(patch("/me")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"nickname\":\"새이름\"}"))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.error.code").value(
+                            ErrorCode.CONCURRENT_UPDATE_CONFLICT.name()
+                    ));
         }
     }
 

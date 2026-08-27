@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -217,6 +218,17 @@ class SecurityConfigTest {
                     .andExpect(jsonPath("$.error.code")
                             .value(ErrorCode.UNAUTHORIZED.name()));
         }
+
+        @Test
+        @DisplayName("It: PATCH /me는 401을 반환한다")
+        void patchMeReturnsUnauthorized() throws Exception {
+            mockMvc.perform(patch("/me")
+                            .contentType("application/json")
+                            .content("{\"nickname\":\"새이름\"}"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.UNAUTHORIZED.name()));
+        }
     }
 
     @Nested
@@ -266,6 +278,32 @@ class SecurityConfigTest {
             userRepository.saveAndFlush(user);
 
             mockMvc.perform(get("/me")
+                            .header(
+                                    HttpHeaders.AUTHORIZATION,
+                                    "Bearer " + tokens.accessToken()
+                            ))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code")
+                            .value(ErrorCode.UNAUTHORIZED.name()));
+        }
+
+        @Test
+        @Transactional
+        @DisplayName("It: JwtFilter에서 인증되지 않아 PATCH /me는 401을 반환한다")
+        void patchMeReturnsUnauthorized() throws Exception {
+            User user = activeUser();
+            userRepository.saveAndFlush(user);
+            IssuedTokens tokens = tokenProvider.issueTokens(user);
+            ReflectionTestUtils.setField(
+                    user,
+                    "accountStatus",
+                    AccountStatus.SUSPENDED
+            );
+            userRepository.saveAndFlush(user);
+
+            mockMvc.perform(patch("/me")
+                            .contentType("application/json")
+                            .content("{\"nickname\":\"새이름\"}")
                             .header(
                                     HttpHeaders.AUTHORIZATION,
                                     "Bearer " + tokens.accessToken()

@@ -210,6 +210,9 @@ class MeetingCardPolicyTest {
     @Test
     void cancelIsRejectedWhenMeetingAlreadyConfirmed() {
         MeetingCardService service = meetingCardService();
+        when(meetingCardRepository.findIdentityById(CARD_ID)).thenReturn(Optional.of(cardIdentity()));
+        when(interactionPairLockService.lockInteractionPair(PET_1, PET_1))
+                .thenReturn(lockedPair());
         when(meetingCardRepository.findByIdForUpdate(CARD_ID))
                 .thenReturn(Optional.of(new MeetingCard(
                         ROOM_ID, PET_1, null, MeetingCardType.WALK, "중앙공원",
@@ -224,6 +227,28 @@ class MeetingCardPolicyTest {
                 .isEqualTo(ErrorCode.MEETING_ALREADY_CONFIRMED);
 
         verify(meetingCardRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void cancelLocksActorPairBeforeItLocksCard() {
+        MeetingCardService service = meetingCardService();
+        when(meetingCardRepository.findIdentityById(CARD_ID)).thenReturn(Optional.of(cardIdentity()));
+        when(interactionPairLockService.lockInteractionPair(PET_1, PET_1))
+                .thenReturn(lockedPair());
+        when(meetingCardRepository.findByIdForUpdate(CARD_ID))
+                .thenReturn(Optional.of(new MeetingCard(
+                        ROOM_ID, PET_1, null, MeetingCardType.WALK, "중앙공원",
+                        NOW.plusSeconds(3600))));
+        when(meetingParticipantRepository.existsByMeetingCardIdAndPetId(CARD_ID, PET_1))
+                .thenReturn(true);
+        when(meetingRepository.existsByMeetingCardId(CARD_ID)).thenReturn(false);
+
+        service.cancel(USER_1, CARD_ID);
+
+        InOrder order = inOrder(meetingCardRepository, interactionPairLockService);
+        order.verify(meetingCardRepository).findIdentityById(CARD_ID);
+        order.verify(interactionPairLockService).lockInteractionPair(PET_1, PET_1);
+        order.verify(meetingCardRepository).findByIdForUpdate(CARD_ID);
     }
 
     private MeetingCardService meetingCardService() {
@@ -257,5 +282,19 @@ class MeetingCardPolicyTest {
                 new LockedPetContext(PET_1, USER_1, PetStatus.ACTIVE, null),
                 new LockedPetContext(PET_2, USER_2, PetStatus.ACTIVE, null)
         );
+    }
+
+    private MeetingCardRepository.MeetingCardIdentity cardIdentity() {
+        return new MeetingCardRepository.MeetingCardIdentity() {
+            @Override
+            public Long getId() {
+                return CARD_ID;
+            }
+
+            @Override
+            public Long getRoomId() {
+                return ROOM_ID;
+            }
+        };
     }
 }

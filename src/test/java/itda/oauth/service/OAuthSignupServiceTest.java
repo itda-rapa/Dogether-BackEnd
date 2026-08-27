@@ -37,7 +37,7 @@ class OAuthSignupServiceTest {
     }
 
     @Test
-    void lateEmailOrIdentityCollisionBecomesSafeRestartConflict() {
+    void lateEmailCollisionBecomesSafeRestartConflict() {
         given(publicTagGenerator.generate("사용자")).willReturn("사용자#AAAA");
         given(transactionService.completeAttempt(any(), any(), any()))
                 .willThrow(new DataIntegrityViolationException("duplicate key uk_users_email_lower"));

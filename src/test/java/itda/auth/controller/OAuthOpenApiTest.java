@@ -27,6 +27,7 @@ class OAuthOpenApiTest {
 
         JsonNode exchange = openApi.path("paths").path("/auth/oauth/exchange").path("post");
         JsonNode signup = openApi.path("paths").path("/auth/oauth/signup").path("post");
+        JsonNode normalSignup = openApi.path("paths").path("/auth/signup").path("post");
         assertConcreteOperation(exchange, "exchange");
         for (String statusCode : java.util.List.of("200", "202", "400", "401", "403", "409", "410")) {
             assertThat(exchange.path("responses").has(statusCode)).as("exchange %s", statusCode).isTrue();
@@ -61,8 +62,19 @@ class OAuthOpenApiTest {
         );
         assertSchemaProperties(
                 resolveSchema(openApi, requestSchema(signup, "signup")),
-                "signupToken", "nickname", "neighborhoodCode"
+                "signupToken", "nickname", "neighborhoodCode", "weightKg"
         );
+        assertOptionalNullableWeightKg(
+                resolveSchema(openApi, requestSchema(signup, "signup")), "OAuth signup request");
+
+        assertConcreteOperation(normalSignup, "normal signup");
+        JsonNode normalSignupRequest = resolveSchema(
+                openApi, requestSchema(normalSignup, "normal signup"));
+        assertSchemaProperties(
+                normalSignupRequest,
+                "email", "password", "nickname", "neighborhoodCode", "verificationToken", "weightKg"
+        );
+        assertOptionalNullableWeightKg(normalSignupRequest, "normal signup request");
 
         for (String browserPath : java.util.List.of("/oauth2/authorization/google", "/login/oauth2/code/google")) {
             JsonNode browserOperation = openApi.path("paths").path(browserPath).path("get");
@@ -160,6 +172,56 @@ class OAuthOpenApiTest {
             }
         }
         return false;
+    }
+
+    private void assertOptionalNullableWeightKg(JsonNode schema, String description) {
+        JsonNode weightKg = property(schema, "weightKg");
+        assertThat(weightKg.isMissingNode()).as("%s weightKg property", description).isFalse();
+        assertThat(weightKg.path("type").isArray()).as("%s weightKg OAS 3.1 type array", description)
+                .isTrue();
+        java.util.List<String> types = java.util.stream.StreamSupport.stream(
+                        weightKg.path("type").spliterator(), false)
+                .map(JsonNode::asText)
+                .toList();
+        assertThat(types).as("%s weightKg numeric/null types", description)
+                .containsExactlyInAnyOrder("number", "null");
+        assertThat(weightKg.path("minimum").isNumber()).as("%s weightKg minimum is numeric", description)
+                .isTrue();
+        assertThat(new java.math.BigDecimal(weightKg.path("minimum").asText()))
+                .as("%s weightKg minimum", description)
+                .isEqualByComparingTo("1.00");
+        assertThat(weightKg.path("maximum").isNumber()).as("%s weightKg maximum is numeric", description)
+                .isTrue();
+        assertThat(new java.math.BigDecimal(weightKg.path("maximum").asText()))
+                .as("%s weightKg maximum", description)
+                .isEqualByComparingTo("500.00");
+        assertThat(requiredProperties(schema)).as("%s required properties", description)
+                .doesNotContain("weightKg");
+    }
+
+    private JsonNode property(JsonNode schema, String propertyName) {
+        if (schema.path("properties").has(propertyName)) {
+            return schema.path("properties").path(propertyName);
+        }
+        for (JsonNode part : schema.path("allOf")) {
+            if (part.path("properties").has(propertyName)) {
+                return part.path("properties").path(propertyName);
+            }
+        }
+        return schema.path("properties").path(propertyName);
+    }
+
+    private java.util.Set<String> requiredProperties(JsonNode schema) {
+        java.util.Set<String> required = new java.util.HashSet<>();
+        for (JsonNode property : schema.path("required")) {
+            required.add(property.asText());
+        }
+        for (JsonNode part : schema.path("allOf")) {
+            for (JsonNode property : part.path("required")) {
+                required.add(property.asText());
+            }
+        }
+        return required;
     }
 
     private void assertOneOfDataSchemas(

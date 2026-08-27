@@ -4,6 +4,7 @@ import itda.chat.domain.ChatRoomParticipant;
 import itda.common.BaseEntity;
 import jakarta.persistence.*;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +19,9 @@ import lombok.NoArgsConstructor;
 @Table(name = "users")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User extends BaseEntity {
+
+    private static final BigDecimal MIN_WEIGHT_KG = new BigDecimal("1.00");
+    private static final BigDecimal MAX_WEIGHT_KG = new BigDecimal("500.00");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -45,6 +49,9 @@ public class User extends BaseEntity {
 
     @Column(name = "neighborhood_code", nullable = false, length = 20)
     private String neighborhoodCode;
+
+    @Column(name = "weight_kg")
+    private BigDecimal weightKg;
 
     @Column(name = "active_pet_id")
     private Long activePetId;
@@ -77,13 +84,35 @@ public class User extends BaseEntity {
             String publicTag,
             String neighborhoodCode
     ) {
-        return new User(
+        return register(
+                email,
+                passwordHash,
+                nickname,
+                publicTag,
+                neighborhoodCode,
+                null
+        );
+    }
+
+    public static User register(
+            String email,
+            String passwordHash,
+            String nickname,
+            String publicTag,
+            String neighborhoodCode,
+            BigDecimal weightKg
+    ) {
+        validateWeightKg(weightKg);
+
+        User user = new User(
                 email,
                 passwordHash,
                 nickname,
                 publicTag,
                 neighborhoodCode
         );
+        user.weightKg = weightKg;
+        return user;
     }
 
     /**
@@ -96,13 +125,33 @@ public class User extends BaseEntity {
             String publicTag,
             String neighborhoodCode
     ) {
-        return new User(
+        return registerOAuth(
+                email,
+                nickname,
+                publicTag,
+                neighborhoodCode,
+                null
+        );
+    }
+
+    public static User registerOAuth(
+            String email,
+            String nickname,
+            String publicTag,
+            String neighborhoodCode,
+            BigDecimal weightKg
+    ) {
+        validateWeightKg(weightKg);
+
+        User user = new User(
                 email,
                 null,
                 nickname,
                 publicTag,
                 neighborhoodCode
         );
+        user.weightKg = weightKg;
+        return user;
     }
 
     public boolean isActive() {
@@ -143,5 +192,74 @@ public class User extends BaseEntity {
             throw new IllegalArgumentException("passwordHash는 비어 있을 수 없습니다.");
         }
         this.passwordHash = passwordHash;
+    }
+
+    public boolean changeNickname(String nickname) {
+        String normalizedNickname = normalizeNickname(nickname);
+        if (Objects.equals(this.nickname, normalizedNickname)) {
+            return false;
+        }
+        this.nickname = normalizedNickname;
+        return true;
+    }
+
+    public boolean changeNeighborhoodCode(String neighborhoodCode) {
+        if (neighborhoodCode == null) {
+            throw new NullPointerException("neighborhoodCode는 null일 수 없습니다.");
+        }
+
+        String normalizedNeighborhoodCode = neighborhoodCode.trim();
+        if (normalizedNeighborhoodCode.isEmpty()) {
+            throw new IllegalArgumentException("neighborhoodCode는 비어 있을 수 없습니다.");
+        }
+        if (Objects.equals(this.neighborhoodCode, normalizedNeighborhoodCode)) {
+            return false;
+        }
+        this.neighborhoodCode = normalizedNeighborhoodCode;
+        return true;
+    }
+
+    public boolean changeWeightKg(BigDecimal weightKg) {
+        validateWeightKg(weightKg);
+        if (sameDecimal(this.weightKg, weightKg)) {
+            return false;
+        }
+        this.weightKg = weightKg;
+        return true;
+    }
+
+    private static String normalizeNickname(String nickname) {
+        if (nickname == null) {
+            throw new NullPointerException("nickname은 null일 수 없습니다.");
+        }
+
+        String normalizedNickname = nickname.trim();
+        if (normalizedNickname.length() < 2 || normalizedNickname.length() > 20) {
+            throw new IllegalArgumentException("nickname은 trim 후 2자 이상 20자 이하여야 합니다.");
+        }
+        return normalizedNickname;
+    }
+
+    private static void validateWeightKg(BigDecimal weightKg) {
+        if (weightKg == null) {
+            return;
+        }
+        if (weightKg.compareTo(MIN_WEIGHT_KG) < 0
+                || weightKg.compareTo(MAX_WEIGHT_KG) > 0) {
+            throw new IllegalArgumentException("weightKg는 1.00 이상 500.00 이하여야 합니다.");
+        }
+        if (weightKg.scale() > 2) {
+            throw new IllegalArgumentException("weightKg는 소수 둘째 자리까지만 허용합니다.");
+        }
+    }
+
+    private static boolean sameDecimal(
+            BigDecimal currentValue,
+            BigDecimal newValue
+    ) {
+        if (currentValue == null || newValue == null) {
+            return currentValue == newValue;
+        }
+        return currentValue.compareTo(newValue) == 0;
     }
 }
