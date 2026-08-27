@@ -17,18 +17,19 @@ public class BoardPostRequestParser {
         return new BoardPostCreateRequest(
                 string(body, "title"),
                 string(body, "content"),
-                mediaIds(body)
+                mediaIds(body),
+                placeId(body)
         );
     }
 
     public BoardPostUpdateRequest parseUpdate(JsonNode body) {
         if (body == null
                 || !body.isObject()
-                || !Set.of("title", "content", "mediaIds", "version")
+                || !Set.of("title", "content", "mediaIds", "placeId", "version")
                 .containsAll(body.propertyNames())) {
             throw invalid();
         }
-        if (!body.has("title") && !body.has("content") && !body.has("mediaIds")) {
+        if (!body.has("title") && !body.has("content") && !body.has("mediaIds") && !body.has("placeId")) {
             throw invalid();
         }
         String title = body.has("title") ? string(body, "title") : null;
@@ -46,6 +47,8 @@ public class BoardPostRequestParser {
                 content,
                 body.has("mediaIds"),
                 mediaIds(body),
+                body.has("placeId"),
+                placeId(body),
                 version.longValue()
         );
     }
@@ -59,7 +62,7 @@ public class BoardPostRequestParser {
     private void requireCreateObjectAndFields(JsonNode body) {
         if (body == null
                 || !body.isObject()
-                || !Set.of("title", "content", "mediaIds").containsAll(body.propertyNames())
+                || !Set.of("title", "content", "mediaIds", "placeId").containsAll(body.propertyNames())
                 || !body.has("title")
                 || !body.has("content")) {
             throw invalid();
@@ -92,6 +95,20 @@ public class BoardPostRequestParser {
             values.add(mediaId);
         }
         return List.copyOf(values);
+    }
+
+    private Integer placeId(JsonNode body) {
+        if (!body.has("placeId")) {
+            return null;
+        }
+        JsonNode node = body.get("placeId");
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isIntegralNumber() || !node.canConvertToInt() || node.intValue() <= 0) {
+            throw invalid();
+        }
+        return node.intValue();
     }
 
     private String string(JsonNode body, String name) {

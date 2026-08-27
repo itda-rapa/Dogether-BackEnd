@@ -24,11 +24,11 @@ import tools.jackson.databind.JsonNode;
 @SecurityRequirement(name = "bearerAuth")
 public interface BoardPostSwaggerSupporter {
 
-    @Operation(summary = "게시글 작성", description = "현재 활성 반려견으로 게시글을 작성합니다. title과 content는 필수이며 mediaIds는 선택적으로 최대 5개까지 첨부할 수 있습니다.")
+    @Operation(summary = "게시글 작성", description = "현재 활성 반려견으로 게시글을 작성합니다. title과 content는 필수이며 mediaIds와 placeId는 선택 사항입니다. placeId는 양의 정수인 문화시설 reference candidate이며, 생략 또는 null이면 장소를 지정하지 않습니다.")
     @RequestBody(required = true, content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = BoardPostCreateRequest.class),
             examples = @ExampleObject("""
-                    {"title":"산책 친구 구해요","content":"오늘 저녁 같이 산책해요.","mediaIds":[10,11]}
+                    {"title":"산책 친구 구해요","content":"오늘 저녁 같이 산책해요.","mediaIds":[10,11],"placeId":31}
                     """)))
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "게시글 작성 성공", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             examples = @ExampleObject("""
@@ -50,11 +50,11 @@ public interface BoardPostSwaggerSupporter {
                     """)))
     ResponseEntity<ApiResponse<BoardPostResponse>> detail(@Parameter(hidden = true) CurrentUser user, @Parameter(description = "게시글 ID") Long postId);
 
-    @Operation(summary = "게시글 수정", description = "strict JSON입니다. version은 필수이고 0 이상의 정수이며, title·content·mediaIds 중 하나 이상을 포함해야 합니다. mediaIds 생략은 기존 이미지 유지, []는 전체 제거, 값 배열은 순서대로 전체 교체이고 null은 허용하지 않습니다. 실제 변경이 없으면 version은 유지되며, 서버 version이 다르면 409입니다.")
+    @Operation(summary = "게시글 수정", description = "strict JSON입니다. version은 필수이고 0 이상의 정수이며, title·content·mediaIds·placeId 중 하나 이상을 포함해야 합니다. mediaIds 생략은 기존 이미지 유지, []는 전체 제거, 값 배열은 순서대로 전체 교체이고 null은 허용하지 않습니다. placeId 생략은 기존 장소 유지, null은 장소 해제, 양의 정수는 장소 설정/교체입니다. 실제 변경이 없으면 version은 유지되며, 서버 version이 다르면 409입니다.")
     @RequestBody(required = true, content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = BoardPostPatchRequest.class),
             examples = @ExampleObject("""
-                    {"title":"수정된 제목","mediaIds":[10,11],"version":0}
+                    {"title":"수정된 제목","mediaIds":[10,11],"placeId":31,"version":0}
                     """)))
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "게시글 수정 성공", content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             examples = @ExampleObject("""

@@ -1,6 +1,7 @@
 package itda.boardpost.dto;
 
 import itda.boardpost.domain.BoardPost;
+import io.swagger.v3.oas.annotations.media.Schema;
 import itda.pet.service.query.PetDisplaySummary;
 import java.time.Instant;
 import java.util.List;
@@ -8,6 +9,9 @@ import java.util.List;
 public record BoardPostResponse(
         Long postId,
         Long boardId,
+        @Schema(description = "문화시설 reference candidate ID. 없으면 null입니다.",
+                types = {"integer", "null"}, format = "int32", minimum = "1")
+        Integer placeId,
         BoardPostAuthorPetResponse authorPet,
         String title,
         String content,
@@ -35,7 +39,27 @@ public record BoardPostResponse(
             Instant updatedAt
     ) {
         this(
-                postId, boardId, authorPet, title, content, images,
+                postId, boardId, null, authorPet, title, content, images,
+                reactionCount, reactedByMe, 0, false, version, createdAt, updatedAt
+        );
+    }
+
+    public BoardPostResponse(
+            Long postId,
+            Long boardId,
+            Integer placeId,
+            BoardPostAuthorPetResponse authorPet,
+            String title,
+            String content,
+            List<BoardPostImageResponse> images,
+            long reactionCount,
+            boolean reactedByMe,
+            long version,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(
+                postId, boardId, placeId, authorPet, title, content, images,
                 reactionCount, reactedByMe, 0, false, version, createdAt, updatedAt
         );
     }
@@ -49,6 +73,7 @@ public record BoardPostResponse(
         return new BoardPostResponse(
                 post.getId(),
                 post.getBoardId(),
+                post.getPlaceId(),
                 BoardPostAuthorPetResponse.from(pet),
                 post.getTitle(),
                 post.getContent(),

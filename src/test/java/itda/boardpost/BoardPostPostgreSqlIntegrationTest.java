@@ -116,6 +116,91 @@ class BoardPostPostgreSqlIntegrationTest {
     }
 
     @Test
+    void migrationAddsNullableIntegerPlaceIdAndSupportsNullAndIntegerPersistence() {
+        assertThat(jdbc.queryForObject("""
+                select data_type
+                  from information_schema.columns
+                 where table_schema = current_schema()
+                   and table_name = 'board_posts'
+                   and column_name = 'place_id'
+                """, String.class)).isEqualTo("integer");
+        assertThat(jdbc.queryForObject("""
+                select is_nullable
+                  from information_schema.columns
+                 where table_schema = current_schema()
+                   and table_name = 'board_posts'
+                   and column_name = 'place_id'
+                """, String.class)).isEqualTo("YES");
+
+        long board = createBoard();
+        Author author = createAuthor("place-column", "4113165000");
+        long postId = insertPost(
+                board, author, "4113165000", "place-column", "PUBLISHED",
+                Instant.parse("2026-08-10T00:00:00Z"), null
+        );
+
+        // Rows created before/without a candidate remain nullable in Phase A.
+        assertThat(jdbc.queryForObject(
+                "select place_id from board_posts where id = ?", Integer.class, postId
+        )).isNull();
+
+        jdbc.update("update board_posts set place_id = ? where id = ?", Integer.MAX_VALUE, postId);
+        assertThat(jdbc.queryForObject(
+                "select place_id from board_posts where id = ?", Integer.class, postId
+        )).isEqualTo(Integer.MAX_VALUE);
+        jdbc.update("update board_posts set place_id = ? where id = ?", 31, postId);
+        assertThat(jdbc.queryForObject(
+                "select place_id from board_posts where id = ?", Integer.class, postId
+        )).isEqualTo(31);
+        jdbc.update("update board_posts set place_id = null where id = ?", postId);
+        assertThat(jdbc.queryForObject(
+                "select place_id from board_posts where id = ?", Integer.class, postId
+        )).isNull();
+    }
+
+    @Test
+    void servicePersistsPlaceTriStateAndIncrementsParentVersionOnceForPlaceAndMedia() {
+        long board = createBoard();
+        Author author = createAuthor("place-service", "4113165000");
+        jdbc.update("update users set active_pet_id = ? where id = ?", author.petId(), author.userId());
+
+        BoardPostResponse created = postService.create(
+                author.userId(), board,
+                new BoardPostCreateRequest("title", "content", List.of(), 31)
+        );
+        assertThat(created.placeId()).isEqualTo(31);
+        assertThat(databasePlaceId(created.postId())).isEqualTo(31);
+
+        Instant beforeNoOp = posts.findById(created.postId()).orElseThrow().getUpdatedAt();
+        BoardPostResponse samePlace = postService.update(author.userId(), created.postId(),
+                new BoardPostUpdateRequest(false, null, false, null, false, List.of(), true, 31, 0L));
+        assertThat(samePlace.placeId()).isEqualTo(31);
+        assertThat(samePlace.version()).isZero();
+        BoardPost afterNoOp = posts.findById(created.postId()).orElseThrow();
+        assertThat(afterNoOp.getVersion()).isZero();
+        assertThat(afterNoOp.getUpdatedAt()).isEqualTo(beforeNoOp);
+
+        BoardPostResponse cleared = postService.update(author.userId(), created.postId(),
+                new BoardPostUpdateRequest(false, null, false, null, false, List.of(), true, null, 0L));
+        assertThat(cleared.placeId()).isNull();
+        assertThat(cleared.version()).isEqualTo(1L);
+        assertThat(databasePlaceId(created.postId())).isNull();
+
+        BoardPostResponse setAgain = postService.update(author.userId(), created.postId(),
+                new BoardPostUpdateRequest(false, null, false, null, false, List.of(), true, 32, 1L));
+        assertThat(setAgain.placeId()).isEqualTo(32);
+        assertThat(setAgain.version()).isEqualTo(2L);
+
+        long mediaId = createUploadedImage(author.userId());
+        BoardPostResponse placeAndMedia = postService.update(author.userId(), created.postId(),
+                new BoardPostUpdateRequest(false, null, false, null, true, List.of(mediaId), true, 33, 2L));
+        assertThat(placeAndMedia.placeId()).isEqualTo(33);
+        assertThat(placeAndMedia.version()).isEqualTo(3L);
+        assertThat(databasePlaceId(created.postId())).isEqualTo(33);
+        assertThat(databaseVersion(created.postId())).isEqualTo(3L);
+    }
+
+    @Test
     void databaseEnforcesEveryForeignKeyAndContentStatusInvariants() {
         long board = createBoard();
         Author author = createAuthor("constraints", "4113165000");
@@ -942,6 +1027,12 @@ class BoardPostPostgreSqlIntegrationTest {
     private long databaseVersion(long postId) {
         return jdbc.queryForObject(
                 "select version from board_posts where id = ?", Long.class, postId
+        );
+    }
+
+    private Integer databasePlaceId(long postId) {
+        return jdbc.queryForObject(
+                "select place_id from board_posts where id = ?", Integer.class, postId
         );
     }
 

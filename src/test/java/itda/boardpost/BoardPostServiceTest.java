@@ -110,6 +110,25 @@ class BoardPostServiceTest {
     }
 
     @Test
+    void createPersistsOptionalPlaceCandidateAndPreservesNullWhenOmitted() {
+        BoardPostService service = service();
+        prepareCreate();
+        given(posts.save(any(BoardPost.class))).willAnswer(invocation -> invocation.getArgument(0));
+        given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
+
+        var withPlace = service.create(1L, 10L,
+                new BoardPostCreateRequest("title", "content", List.of(), 31));
+        var withoutPlace = service.create(1L, 10L,
+                new BoardPostCreateRequest("title", "content"));
+
+        assertThat(withPlace.placeId()).isEqualTo(31);
+        assertThat(withoutPlace.placeId()).isNull();
+        ArgumentCaptor<BoardPost> saved = ArgumentCaptor.forClass(BoardPost.class);
+        then(posts).should(times(2)).save(saved.capture());
+        assertThat(saved.getAllValues()).extracting(BoardPost::getPlaceId).containsExactly(31, null);
+    }
+
+    @Test
     void createRejectsSoftDeletedBoardThroughActiveShareLookup() {
         BoardPostService service = service();
         given(actorGuard.require(1L)).willReturn(
@@ -343,6 +362,69 @@ class BoardPostServiceTest {
         then(media).should().findAllById(List.of(11L, 12L));
         then(mediaService).should().getPresignedDownloadUrls(List.of(first, second));
         then(mediaService).should(never()).getPresignedDownloadUrl(any());
+    }
+
+    @Test
+    void patchWithSamePlaceIsNoOpAndDoesNotTouchVersionOrUpdatedAt() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        ReflectionTestUtils.setField(post, "placeId", 31);
+        Instant before = post.getUpdatedAt();
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(List.of());
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, false, List.of(), true, 31, 0L
+                ));
+
+        assertThat(response.placeId()).isEqualTo(31);
+        assertThat(post.getVersion()).isZero();
+        assertThat(post.getUpdatedAt()).isEqualTo(before);
+        then(posts).should(never()).flush();
+    }
+
+    @Test
+    void patchChangesPlaceAndFlushesExactlyOnce() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        ReflectionTestUtils.setField(post, "placeId", 31);
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(List.of());
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, false, List.of(), true, 32, 0L
+                ));
+
+        assertThat(response.placeId()).isEqualTo(32);
+        assertThat(post.getPlaceId()).isEqualTo(32);
+        then(posts).should(times(1)).flush();
+    }
+
+    @Test
+    void patchPlaceAndMediaChangesParentOnce() {
+        BoardPostService service = service();
+        BoardPost post = post(101L, 1L, 2L);
+        ReflectionTestUtils.setField(post, "placeId", 31);
+        BoardPostMedia existing = BoardPostMedia.attach(101L, 11L, 0);
+        itda.media.domain.Media attachment = media(12L, 1L);
+        prepareUpdate(post);
+        given(postMedia.findByPostIdOrderByDisplayOrderAsc(101L)).willReturn(List.of(existing));
+        given(media.findAllById(List.of(12L))).willReturn(List.of(attachment));
+        given(mediaService.getPresignedDownloadUrls(List.of(attachment)))
+                .willReturn(downloadUrls(attachment));
+
+        var response = service.update(1L, 101L,
+                new itda.boardpost.dto.BoardPostUpdateRequest(
+                        false, null, false, null, true, List.of(12L), true, 32, 0L
+                ));
+
+        assertThat(response.placeId()).isEqualTo(32);
+        assertThat(post.getPlaceId()).isEqualTo(32);
+        then(posts).should(times(1)).flush();
+        then(postMedia).should(times(1)).deleteAll(List.of(existing));
+        then(postMedia).should(times(1)).saveAll(any());
     }
 
     @Test

@@ -9,6 +9,8 @@ public record BoardPostUpdateRequest(
         String content,
         boolean mediaIdsPresent,
         List<Long> mediaIds,
+        boolean placeIdPresent,
+        Integer placeId,
         long version
 ) {
     public BoardPostUpdateRequest(
@@ -18,6 +20,18 @@ public record BoardPostUpdateRequest(
             String content,
             long version
     ) {
-        this(titlePresent, title, contentPresent, content, false, List.of(), version);
+        this(titlePresent, title, contentPresent, content, false, List.of(), false, null, version);
+    }
+
+    public BoardPostUpdateRequest(
+            boolean titlePresent,
+            String title,
+            boolean contentPresent,
+            String content,
+            boolean mediaIdsPresent,
+            List<Long> mediaIds,
+            long version
+    ) {
+        this(titlePresent, title, contentPresent, content, mediaIdsPresent, mediaIds, false, null, version);
     }
 }

@@ -5,8 +5,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
 @Schema(
-        description = "게시글 수정 요청. strict JSON으로 title, content, mediaIds 중 하나 이상과 "
-                + "현재 version이 필요합니다. mediaIds를 생략하면 기존 이미지를 유지하고, null은 허용하지 않습니다.",
+        description = "게시글 수정 요청. strict JSON으로 title, content, mediaIds, placeId 중 하나 이상과 "
+                + "현재 version이 필요합니다. mediaIds를 생략하면 기존 이미지를 유지하고, null은 허용하지 않습니다. "
+                + "placeId를 생략하면 유지하고, null이면 장소를 해제합니다.",
         requiredProperties = "version"
 )
 public record BoardPostPatchRequest(
@@ -19,6 +20,9 @@ public record BoardPostPatchRequest(
                 arraySchema = @Schema(description = "첨부 이미지 Media ID. 생략 시 기존 이미지를 유지하고, 빈 배열은 모두 제거하며, 값은 요청 순서대로 전체 교체됩니다.")
         )
         List<Long> mediaIds,
+        @Schema(description = "문화시설 reference candidate ID. 생략 시 기존 장소를 유지하고, null이면 해제합니다.",
+                types = {"integer", "null"}, format = "int32", minimum = "1")
+        Integer placeId,
         @Schema(
                 description = "현재 게시글 version. 서버 version과 다르면 409 CONCURRENT_UPDATE_CONFLICT입니다.",
                 requiredMode = Schema.RequiredMode.REQUIRED,

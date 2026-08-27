@@ -24,6 +24,32 @@ class BoardPostRequestParserTest {
     }
 
     @Test
+    void createPlaceIdIsOptionalNullableAndStrictPositiveInteger() {
+        assertThat(parse("{\"title\":\"t\",\"content\":\"c\"}").placeId()).isNull();
+        assertThat(parse("{\"title\":\"t\",\"content\":\"c\",\"placeId\":null}").placeId()).isNull();
+        assertThat(parse("{\"title\":\"t\",\"content\":\"c\",\"placeId\":31}").placeId())
+                .isEqualTo(31);
+    }
+
+    @Test
+    void createRejectsInvalidPlaceIdShapesAndValues() {
+        for (String body : List.of(
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":\"31\"}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":1.5}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":0}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":-1}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":2147483648}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":{}}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":[]}",
+                "{\"title\":\"t\",\"content\":\"c\",\"placeId\":true}"
+        )) {
+            assertThatThrownBy(() -> parse(body)).isInstanceOf(BusinessException.class)
+                    .extracting(error -> ((BusinessException) error).getErrorCode().name())
+                    .isEqualTo("VALIDATION_FAILED");
+        }
+    }
+
+    @Test
     void createRejectsInvalidMediaIdsAndUnknownFields() {
         for (String body : new String[] {
                 "{\"title\":\"t\",\"content\":\"c\",\"mediaIds\":null}",
@@ -77,6 +103,42 @@ class BoardPostRequestParserTest {
                 "{\"version\":0,\"title\":\"title\",\"content\":\"content\",\"mediaIds\":[1]}"
         )) {
             assertThat(parseUpdate(body).version()).isZero();
+        }
+    }
+
+    @Test
+    void patchPlaceIdIsTriStateAndSupportsPlaceOnlyOrCombinedMutation() {
+        BoardPostUpdateRequest omitted = parseUpdate("{\"title\":\"t\",\"version\":0}");
+        assertThat(omitted.placeIdPresent()).isFalse();
+        assertThat(omitted.placeId()).isNull();
+
+        BoardPostUpdateRequest clear = parseUpdate("{\"placeId\":null,\"version\":1}");
+        assertThat(clear.placeIdPresent()).isTrue();
+        assertThat(clear.placeId()).isNull();
+
+        BoardPostUpdateRequest set = parseUpdate("{\"placeId\":31,\"version\":2}");
+        assertThat(set.placeIdPresent()).isTrue();
+        assertThat(set.placeId()).isEqualTo(31);
+
+        BoardPostUpdateRequest replace = parseUpdate("{\"placeId\":32,\"content\":\"c\",\"version\":3}");
+        assertThat(replace.placeIdPresent()).isTrue();
+        assertThat(replace.placeId()).isEqualTo(32);
+        assertThat(replace.contentPresent()).isTrue();
+    }
+
+    @Test
+    void patchRejectsInvalidPlaceIdShapesAndValues() {
+        for (String body : List.of(
+                "{\"placeId\":\"31\",\"version\":0}",
+                "{\"placeId\":1.5,\"version\":0}",
+                "{\"placeId\":0,\"version\":0}",
+                "{\"placeId\":-1,\"version\":0}",
+                "{\"placeId\":2147483648,\"version\":0}",
+                "{\"placeId\":{},\"version\":0}",
+                "{\"placeId\":[],\"version\":0}",
+                "{\"placeId\":true,\"version\":0}"
+        )) {
+            assertInvalidPatch(body);
         }
     }
 

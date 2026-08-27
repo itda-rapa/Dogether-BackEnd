@@ -102,10 +102,70 @@ class BoardPostApiIntegrationTest {
         mockMvc.perform(post("/boards/{boardId}/posts", boardId).with(user(principal(authorId))))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
         for (String body : new String[] { "{}", "{\"title\":\"only\"}", "{\"content\":\"only\"}",
-                "{\"title\":3,\"content\":\"text\"}", "{\"title\":\"title\",\"content\":false}" }) {
+                "{\"title\":3,\"content\":\"text\"}", "{\"title\":\"title\",\"content\":false}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":\"31\"}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":1.5}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":0}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":-1}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":2147483648}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":{}}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":[]}",
+                "{\"title\":\"title\",\"content\":\"content\",\"placeId\":true}" }) {
             create(authorId, boardId, body).andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
         }
+    }
+
+    @Test
+    void createAndPatchPlaceCandidateSupportsNullSetReplaceClearAndKeep() throws Exception {
+        long postId = createPost(authorId, "title", "content");
+        assertThat(jdbc.queryForObject("select place_id from board_posts where id = ?", Integer.class, postId))
+                .isNull();
+
+        mockMvc.perform(patch("/posts/{postId}", postId).with(user(principal(authorId)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"placeId\":31,\"version\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeId").value(31))
+                .andExpect(jsonPath("$.data.version").value(1));
+        assertThat(jdbc.queryForObject("select place_id from board_posts where id = ?", Integer.class, postId))
+                .isEqualTo(31);
+
+        mockMvc.perform(get("/posts/{postId}", postId).with(user(principal(authorId))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.placeId").value(31));
+
+        // Same place is a no-op: version remains unchanged and the field is retained.
+        mockMvc.perform(patch("/posts/{postId}", postId).with(user(principal(authorId)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"placeId\":31,\"version\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeId").value(31))
+                .andExpect(jsonPath("$.data.version").value(1));
+
+        // A place change combined with text is one mutation/version increment.
+        mockMvc.perform(patch("/posts/{postId}", postId).with(user(principal(authorId)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"placeId\":32,\"title\":\"changed\",\"version\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeId").value(32))
+                .andExpect(jsonPath("$.data.version").value(2));
+
+        mockMvc.perform(patch("/posts/{postId}", postId).with(user(principal(authorId)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"placeId\":null,\"version\":2}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeId").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(3));
+        assertThat(jdbc.queryForObject("select place_id from board_posts where id = ?", Integer.class, postId))
+                .isNull();
+
+        // Omitted placeId keeps the current null value.
+        mockMvc.perform(patch("/posts/{postId}", postId).with(user(principal(authorId)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"kept\",\"version\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeId").doesNotExist())
+                .andExpect(jsonPath("$.data.version").value(4));
     }
 
     @Test

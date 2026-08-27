@@ -104,7 +104,8 @@ public class BoardPostService {
                 actor.petId(),
                 actor.neighborhoodCode(),
                 request.title(),
-                request.content()
+                request.content(),
+                request.placeId()
         ));
         List<BoardPostMedia> links = new ArrayList<>(attachments.size());
         for (int index = 0; index < attachments.size(); index++) {
@@ -241,10 +242,12 @@ public class BoardPostService {
         boolean attachmentsChanged = request.mediaIdsPresent()
                 && !sameOrderedMediaIds(existingLinks, attachments);
         boolean textChanged = post.change(title, content);
+        boolean placeChanged = request.placeIdPresent()
+                && post.changePlaceId(request.placeId());
         if (attachmentsChanged) {
             post.markAttachmentsChanged();
         }
-        if (textChanged || attachmentsChanged) {
+        if (textChanged || attachmentsChanged || placeChanged) {
             posts.flush();
         }
         List<BoardPostMedia> responseLinks;

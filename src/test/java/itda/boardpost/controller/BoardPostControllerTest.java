@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import itda.boardpost.dto.BoardPostAuthorPetResponse;
+import itda.boardpost.dto.BoardPostCreateRequest;
 import itda.boardpost.dto.BoardPostImageResponse;
 import itda.boardpost.dto.BoardPostUpdateRequest;
 import itda.boardpost.dto.BoardPostResponse;
@@ -78,6 +79,41 @@ class BoardPostControllerTest {
                 .andExpect(jsonPath("$.data.images[0].displayOrder").value(0))
                 .andExpect(jsonPath("$.data.reactionCount").value(0))
                 .andExpect(jsonPath("$.data.reactedByMe").value(false));
+    }
+
+    @Test
+    void createPlaceIdSupportsOmittedNullAndPositiveCandidate() throws Exception {
+        given(service.create(eq(USER_ID), eq(BOARD_ID), any())).willReturn(response(31, List.of()));
+
+        mockMvc.perform(post("/boards/{boardId}/posts", BOARD_ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"title\",\"content\":\"content\"}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/boards/{boardId}/posts", BOARD_ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"title\",\"content\":\"content\",\"placeId\":null}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/boards/{boardId}/posts", BOARD_ID)
+                        .contentType("application/json")
+                        .content("{\"title\":\"title\",\"content\":\"content\",\"placeId\":31}"))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<BoardPostCreateRequest> requests = ArgumentCaptor.forClass(BoardPostCreateRequest.class);
+        then(service).should(times(3)).create(eq(USER_ID), eq(BOARD_ID), requests.capture());
+        assertThat(requests.getAllValues()).extracting(BoardPostCreateRequest::placeId)
+                .containsExactly(null, null, 31);
+    }
+
+    @Test
+    void createRejectsInvalidPlaceCandidateBeforeCallingService() throws Exception {
+        for (String place : List.of("\"31\"", "1.5", "0", "-1", "2147483648", "{}", "[]", "true")) {
+            mockMvc.perform(post("/boards/{boardId}/posts", BOARD_ID)
+                            .contentType("application/json")
+                            .content("{\"title\":\"title\",\"content\":\"content\",\"placeId\":" + place + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+        }
+        then(service).shouldHaveNoInteractions();
     }
 
     @Test
@@ -153,6 +189,57 @@ class BoardPostControllerTest {
     }
 
     @Test
+    void patchPlaceIdSupportsKeepClearSetReplaceAndPlaceOnly() throws Exception {
+        given(service.update(eq(USER_ID), eq(POST_ID), any())).willReturn(response(List.of()));
+
+        mockMvc.perform(patch("/posts/{postId}", POST_ID).contentType("application/json")
+                        .content("{\"title\":\"changed\",\"version\":0}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/posts/{postId}", POST_ID).contentType("application/json")
+                        .content("{\"placeId\":null,\"version\":1}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/posts/{postId}", POST_ID).contentType("application/json")
+                        .content("{\"placeId\":31,\"version\":2}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/posts/{postId}", POST_ID).contentType("application/json")
+                        .content("{\"placeId\":32,\"content\":\"changed\",\"version\":3}"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<BoardPostUpdateRequest> requests = ArgumentCaptor.forClass(BoardPostUpdateRequest.class);
+        then(service).should(times(4)).update(eq(USER_ID), eq(POST_ID), requests.capture());
+        assertThat(requests.getAllValues()).satisfiesExactly(
+                keep -> {
+                    assertThat(keep.placeIdPresent()).isFalse();
+                    assertThat(keep.placeId()).isNull();
+                },
+                clear -> {
+                    assertThat(clear.placeIdPresent()).isTrue();
+                    assertThat(clear.placeId()).isNull();
+                },
+                set -> {
+                    assertThat(set.placeIdPresent()).isTrue();
+                    assertThat(set.placeId()).isEqualTo(31);
+                },
+                replace -> {
+                    assertThat(replace.placeIdPresent()).isTrue();
+                    assertThat(replace.placeId()).isEqualTo(32);
+                    assertThat(replace.contentPresent()).isTrue();
+                }
+        );
+    }
+
+    @Test
+    void patchRejectsInvalidPlaceCandidateBeforeCallingService() throws Exception {
+        for (String place : List.of("\"31\"", "1.5", "0", "-1", "2147483648", "{}", "[]", "true")) {
+            mockMvc.perform(patch("/posts/{postId}", POST_ID).contentType("application/json")
+                            .content("{\"placeId\":" + place + ",\"version\":0}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+        }
+        then(service).shouldHaveNoInteractions();
+    }
+
+    @Test
     void patchRejectsNullMediaIdsBeforeCallingTheService() throws Exception {
         mockMvc.perform(patch("/posts/{postId}", POST_ID)
                         .contentType("application/json")
@@ -164,9 +251,14 @@ class BoardPostControllerTest {
     }
 
     private BoardPostResponse response(List<BoardPostImageResponse> images) {
+        return response(null, images);
+    }
+
+    private BoardPostResponse response(Integer placeId, List<BoardPostImageResponse> images) {
         return new BoardPostResponse(
                 POST_ID,
                 BOARD_ID,
+                placeId,
                 new BoardPostAuthorPetResponse(4L, "pet#A1B2", "pet", null, false),
                 "title",
                 "content",
