@@ -302,8 +302,7 @@ public class BoardPostService {
         ReactionTarget target = reactionTarget(userId, postId);
         if (reactions.insertIgnore(postId, target.actor().petId(), type.name()) == 1) {
             notificationCommandService.notifyReaction(target.post().getAuthorPetId(), target.actor().petId(),
-                    petDisplays.getPetDisplaySummary(target.actor().petId()).nickname(),
-                    petDisplays.getProfileAssetId(target.actor().petId()),
+                    target.actor().nickname(), target.actor().profileAssetId(),
                     notificationType(type), NotificationTargetType.BOARD_POST, postId, postId, null);
         }
         return reactionResponse(postId, type, true);

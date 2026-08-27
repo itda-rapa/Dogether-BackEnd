@@ -213,7 +213,6 @@ class BoardPostReactionServiceTest {
         given(reactions.insertIgnore(101L, 10L, "HELPFUL")).willReturn(1);
         given(reactions.countForPost(101L, "HELPFUL")).willReturn(1L);
         given(petDisplays.getPetDisplaySummary(10L)).willReturn(summary(10L));
-        given(petDisplays.getProfileAssetId(10L)).willReturn(555L);
 
         service().addReaction(1L, 101L, BoardPostReactionType.HELPFUL);
 
@@ -233,7 +232,7 @@ class BoardPostReactionServiceTest {
     }
 
     private LockedActivePetCommandGuard.LockedActor actor(long userId, long petId, String neighborhood) {
-        return new LockedActivePetCommandGuard.LockedActor(userId, petId, neighborhood);
+        return new LockedActivePetCommandGuard.LockedActor(userId, petId, neighborhood, "pet", 555L);
     }
 
     private BoardPost post(long id, long authorUserId, long authorPetId, String neighborhood) {

@@ -142,7 +142,6 @@ class BoardPostCommentServiceTest {
         given(blocks.existsBlockBetween(1L, 2L)).willReturn(false);
         given(comments.save(any(BoardPostComment.class))).willReturn(created);
         given(petDisplays.getPetDisplaySummary(3L)).willReturn(summary(3L));
-        given(petDisplays.getProfileAssetId(3L)).willReturn(555L);
 
         var response = service().createReply(1L, 30L, new CommentCreateRequest("reply"));
 
@@ -165,7 +164,6 @@ class BoardPostCommentServiceTest {
         given(posts.findPublishedByIdForShare(10L)).willReturn(Optional.of(post));
         given(comments.save(any(BoardPostComment.class))).willReturn(created);
         given(petDisplays.getPetDisplaySummary(2L)).willReturn(summary(2L));
-        given(petDisplays.getProfileAssetId(2L)).willReturn(555L);
 
         service().create(1L, 10L, new CommentCreateRequest("comment"));
 
@@ -356,7 +354,7 @@ class BoardPostCommentServiceTest {
     }
 
     private LockedActivePetCommandGuard.LockedActor actor(long userId, long petId, String neighborhood) {
-        return new LockedActivePetCommandGuard.LockedActor(userId, petId, neighborhood);
+        return new LockedActivePetCommandGuard.LockedActor(userId, petId, neighborhood, "pet", 555L);
     }
 
     private User activeUser(long id, String neighborhood) {
