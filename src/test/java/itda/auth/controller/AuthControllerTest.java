@@ -22,11 +22,14 @@ import itda.common.security.CurrentUser;
 import itda.oauth.domain.OAuthProvider;
 import itda.oauth.service.OAuthExchangeResult;
 import itda.user.domain.Role;
+import java.math.BigDecimal;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -102,8 +105,62 @@ class AuthControllerTest {
                                 && request.neighborhoodCode().equals("1168010100")
                                 && request.verificationToken().equals("verification-token-123")
                                 && request.password().equals("  long-password  ")
+                                && request.weightKg() == null
                 ));
             }
+        }
+
+        @Test
+        @DisplayName("It: 명시적 null 몸무게도 이전 요청과 호환되게 전달한다")
+        void itAcceptsExplicitNullWeightKg() throws Exception {
+            given(authService.signup(any(SignupRequest.class))).willReturn(tokens());
+
+            mockMvc.perform(post("/auth/signup")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"user@example.com","password":"long-password",
+                                     "nickname":"사용자","neighborhoodCode":"1168010100",
+                                     "verificationToken":"verification-token-123","weightKg":null}
+                                    """))
+                    .andExpect(status().isCreated());
+
+            then(authService).should().signup(argThat(request -> request.weightKg() == null));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"1", "3.25", "500.00"})
+        @DisplayName("It: 범위 안의 숫자 몸무게를 그대로 Service에 전달한다")
+        void itForwardsValidNumericWeightKg(String weightKg) throws Exception {
+            given(authService.signup(any(SignupRequest.class))).willReturn(tokens());
+
+            mockMvc.perform(post("/auth/signup")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"user@example.com","password":"long-password",
+                                     "nickname":"사용자","neighborhoodCode":"1168010100",
+                                     "verificationToken":"verification-token-123","weightKg":%s}
+                                    """.formatted(weightKg)))
+                    .andExpect(status().isCreated());
+
+            then(authService).should().signup(argThat(request ->
+                    request.weightKg().compareTo(new java.math.BigDecimal(weightKg)) == 0));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"0.99", "500.01", "3.256", "\"3.25\""})
+        @DisplayName("It: 범위 밖·소수 셋째 자리·문자열 몸무게는 400으로 거부한다")
+        void itRejectsInvalidWeightKg(String weightKg) throws Exception {
+            mockMvc.perform(post("/auth/signup")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"email":"user@example.com","password":"long-password",
+                                     "nickname":"사용자","neighborhoodCode":"1168010100",
+                                     "verificationToken":"verification-token-123","weightKg":%s}
+                                    """.formatted(weightKg)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false));
+
+            then(authService).shouldHaveNoInteractions();
         }
 
         @Nested
@@ -343,18 +400,75 @@ class AuthControllerTest {
         }
 
         @Test
-        @DisplayName("OAuth signup returns 201 and forwards the trimmed profile completion data")
+        @DisplayName("OAuth signup returns 201 and forwards the trimmed profile completion data and weight")
         void signupOAuthReturnsCreated() throws Exception {
-            given(authService.signupOAuth("signup-token", "사용자", "1168010100")).willReturn(tokens());
+            given(authService.signupOAuth(
+                    "signup-token", "사용자", "1168010100", new java.math.BigDecimal("3.25")))
+                    .willReturn(tokens());
 
             mockMvc.perform(post("/auth/oauth/signup")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
-                                    {"signupToken":"signup-token","nickname":" 사용자 ","neighborhoodCode":" 1168010100 "}
+                                    {"signupToken":"signup-token","nickname":" 사용자 ","neighborhoodCode":" 1168010100 ","weightKg":3.25}
                                     """))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.refreshToken").value("refresh-token"));
-            then(authService).should().signupOAuth("signup-token", "사용자", "1168010100");
+            then(authService).should().signupOAuth(
+                    "signup-token", "사용자", "1168010100", new java.math.BigDecimal("3.25"));
+        }
+
+        @Test
+        @DisplayName("OAuth signup passes omitted and explicit null weight to the four-argument service contract")
+        void signupOAuthKeepsNullWeightBackwardCompatible() throws Exception {
+            given(authService.signupOAuth("omitted-token", "사용자", "1168010100", null))
+                    .willReturn(tokens());
+            given(authService.signupOAuth("null-token", "사용자", "1168010100", null))
+                    .willReturn(tokens());
+
+            mockMvc.perform(post("/auth/oauth/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"signupToken":"omitted-token","nickname":"사용자","neighborhoodCode":"1168010100"}
+                                    """))
+                    .andExpect(status().isCreated());
+            mockMvc.perform(post("/auth/oauth/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"signupToken":"null-token","nickname":"사용자","neighborhoodCode":"1168010100","weightKg":null}
+                                    """))
+                    .andExpect(status().isCreated());
+
+            then(authService).should().signupOAuth("omitted-token", "사용자", "1168010100", null);
+            then(authService).should().signupOAuth("null-token", "사용자", "1168010100", null);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"1", "500.00"})
+        @DisplayName("OAuth signup forwards inclusive weight bounds")
+        void signupOAuthForwardsInclusiveWeightBounds(String weightKg) throws Exception {
+            BigDecimal expectedWeight = new BigDecimal(weightKg);
+            given(authService.signupOAuth("signup-token", "사용자", "1168010100", expectedWeight))
+                    .willReturn(tokens());
+
+            mockMvc.perform(post("/auth/oauth/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"signupToken":"signup-token","nickname":"사용자","neighborhoodCode":"1168010100","weightKg":%s}
+                                    """.formatted(weightKg)))
+                    .andExpect(status().isCreated());
+
+            then(authService).should().signupOAuth("signup-token", "사용자", "1168010100", expectedWeight);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"0.99", "500.01", "3.256", "\"3.25\""})
+        @DisplayName("OAuth signup rejects invalid or string weight before service")
+        void signupOAuthRejectsInvalidWeightKg(String weightKg) throws Exception {
+            mockMvc.perform(post("/auth/oauth/signup").contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"signupToken":"signup-token","nickname":"사용자","neighborhoodCode":"1168010100","weightKg":%s}
+                                    """.formatted(weightKg)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false));
+
+            then(authService).shouldHaveNoInteractions();
         }
 
         @Test
@@ -364,7 +478,8 @@ class AuthControllerTest {
                     .willReturn(new OAuthExchangeResult.ExistingUser<>(tokens()));
             given(authService.exchangeOAuth(OAuthProvider.NAVER, "new-code"))
                     .willReturn(new OAuthExchangeResult.SignupRequired<>("naver-signup-token", ACCESS_TOKEN_EXPIRES_AT));
-            given(authService.signupOAuth("naver-signup-token", "네이버", "1168010100")).willReturn(tokens());
+            given(authService.signupOAuth("naver-signup-token", "네이버", "1168010100", null))
+                    .willReturn(tokens());
 
             mockMvc.perform(post("/auth/oauth/exchange").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"provider\":\"NAVER\",\"loginCode\":\"existing-code\"}"))
@@ -381,7 +496,7 @@ class AuthControllerTest {
 
             then(authService).should().exchangeOAuth(OAuthProvider.NAVER, "existing-code");
             then(authService).should().exchangeOAuth(OAuthProvider.NAVER, "new-code");
-            then(authService).should().signupOAuth("naver-signup-token", "네이버", "1168010100");
+            then(authService).should().signupOAuth("naver-signup-token", "네이버", "1168010100", null);
         }
     }
 

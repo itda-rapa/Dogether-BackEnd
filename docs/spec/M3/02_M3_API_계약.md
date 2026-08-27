@@ -20,6 +20,8 @@
 | GET | `/login/oauth2/code/naver` | Naver browser callback·Front URL로 302 Redirect |
 | POST | `/auth/oauth/exchange` | 1회용 loginCode→기존 사용자 JWT 또는 신규 사용자 signupToken |
 | POST | `/auth/oauth/signup` | 신규 OAuth 사용자 프로필 입력·가입 완료 |
+| GET | `/me` | 현재 로그인한 사람 User 정보 조회, 200 `MeResponse` |
+| PATCH | `/me` | `nickname`·`neighborhoodCode`·`weightKg` 부분 수정, 200 `MeResponse` |
 | GET | `/pets/{petId}/profile` | 공개 가능한 Pet의 공개 프로필 조회, 200 `PetPublicProfileResponse` |
 | DELETE | `/pets/{petId}` | Pet Soft Delete |
 | POST | `/pets/{petId}/profile-image` | 최초 프로필 이미지 설정, 201 `PetResponse` |
@@ -59,6 +61,16 @@ AuthTokensResponse`, 신규 계정 `202 OAuthSignupRequiredResponse`, 동일 이
 완료 `201 AuthTokensResponse`다. 동일 이메일 미연결의 `409`은 자동 연결·신규 User 생성을 하지 않고
 loginCode를 소비하지 않는 현재 안전 경계이며, 최종 account-link 정책은 아니다. `/auth/oauth/link`는
 구현되어 있지 않다.
+
+`weightKg`는 일반 이메일 `POST /auth/signup`과 OAuth `POST /auth/oauth/signup`에서 모두 선택 입력이다.
+JSON number만 허용하며 `1.00` 이상 `500.00` 이하, 소수 둘째 자리 이하이고 미입력은 `null`이다.
+
+`GET /me`와 `PATCH /me`의 응답은 `MeResponse`이며 `userId`, `email`, `nickname`, `publicTag`, `role`,
+`accountStatus`, `accessLevel`, `neighborhoodCode`, `activePetId`, nullable `weightKg`를 포함한다.
+`PATCH /me`는 strict JSON으로 위 세 필드만 허용한다. 생략은 유지하고, `weightKg: null`은 삭제하며
+`nickname`·`neighborhoodCode`의 null은 허용하지 않는다. nickname 변경에도 `publicTag`는 안정적으로
+유지되고, User 동네 변경은 과거 게시글의 작성 시점 neighborhood snapshot을 갱신하지 않는다. 같은 값은
+no-op으로 version을 올리지 않으며, 실제 동시 수정 충돌은 `409 CONCURRENT_UPDATE_CONFLICT`다.
 
 ## 3. 게시판
 

@@ -52,6 +52,72 @@ Content-Type: application/json
 - Cursor: 서버가 발급한 opaque 문자열을 Client가 해석하지 않음
 - JSON 필드 허용 여부와 알 수 없는 필드 처리는 각 endpoint의 runtime 계약을 따른다.
 
+### 사람 User 프로필 공통 규칙
+
+- `weightKg`는 사람 User의 선택 정보다. 일반 이메일 가입과 OAuth 가입에서 모두 생략할 수 있고,
+  기존 계정의 미입력 값은 `null`이다. JSON wire type은 number만 허용하며 문자열 숫자는 받지 않는다.
+  유효 범위는 `1.00` 이상 `500.00` 이하, 소수 둘째 자리 이하이고 저장 시 반올림하지 않는다.
+- User 동네를 변경해도 게시글 등 작성 시점에 저장한 historical neighborhood snapshot은 갱신하지 않는다.
+
+### `GET /me`
+
+- 인증: 로그인 User
+- 성공: `200 ApiResponse<MeResponse>`, message는 `내 정보가 조회되었습니다.`
+- `data`는 `userId`, `email`, `nickname`, `publicTag`, `role`, `accountStatus`, `accessLevel`,
+  `neighborhoodCode`, `activePetId`, `weightKg`를 반환한다. `weightKg`는 JSON number 또는 `null`이다.
+
+```json
+{
+  "success": true,
+  "message": "내 정보가 조회되었습니다.",
+  "data": {
+    "userId": 1,
+    "email": "user@example.com",
+    "nickname": "도기",
+    "publicTag": "도기#A7K2",
+    "role": "USER",
+    "accountStatus": "ACTIVE",
+    "accessLevel": "L1",
+    "neighborhoodCode": "4113111500",
+    "activePetId": null,
+    "weightKg": null
+  },
+  "error": null
+}
+```
+
+- 오류: `401 UNAUTHORIZED`, `404 USER_NOT_FOUND`.
+
+### `PATCH /me`
+
+- 인증: 로그인 User
+- 성공: `200 ApiResponse<MeResponse>`, message는 `내 정보가 수정되었습니다.`
+- 요청 본문은 strict JSON이며 허용 필드는 `nickname`, `neighborhoodCode`, `weightKg`뿐이다.
+  빈 객체·body `null`·unknown field·필드가 하나도 없는 요청은 `400 VALIDATION_FAILED`다.
+- 필드별 tri-state 규칙은 **생략=기존 값 유지**, **유효 값=수정**, **명시적 null=필드별 초기화/거부**다.
+
+| 필드 | 유효 값 | 명시적 `null` |
+|---|---|---|
+| `nickname` | 문자열 trim 후 2~20자 | `400 VALIDATION_FAILED` |
+| `neighborhoodCode` | 문자열 trim 후 20자 이하인 활성 동네 코드 | `400 VALIDATION_FAILED` |
+| `weightKg` | JSON number, `1.00`~`500.00`, 소수 둘째 자리 이하 | 체중 정보 삭제(`null`) |
+
+```json
+{
+  "nickname": "새이름",
+  "neighborhoodCode": "4113111500",
+  "weightKg": 72.50
+}
+```
+
+- JSON 문자열 `"72.50"`, 소수 셋째 자리 이상, 범위 밖 숫자는 `400 VALIDATION_FAILED`이며 서버는
+  weightKg를 반올림하거나 scale을 보정하지 않는다.
+- nickname 변경은 `publicTag`를 재생성하지 않는다. 요청 값이 현재 값과 모두 같으면 no-op으로 현재
+  `MeResponse`를 반환하고 User `version`·`updatedAt`을 갱신하지 않는다(체중은 숫자 비교 기준).
+  실제 변경은 User `version`의 낙관적 갱신을 적용하며 동시 수정 충돌은 `409 CONCURRENT_UPDATE_CONFLICT`다.
+- 오류: `401 UNAUTHORIZED`, `404 USER_NOT_FOUND`,
+  `409 CONCURRENT_UPDATE_CONFLICT`, `422 NEIGHBORHOOD_NOT_FOUND`.
+
 ---
 
 ## 2. OAuth
@@ -151,7 +217,6 @@ raw userinfo는 저장·로그·Front redirect에 남기지 않는다.
 - `401 OAUTH_LOGIN_CODE_INVALID`
 - `410 OAUTH_LOGIN_CODE_EXPIRED`
 - `410 OAUTH_LOGIN_CODE_CONSUMED`
-- `403 ACCOUNT_NOT_ACTIVE`
 - `409 OAUTH_ACCOUNT_LINK_DECISION_REQUIRED` (동일 email의 미연결 기존 계정; 자동 연결·신규 User 생성·link endpoint 없음, loginCode 미소비). 이는 최종 account-link 정책이 아닌 현재 안전 경계다.
 - loginCode는 logical expiry 뒤 약 1분 cleanup grace 안에는 `OAUTH_LOGIN_CODE_EXPIRED`, physical delete 뒤에는
   `OAUTH_LOGIN_CODE_INVALID`다.
@@ -168,7 +233,8 @@ raw userinfo는 저장·로그·Front redirect에 남기지 않는다.
 {
   "signupToken": "opaque-one-time-signup-token",
   "nickname": "동훈",
-  "neighborhoodCode": "1114010100"
+  "neighborhoodCode": "1114010100",
+  "weightKg": 72.50
 }
 ```
 
@@ -190,7 +256,8 @@ raw userinfo는 저장·로그·Front redirect에 남기지 않는다.
 - 오류: `400 VALIDATION_FAILED`, `401 OAUTH_SIGNUP_TOKEN_INVALID`, `410 OAUTH_SIGNUP_TOKEN_EXPIRED`,
   `422 NEIGHBORHOOD_NOT_FOUND`, `409 CONCURRENT_UPDATE_CONFLICT`, `409 PUBLIC_TAG_GENERATION_FAILED`.
 - `signupToken`은 10분 TTL의 1회용이고, nickname은 trim 후 2~20자, neighborhoodCode는 trim 후
-  최대 20자여야 한다. email/provider subject는 request body가 아니라 token에서만 가져온다. logical expiry
+  최대 20자여야 한다. `weightKg`는 선택 입력이며 JSON number로 `1.00`~`500.00`, 소수 둘째 자리
+  이하를 사용한다. email/provider subject는 request body가 아니라 token에서만 가져온다. logical expiry
   뒤 약 1분 cleanup grace 안에는 `OAUTH_SIGNUP_TOKEN_EXPIRED`, physical delete 뒤에는
   `OAUTH_SIGNUP_TOKEN_INVALID`다. 가입 transaction 직전/중 동일 email User가 먼저 생성되는 late race는
   User·OAuthIdentity·RefreshToken·signupToken consume을 모두 rollback하고

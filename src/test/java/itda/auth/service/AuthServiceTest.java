@@ -21,10 +21,12 @@ import itda.neighborhood.repository.NeighborhoodRepository;
 import itda.oauth.domain.OAuthProvider;
 import itda.oauth.service.OAuthExchangeResult;
 import itda.oauth.service.OAuthExchangeService;
+import itda.oauth.service.OAuthSignupCommand;
 import itda.oauth.service.OAuthSignupService;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
 import itda.user.service.PublicTagGenerator;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +35,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -119,6 +122,35 @@ class AuthServiceTest {
     }
 
     @Test
+    void signupPropagatesWeightKgToPersistedUser() {
+        SignupRequest request = new SignupRequest(
+                "user@example.com", "long-password", "사용자", "1168010100",
+                "verification-token", new BigDecimal("3.25"));
+        given(userRepository.findByEmailIgnoreCase("user@example.com")).willReturn(Optional.empty());
+        given(neighborhoodRepository.existsByCodeAndActiveTrue("1168010100")).willReturn(true);
+        given(passwordEncoder.encode("long-password")).willReturn("encoded");
+        given(publicTagGenerator.generate("사용자")).willReturn("사용자#A7K2");
+        given(userRegistrationService.registerAndIssue(any(User.class))).willReturn(tokens());
+
+        authService.signup(request);
+
+        ArgumentCaptor<User> savedUser = ArgumentCaptor.forClass(User.class);
+        then(userRegistrationService).should().registerAndIssue(savedUser.capture());
+        assertThat(savedUser.getValue().getWeightKg()).isEqualByComparingTo("3.25");
+    }
+
+    @Test
+    void signupOAuthPropagatesWeightKgToOAuthCompletionCommand() {
+        given(oauthSignupService.<AuthTokensResponse>complete(any(), any())).willReturn(tokens());
+
+        authService.signupOAuth("signup-token", "사용자", "1168010100", new BigDecimal("3.25"));
+
+        ArgumentCaptor<OAuthSignupCommand> command = ArgumentCaptor.forClass(OAuthSignupCommand.class);
+        then(oauthSignupService).should().complete(command.capture(), any());
+        assertThat(command.getValue().weightKg()).isEqualByComparingTo("3.25");
+    }
+
+    @Test
     void loginDoesNotRevealWhetherEmailOrPasswordWasWrong() {
         given(userRepository.findByEmailIgnoreCase("missing@example.com"))
                 .willReturn(Optional.empty());
@@ -162,6 +194,10 @@ class AuthServiceTest {
         verify(userRegistrationService, times(2))
                 .registerAndIssue(any(User.class));
         verify(publicTagGenerator, times(2)).generate("사용자");
+    }
+
+    private AuthTokensResponse tokens() {
+        return new AuthTokensResponse("access", "refresh", Instant.parse("2026-07-24T00:30:00Z"));
     }
 
     @Nested

@@ -33,6 +33,19 @@ safety_review_cases 1 ─ N evidence_access_audits
 
 ## 2. 인증
 
+### `users` User 프로필 확장
+
+| 컬럼 | 형식 | 제약·의미 |
+|---|---|---|
+| weight_kg | NUMERIC | nullable인 사람 User 체중(kg). `1.00 <= weight_kg <= 500.00`, `scale(weight_kg) <= 2` |
+
+- 일반 이메일 가입과 OAuth 가입 모두 `weight_kg`는 선택 입력이다. 기존 행은 기본값·backfill 없이
+  `NULL`로 남길 수 있다.
+- DB는 plain `NUMERIC`에 CHECK만 적용하며 저장 시 반올림·암묵적 scale 보정을 하지 않는다. JSON 요청은
+  문자열이 아닌 number만 허용하고, 응답의 `weightKg`는 number 또는 `null`이다.
+- User의 `version`은 `PATCH /me`의 낙관적 동시성 검증에 사용한다. nickname 변경은 `public_tag`를
+  재생성하지 않는다.
+
 ### `oauth_identities`
 
 | 컬럼 | 형식 | 제약 |
@@ -73,6 +86,8 @@ safety_review_cases 1 ─ N evidence_access_audits
 ### `board_posts`
 
 - `place_id BIGINT NULL FK places(id)` 추가
+- `neighborhood_code`는 게시글 작성 시점 User 동네의 historical snapshot이다. User의 현재 동네 변경으로
+  기존 게시글의 snapshot을 갱신하지 않는다.
 
 ### `board_post_reactions`
 

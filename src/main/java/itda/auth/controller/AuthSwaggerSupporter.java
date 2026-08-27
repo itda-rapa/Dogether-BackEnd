@@ -66,9 +66,10 @@ public interface AuthSwaggerSupporter {
                     {
                         "email":"user@example.com",
                         "password":"password1234",
-                        "nickname":"도기",
+                        "nickname":"사용자",
                         "neighborhoodCode":"SEOUL_GANGNAM",
-                        "verificationToken":"email-verification-token"
+                        "verificationToken":"email-verification-token",
+                        "weightKg":72.50
                     }
                     """)
     ))
@@ -174,8 +175,20 @@ public interface AuthSwaggerSupporter {
 
     @Operation(
             summary = "OAuth 회원가입 완료",
-            description = "OAuth 가입 토큰과 필수 프로필 정보를 사용해 OAuth 전용 계정을 생성하고 토큰을 발급합니다."
+            description = "OAuth 가입 토큰과 필수 프로필 정보, 선택 입력인 사용자 체중을 사용해 OAuth 전용 계정을 생성하고 토큰을 발급합니다."
     )
+    @RequestBody(content = @Content(
+            mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = OAuthSignupRequest.class),
+            examples = @ExampleObject("""
+                    {
+                        "signupToken":"oauth-signup-token",
+                        "nickname":"사용자",
+                        "neighborhoodCode":"SEOUL_GANGNAM",
+                        "weightKg":72.50
+                    }
+                    """)
+    ))
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "OAuth 회원가입 성공")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "요청 값 검증 실패")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 가입 토큰")

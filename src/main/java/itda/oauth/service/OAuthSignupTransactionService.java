@@ -8,6 +8,7 @@ import itda.oauth.repository.OAuthIdentityRepository;
 import itda.oauth.repository.OAuthSignupTokenRepository;
 import itda.user.domain.User;
 import itda.user.repository.UserRepository;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OAuthSignupTransactionService {
+
+    private static final BigDecimal MIN_WEIGHT_KG = new BigDecimal("1.00");
+    private static final BigDecimal MAX_WEIGHT_KG = new BigDecimal("500.00");
 
     private final OAuthSignupTokenRepository signupTokenRepository;
     private final OAuthIdentityRepository identityRepository;
@@ -72,6 +76,7 @@ public class OAuthSignupTransactionService {
 
         String nickname = normalizeNickname(command.nickname());
         String neighborhoodCode = normalizeNeighborhoodCode(command.neighborhoodCode());
+        validateWeightKg(command.weightKg());
         if (!neighborhoodRepository.existsByCodeAndActiveTrue(neighborhoodCode)) {
             throw failure(OAuthFlowFailure.NEIGHBORHOOD_NOT_FOUND);
         }
@@ -84,12 +89,14 @@ public class OAuthSignupTransactionService {
             throw failure(OAuthFlowFailure.CONCURRENT_UPDATE_CONFLICT);
         }
 
-        User user = userRepository.saveAndFlush(User.registerOAuth(
+        User user = User.registerOAuth(
                 verifiedEmail,
                 nickname,
                 publicTag,
-                neighborhoodCode
-        ));
+                neighborhoodCode,
+                command.weightKg()
+        );
+        user = userRepository.saveAndFlush(user);
         identityRepository.saveAndFlush(OAuthIdentity.link(
                 user,
                 signupToken.getProvider(),
@@ -128,6 +135,17 @@ public class OAuthSignupTransactionService {
             throw failure(OAuthFlowFailure.VALIDATION_FAILED);
         }
         return neighborhoodCode;
+    }
+
+    private void validateWeightKg(BigDecimal weightKg) {
+        if (weightKg == null) {
+            return;
+        }
+        if (weightKg.compareTo(MIN_WEIGHT_KG) < 0
+                || weightKg.compareTo(MAX_WEIGHT_KG) > 0
+                || weightKg.scale() > 2) {
+            throw failure(OAuthFlowFailure.VALIDATION_FAILED);
+        }
     }
 
     private String required(String rawToken) {
