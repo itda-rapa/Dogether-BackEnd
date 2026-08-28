@@ -12,6 +12,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 
 import lombok.*;
 import lombok.experimental.Accessors;
@@ -52,6 +53,18 @@ public class ChatMessage {
     @Column(name = "shared_setlog_id")
     private Long sharedSetlogId;
 
+    @Column(name = "shared_route_id")
+    private UUID sharedRouteId;
+
+    @Column(name = "map_trigger_message_id")
+    private Long mapTriggerMessageId;
+
+    @Column(name = "map_category", length = 30)
+    private String mapCategory;
+
+    @Column(name = "map_facilities_json", columnDefinition = "text")
+    private String mapFacilitiesJson;
+
     @Column(name = "client_message_id", length = 64)
     private String clientMessageId;
 
@@ -80,6 +93,34 @@ public class ChatMessage {
                 .message(message)
                 .build()
                 .setSenderPetId(petId);
+    }
+
+    public static ChatMessage map(
+            ChatRoom room,
+            Long senderPetId,
+            Long triggerMessageId,
+            String category,
+            String facilitiesJson,
+            String clientMessageId
+    ) {
+        ChatMessage message = new ChatMessage();
+        message.room = room;
+        message.senderType = SenderType.PET;
+        message.senderPetId = senderPetId;
+        message.type = MessageType.MAP;
+        message.mapTriggerMessageId = triggerMessageId;
+        message.mapCategory = category;
+        message.mapFacilitiesJson = facilitiesJson;
+        message.clientMessageId = clientMessageId;
+        message.createdAt = Instant.now();
+        return message;
+    }
+
+    public void updateMapFacilitiesJson(String facilitiesJson) {
+        if (type != MessageType.MAP) {
+            throw new IllegalStateException("MAP 메시지만 시설 정보를 갱신할 수 있습니다.");
+        }
+        this.mapFacilitiesJson = facilitiesJson;
     }
 
 }

@@ -692,7 +692,7 @@ class ChatMessageServiceTest {
 
     private static ChatMessageResponse responseWithNickname(String nickname) {
         return new ChatMessageResponse(
-                1L, 1L, "PET", 10L, nickname, "TEXT", "body", null, null, null, "idem", Instant.now());
+                1L, 1L, "PET", 10L, nickname, "TEXT", "body", null, null, null, null, "idem", Instant.now());
     }
 
     private static MessageUpsert upsert(long id, boolean created) {

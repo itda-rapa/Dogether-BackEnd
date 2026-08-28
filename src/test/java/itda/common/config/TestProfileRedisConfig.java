@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
  * Test-only conventional Redis candidate. Production continues to use Redisson as its default;
@@ -21,5 +22,12 @@ class TestProfileRedisConfig {
             @Qualifier("emailRedisConnectionFactory") RedisConnectionFactory emailRedisConnectionFactory
     ) {
         return emailRedisConnectionFactory;
+    }
+
+    @Bean(name = "stringRedisTemplate")
+    StringRedisTemplate conventionalTestStringRedisTemplate(
+            @Qualifier("redisConnectionFactory") RedisConnectionFactory redisConnectionFactory
+    ) {
+        return new StringRedisTemplate(redisConnectionFactory);
     }
 }

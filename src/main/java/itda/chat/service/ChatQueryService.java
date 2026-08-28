@@ -175,7 +175,8 @@ public class ChatQueryService {
                 row.getMsgSenderPetId(), senderPetNickname(
                         row.getMsgSenderPetId(), actorPetId, summaries, actor.nickname()),
                 row.getMsgType(), row.getMsgBody(),
-                null, null,
+                null, null, null,
+                null,
                 row.getMsgMeetingCardId(), row.getMsgClientMessageId(),
                 row.getMsgCreatedAt())
                 : null;

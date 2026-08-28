@@ -4,6 +4,8 @@ import itda.common.dto.ApiResponse;
 import itda.common.security.CurrentUser;
 import itda.meetingcard.dto.response.OpenChatCardDraftResponse;
 import itda.meetingcard.service.OpenChatDraftRequestService;
+import itda.meetingcard.service.OpenChatDraftDispatchService;
+import itda.meetingcard.dto.response.OpenChatDraftRequestResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import java.util.List;
@@ -20,15 +22,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class OpenChatDraftController {
 
     private final OpenChatDraftRequestService service;
+    private final OpenChatDraftDispatchService dispatchService;
 
     @PostMapping
-    public ResponseEntity<ApiResponse<List<OpenChatCardDraftResponse>>> requestDraft(
+    public ResponseEntity<ApiResponse<OpenChatDraftRequestResponse>> requestDraft(
             @AuthenticationPrincipal CurrentUser currentUser,
             @PathVariable long roomId
     ) {
         return ResponseEntity.ok(ApiResponse.ok(
-                service.createDrafts(currentUser.id(), roomId),
-                "AI 약속 카드 초안 생성 성공"
+                dispatchService.request(currentUser.id(), roomId),
+                "AI 약속 카드 초안 요청 성공"
         ));
     }
 

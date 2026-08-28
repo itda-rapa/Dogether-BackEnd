@@ -21,6 +21,7 @@ class EmailRedisWiringTest {
     private final StringRedisTemplate redisTemplate;
     private final RedisConnectionFactory conventionalConnectionFactory;
     private final RedisTemplate<?, ?> conventionalRedisTemplate;
+    private final StringRedisTemplate conventionalStringRedisTemplate;
     private final RedisConnectionFactory petVerificationConnectionFactory;
     private final StringRedisTemplate petVerificationRedisTemplate;
 
@@ -29,6 +30,7 @@ class EmailRedisWiringTest {
             @Qualifier("emailStringRedisTemplate") StringRedisTemplate redisTemplate,
             @Qualifier("redisConnectionFactory") RedisConnectionFactory conventionalConnectionFactory,
             @Qualifier("redisTemplate") RedisTemplate<?, ?> conventionalRedisTemplate,
+            @Qualifier("stringRedisTemplate") StringRedisTemplate conventionalStringRedisTemplate,
             @Qualifier("petVerificationRedisConnectionFactory") RedisConnectionFactory petVerificationConnectionFactory,
             @Qualifier("petVerificationStringRedisTemplate") StringRedisTemplate petVerificationRedisTemplate
     ) {
@@ -36,6 +38,7 @@ class EmailRedisWiringTest {
         this.redisTemplate = redisTemplate;
         this.conventionalConnectionFactory = conventionalConnectionFactory;
         this.conventionalRedisTemplate = conventionalRedisTemplate;
+        this.conventionalStringRedisTemplate = conventionalStringRedisTemplate;
         this.petVerificationConnectionFactory = petVerificationConnectionFactory;
         this.petVerificationRedisTemplate = petVerificationRedisTemplate;
     }
@@ -51,6 +54,7 @@ class EmailRedisWiringTest {
     void testProfileExposesConventionalRedisTemplateWithoutReintroducingADbZeroFactory() {
         assertThat(conventionalConnectionFactory).isSameAs(connectionFactory);
         assertThat(conventionalRedisTemplate.getConnectionFactory()).isSameAs(connectionFactory);
+        assertThat(conventionalStringRedisTemplate.getConnectionFactory()).isSameAs(connectionFactory);
         assertThat(((LettuceConnectionFactory) conventionalConnectionFactory).getDatabase()).isEqualTo(1);
         assertThat(((LettuceConnectionFactory) petVerificationConnectionFactory).getDatabase()).isEqualTo(5);
         assertThat(petVerificationRedisTemplate.getConnectionFactory()).isSameAs(petVerificationConnectionFactory);

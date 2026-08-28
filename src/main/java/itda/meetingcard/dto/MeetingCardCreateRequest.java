@@ -3,9 +3,12 @@ package itda.meetingcard.dto;
 import itda.meetingcard.domain.MeetingCardType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * OpenAPI {@code MeetingCardCreateRequest}.
@@ -19,11 +22,26 @@ public record MeetingCardCreateRequest(
         @NotNull MeetingCardType cardType,
         @NotBlank @Size(max = 500) String placeText,
         @NotNull Instant meetAt,
-        List<Long> participantPetIds
+        List<Long> participantPetIds,
+        UUID routeRequestId,
+        @Min(1) @Max(1000) Integer participantCount
 ) {
     /** Backwards-compatible constructor for the DIRECT-chat contract. */
     public MeetingCardCreateRequest(Long roomId, Long draftId, MeetingCardType cardType,
                                     String placeText, Instant meetAt) {
-        this(roomId, draftId, cardType, placeText, meetAt, null);
+        this(roomId, draftId, cardType, placeText, meetAt, null, null, null);
+    }
+
+    public MeetingCardCreateRequest(Long roomId, Long draftId, MeetingCardType cardType,
+                                    String placeText, Instant meetAt,
+                                    List<Long> participantPetIds) {
+        this(roomId, draftId, cardType, placeText, meetAt, participantPetIds, null, null);
+    }
+
+    public MeetingCardCreateRequest(Long roomId, Long draftId, MeetingCardType cardType,
+                                    String placeText, Instant meetAt,
+                                    List<Long> participantPetIds, UUID routeRequestId) {
+        this(roomId, draftId, cardType, placeText, meetAt, participantPetIds,
+                routeRequestId, null);
     }
 }

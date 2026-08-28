@@ -89,8 +89,8 @@ class MeetingVerificationProjectionTest {
         jdbcTemplate.update("""
                 insert into meeting_cards
                     (id, room_id, creator_pet_id, card_type, place_text, meet_at, status,
-                     created_at, updated_at)
-                values (?, 1, 11, 'WALK', '중앙공원', ?, 'OPEN', now(), now())
+                     participant_count, created_at, updated_at)
+                values (?, 1, 11, 'WALK', '중앙공원', ?, 'OPEN', 2, now(), now())
                 """, id, Instant.parse("2026-07-30T01:00:00Z"));
     }
 

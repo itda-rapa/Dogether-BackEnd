@@ -12,7 +12,8 @@ public record MapPlaceResponse(
         String phoneNumber,
         String status,
         BigDecimal longitude,
-        BigDecimal latitude
+        BigDecimal latitude,
+        Double distanceMeters
 ) {
 
     public static MapPlaceResponse from(AnimalHospital hospital) {
@@ -24,7 +25,8 @@ public record MapPlaceResponse(
                 phoneNumberOf(hospital.getPhoneNumber()),
                 hospital.getStatus(),
                 hospital.getLongitude(),
-                hospital.getLatitude()
+                hospital.getLatitude(),
+                null
         );
     }
 
@@ -37,7 +39,25 @@ public record MapPlaceResponse(
                 phoneNumberOf(pharmacy.getPhoneNumber()),
                 pharmacy.getStatus(),
                 pharmacy.getLongitude(),
-                pharmacy.getLatitude()
+                pharmacy.getLatitude(),
+                null
+        );
+    }
+
+    public static MapPlaceResponse from(
+            itda.map.repository.NearbyMapPlaceRow place,
+            MapPlaceType type
+    ) {
+        return new MapPlaceResponse(
+                place.getPlaceId(),
+                type,
+                place.getName(),
+                place.getAddress(),
+                phoneNumberOf(place.getPhoneNumber()),
+                place.getStatus(),
+                place.getLongitude(),
+                place.getLatitude(),
+                place.getDistanceMeters()
         );
     }
 

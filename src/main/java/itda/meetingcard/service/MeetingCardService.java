@@ -2,6 +2,7 @@ package itda.meetingcard.service;
 
 import itda.chat.domain.ChatRoom;
 import itda.chat.repository.ChatRoomRepository;
+import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.service.ChatMessageService;
 import itda.chat.service.ChatQueryService;
 import itda.common.constants.ErrorCode;
@@ -15,6 +16,7 @@ import itda.meetingcard.domain.MeetingCardStatus;
 import itda.meetingcard.dto.MeetingCardCreateRequest;
 import itda.meetingcard.dto.response.MeetingCardListResponse;
 import itda.meetingcard.dto.response.MeetingCardResponse;
+import itda.meetingcard.dto.response.OpenChatDraftParticipantResponse;
 import itda.meetingcard.repository.CardDraftRepository;
 import itda.meetingcard.repository.CardDraftParticipantRepository;
 import itda.meetingcard.repository.MeetingCardRepository;
@@ -26,6 +28,9 @@ import itda.chat.dto.response.CursorPage;
 import itda.pet.domain.PetStatus;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.pet.service.query.PetDisplayQueryService;
+import itda.pet.service.query.PetDisplaySummary;
+import itda.route.repository.RouteRequestRepository;
 import itda.user.domain.AccountStatus;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -61,6 +66,25 @@ public class MeetingCardService {
     private final InteractionPairLockService interactionPairLockService;
     private final MeetingRepository meetingRepository;
     private final Clock clock;
+    private RouteRequestRepository routeRequestRepository;
+    private ChatRoomParticipantRepository chatRoomParticipantRepository;
+    private PetDisplayQueryService petDisplayQueryService;
+
+    @Autowired
+    void setRouteRequestRepository(RouteRequestRepository routeRequestRepository) {
+        this.routeRequestRepository = routeRequestRepository;
+    }
+
+    @Autowired
+    void setChatRoomParticipantRepository(
+            ChatRoomParticipantRepository chatRoomParticipantRepository) {
+        this.chatRoomParticipantRepository = chatRoomParticipantRepository;
+    }
+
+    @Autowired
+    void setPetDisplayQueryService(PetDisplayQueryService petDisplayQueryService) {
+        this.petDisplayQueryService = petDisplayQueryService;
+    }
 
     // 프로젝트 관행대로 주 생성자가 Clock 을 받고 편의 생성자가 기본값을 넘긴다.
     // GreetingService, FriendRelationshipQueryService, CardDraftService 와 같은 형태다.
@@ -118,18 +142,29 @@ public class MeetingCardService {
         List<Long> participantPetIds;
         Long sourceDraftId;
         if (room.isOpenChat()) {
-            sourceDraftId = resolveDraftId(request, actor.petId());
-            if (sourceDraftId == null) {
+            sourceDraftId = resolveDraftId(request, actor.petId(), true);
+            if (sourceDraftId == null && request.routeRequestId() == null) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED);
             }
-            List<Long> snapshotPetIds = cardDraftParticipantRepository
-                    .findByCardDraftIdOrderByIdAsc(sourceDraftId).stream()
-                    .map(participant -> participant.getPetId())
-                    .distinct()
-                    .toList();
+            List<Long> snapshotPetIds = sourceDraftId == null
+                    ? chatRoomParticipantRepository.findByRoomId(request.roomId()).stream()
+                            .filter(participant -> participant.getLeftAt() == null)
+                            .map(participant -> participant.getPetId())
+                            .distinct()
+                            .toList()
+                    : cardDraftParticipantRepository
+                            .findByCardDraftIdOrderByIdAsc(sourceDraftId).stream()
+                            .map(participant -> participant.getPetId())
+                            .distinct()
+                            .toList();
             participantPetIds = selectOpenChatParticipants(
                     request, snapshotPetIds, actor.petId());
-            if (participantPetIds.size() < 2 || !participantPetIds.contains(actor.petId())) {
+            // AI 초안은 합의할 상대가 한 명 이상 필요하지만, 이미 공유된 경로에서
+            // 만드는 약속 카드는 방에 혼자 남은 시점에도 먼저 발급할 수 있다.
+            // 이후 초대된 참여자는 채팅에서 카드를 확인할 수 있다.
+            int minimumParticipants = request.routeRequestId() == null ? 2 : 1;
+            if (participantPetIds.size() < minimumParticipants
+                    || !participantPetIds.contains(actor.petId())) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED);
             }
         } else {
@@ -141,7 +176,7 @@ public class MeetingCardService {
             requireLockedActor(userId, actor, lockedPair);
             chatQueryService.requireParticipant(request.roomId(), actor.petId());
             chatQueryService.requireGreetingReplyCompleted(request.roomId());
-            sourceDraftId = resolveDraftId(request, actor.petId());
+            sourceDraftId = resolveDraftId(request, actor.petId(), false);
         }
 
         MeetingCard card = meetingCardRepository.save(new MeetingCard(
@@ -150,7 +185,9 @@ public class MeetingCardService {
                 sourceDraftId,
                 request.cardType(),
                 request.placeText(),
-                request.meetAt()
+                request.meetAt(),
+                validatedRouteId(userId, request),
+                resolvedParticipantCount(request, room, participantPetIds)
         ));
 
         for (Long petId : participantPetIds) {
@@ -165,7 +202,29 @@ public class MeetingCardService {
                 card.getId(),
                 "meeting-card:" + card.getId() + ":created");
 
-        return MeetingCardResponse.of(card, participantPetIds);
+        return toResponse(card, participantPetIds);
+    }
+
+    private int resolvedParticipantCount(MeetingCardCreateRequest request, ChatRoom room,
+                                         List<Long> participantPetIds) {
+        int currentParticipants = participantPetIds.size();
+        int requested = request.participantCount() == null
+                ? currentParticipants : request.participantCount();
+        if (requested != currentParticipants) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED);
+        }
+        return requested;
+    }
+
+    private java.util.UUID validatedRouteId(Long userId, MeetingCardCreateRequest request) {
+        if (request.routeRequestId() == null) {
+            return null;
+        }
+        if (routeRequestRepository == null || !routeRequestRepository.isAvailableForMeeting(
+                request.routeRequestId(), userId, request.roomId())) {
+            throw new BusinessException(ErrorCode.ROUTE_SHARE_FORBIDDEN);
+        }
+        return request.routeRequestId();
     }
 
     @Transactional(readOnly = true)
@@ -184,8 +243,7 @@ public class MeetingCardService {
         // 차단은 카드가 만들어진 뒤에 걸릴 수 있으므로 조회 시점에 다시 본다.
         chatQueryService.requireParticipant(card.getRoomId(), actor.petId());
 
-        return MeetingCardResponse.of(
-                card, meetingParticipantRepository.findPetIdsByMeetingCardId(cardId));
+        return toResponse(card, meetingParticipantRepository.findPetIdsByMeetingCardId(cardId));
     }
 
     @Transactional(readOnly = true)
@@ -223,7 +281,7 @@ public class MeetingCardService {
         }
 
         List<MeetingCardResponse> items = cards.stream()
-                .map(card -> MeetingCardResponse.of(card, participantIdsByCard.get(card.getId())))
+                .map(card -> toResponse(card, participantIdsByCard.get(card.getId())))
                 .toList();
         String nextCursor = hasNext && !cards.isEmpty()
                 ? MeetingCardCursorCodec.encode(
@@ -291,8 +349,22 @@ public class MeetingCardService {
                 "약속이 취소되었습니다.",
                 "meeting-card:" + cardId + ":canceled");
 
-        return MeetingCardResponse.of(
-                card, meetingParticipantRepository.findPetIdsByMeetingCardId(cardId));
+        return toResponse(card, meetingParticipantRepository.findPetIdsByMeetingCardId(cardId));
+    }
+
+    private MeetingCardResponse toResponse(MeetingCard card, List<Long> participantPetIds) {
+        if (petDisplayQueryService == null || participantPetIds == null || participantPetIds.isEmpty()) {
+            return MeetingCardResponse.of(card,
+                    participantPetIds == null ? List.of() : participantPetIds);
+        }
+        Map<Long, PetDisplaySummary> summaries =
+                petDisplayQueryService.getPetDisplaySummaries(participantPetIds);
+        List<OpenChatDraftParticipantResponse> participants = participantPetIds.stream()
+                .map(summaries::get)
+                .filter(Objects::nonNull)
+                .map(OpenChatDraftParticipantResponse::from)
+                .toList();
+        return MeetingCardResponse.of(card, participantPetIds, participants);
     }
 
     /**
@@ -318,13 +390,21 @@ public class MeetingCardService {
      * 엉뚱한 방으로 새어 나간다. 중복 사용은 DB 의 {@code uk_meeting_card_source_draft} 가
      * 최종 방어선이고 여기서는 사용자에게 400 을 주기 위해 먼저 검사한다.
      */
-    private Long resolveDraftId(MeetingCardCreateRequest request, long actorPetId) {
+    private Long resolveDraftId(
+            MeetingCardCreateRequest request,
+            long actorPetId,
+            boolean openChat
+    ) {
         if (request.draftId() == null) {
             return null;
         }
         CardDraft draft = cardDraftRepository.findById(request.draftId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED));
-        if (!draft.getRequestedByPetId().equals(actorPetId)
+        boolean ownsDraft = draft.getRequestedByPetId().equals(actorPetId);
+        boolean participatesInDraft = openChat
+                && cardDraftParticipantRepository.existsByCardDraftIdAndPetId(
+                        request.draftId(), actorPetId);
+        if ((!ownsDraft && !participatesInDraft)
                 || !draft.getRoomId().equals(request.roomId())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
         }
@@ -344,12 +424,11 @@ public class MeetingCardService {
             long actorPetId
     ) {
         List<Long> submitted = request.participantPetIds();
-        List<Long> selected = submitted == null ? snapshotPetIds : submitted;
+        List<Long> selected = submitted == null || submitted.isEmpty() ? snapshotPetIds : submitted;
         if (selected.stream().anyMatch(Objects::isNull)
                 || selected.size() != selected.stream().distinct().count()
                 || !snapshotPetIds.containsAll(selected)
                 || !selected.contains(actorPetId)
-                || selected.size() < 2
                 || selected.stream().anyMatch(
                         petId -> !chatRoomParticipantIsActive(request.roomId(), petId))) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);

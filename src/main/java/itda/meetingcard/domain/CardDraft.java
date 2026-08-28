@@ -62,6 +62,12 @@ public class CardDraft {
     @Column(name = "fallback_reason", length = 30)
     private CardDraftFallbackReason fallbackReason;
 
+    @Column(name = "request_id", length = 64)
+    private String requestId;
+
+    @Column(name = "candidate_index")
+    private Integer candidateIndex;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -82,6 +88,21 @@ public class CardDraft {
         this.date = date;
         this.time = time;
         this.fallbackReason = fallbackReason;
+    }
+
+    public CardDraft(Long roomId,
+                     Long requestedByPetId,
+                     MeetingCardType cardType,
+                     String placeText,
+                     Instant meetAt,
+                     String date,
+                     String time,
+                     CardDraftFallbackReason fallbackReason,
+                     String requestId,
+                     Integer candidateIndex) {
+        this(roomId, requestedByPetId, cardType, placeText, meetAt, date, time, fallbackReason);
+        this.requestId = requestId;
+        this.candidateIndex = candidateIndex;
     }
 
     /**

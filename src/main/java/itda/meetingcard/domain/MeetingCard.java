@@ -12,6 +12,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -54,6 +55,12 @@ public class MeetingCard extends BaseEntity {
     @Column(name = "meet_at", nullable = false)
     private Instant meetAt;
 
+    @Column(name = "route_request_id")
+    private UUID routeRequestId;
+
+    @Column(name = "participant_count", nullable = false)
+    private Integer participantCount;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private MeetingCardStatus status;
@@ -69,14 +76,30 @@ public class MeetingCard extends BaseEntity {
                        Long sourceDraftId,
                        MeetingCardType cardType,
                        String placeText,
-                       Instant meetAt) {
+                       Instant meetAt,
+                       UUID routeRequestId,
+                       int participantCount) {
         this.roomId = roomId;
         this.creatorPetId = creatorPetId;
         this.sourceDraftId = sourceDraftId;
         this.cardType = cardType;
         this.placeText = placeText;
         this.meetAt = meetAt;
+        this.routeRequestId = routeRequestId;
+        this.participantCount = participantCount;
         this.status = MeetingCardStatus.OPEN;
+    }
+
+    public MeetingCard(Long roomId, Long creatorPetId, Long sourceDraftId,
+                       MeetingCardType cardType, String placeText, Instant meetAt,
+                       UUID routeRequestId) {
+        this(roomId, creatorPetId, sourceDraftId, cardType, placeText, meetAt,
+                routeRequestId, 2);
+    }
+
+    public MeetingCard(Long roomId, Long creatorPetId, Long sourceDraftId,
+                       MeetingCardType cardType, String placeText, Instant meetAt) {
+        this(roomId, creatorPetId, sourceDraftId, cardType, placeText, meetAt, null, 2);
     }
 
     /**

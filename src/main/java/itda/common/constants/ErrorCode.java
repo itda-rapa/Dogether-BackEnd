@@ -182,7 +182,17 @@ public enum ErrorCode {
     LOCATION_STALE(HttpStatus.BAD_REQUEST, "수집된 지 오래된 위치 정보입니다."),
 
     // NODE
-    NODE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 좌표에 조회가능한 네트워크 노드가 없습니다.")
+    NODE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 좌표에 조회가능한 네트워크 노드가 없습니다."),
+
+    // ROUTE
+    ROUTE_NOT_FOUND(HttpStatus.NOT_FOUND, "경로 요청 또는 계산된 경로를 찾을 수 없습니다."),
+    ROUTE_NODES_INVALID(HttpStatus.BAD_REQUEST, "경로 노드가 없거나 서로 중복됩니다."),
+    ROUTE_SPEED_INVALID(HttpStatus.BAD_REQUEST, "활동 종류에 맞는 속도 범위를 선택해주세요."),
+    ROUTE_REQUEST_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "경로 계산 요청을 전달하지 못했습니다."),
+    ROUTE_SHARE_FORBIDDEN(HttpStatus.FORBIDDEN, "완료된 본인 경로만 오픈채팅방에 공유할 수 있습니다."),
+    AI_ROUTE_INSUFFICIENT_CONTEXT(HttpStatus.UNPROCESSABLE_ENTITY, "최근 대화에서 출발지와 목적지를 판단하지 못했습니다."),
+    AI_ROUTE_PLACE_NOT_FOUND(HttpStatus.UNPROCESSABLE_ENTITY, "대화에서 찾은 장소를 지도에서 확인하지 못했습니다."),
+    AI_ROUTE_REQUEST_FAILED(HttpStatus.SERVICE_UNAVAILABLE, "AI 경로 생성을 요청하지 못했습니다.")
 
     ;
 
