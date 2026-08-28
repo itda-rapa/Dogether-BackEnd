@@ -143,10 +143,22 @@ public enum ErrorCode {
     ),
     MEETING_TIME_WINDOW_EXCEEDED(
             HttpStatus.CONFLICT,
-            "양쪽 서버 수신시각 간격 또는 약속 시각 대비 GPS 측위 시각이 허용 범위를 초과했습니다."
+            "만남 확인 가능 시간창이 종료되었습니다."
     ),
     MEETING_DISTANCE_EXCEEDED(HttpStatus.CONFLICT, "두 위치 사이의 거리가 허용 범위를 초과했습니다."),
     MEETING_ALREADY_CONFIRMED(HttpStatus.CONFLICT, "이미 확정된 만남입니다."),
+    MEETING_CODE_REQUIRED(HttpStatus.CONFLICT, "위치 정확도 부족으로 확인 코드 방식이 필요합니다."),
+    MEETING_CODE_NOT_AVAILABLE(HttpStatus.GONE, "사용할 수 있는 만남 확인 코드가 없습니다."),
+    MEETING_CODE_ISSUER_FORBIDDEN(HttpStatus.FORBIDDEN, "코드 생성자는 자신의 코드를 검증할 수 없습니다."),
+    MEETING_CODE_VERIFIER_REQUIRED(HttpStatus.CONFLICT, "상대 반려견의 코드 검증이 필요합니다."),
+    MEETING_CODE_MISMATCH(HttpStatus.BAD_REQUEST, "확인 코드가 일치하지 않습니다."),
+    MEETING_CODE_EXPIRED(HttpStatus.GONE, "확인 코드가 만료되었습니다."),
+    MEETING_CODE_ATTEMPTS_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "확인 코드 입력 가능 횟수를 초과했습니다."),
+    MEETING_CODE_REISSUE_FORBIDDEN(HttpStatus.CONFLICT, "상대가 이미 코드를 검증하여 재발급할 수 없습니다."),
+    MEETING_CODE_REISSUE_ISSUER_FORBIDDEN(
+            HttpStatus.FORBIDDEN,
+            "최초 확인 코드 발급자만 코드를 재발급할 수 있습니다."
+    ),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
     REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 

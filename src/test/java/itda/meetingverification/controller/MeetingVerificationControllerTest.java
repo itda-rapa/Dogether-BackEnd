@@ -1,7 +1,6 @@
 package itda.meetingverification.controller;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
@@ -14,11 +13,13 @@ import itda.common.constants.ErrorCode;
 import itda.common.security.CurrentUser;
 import itda.meetingverification.domain.MeetingVerificationApiStatus;
 import itda.meetingverification.domain.MeetingVerificationMethod;
+import itda.meetingverification.dto.ConfirmationCodeCreateResult;
+import itda.meetingverification.dto.ConfirmationCodeResult;
 import itda.meetingverification.dto.MeetingVerificationResult;
+import itda.meetingverification.service.MeetingConfirmationCodeService;
 import itda.meetingverification.service.MeetingVerificationService;
 import itda.user.domain.Role;
 import java.time.Instant;
-import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -54,6 +55,9 @@ class MeetingVerificationControllerTest {
     private MeetingVerificationService meetingVerificationService;
 
     @MockitoBean
+    private MeetingConfirmationCodeService codeService;
+
+    @MockitoBean
     private itda.common.filter.JwtFilter jwtFilter;
 
     @BeforeEach
@@ -85,7 +89,7 @@ class MeetingVerificationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
 
-        verifyNoInteractions(meetingVerificationService);
+        verifyNoInteractions(meetingVerificationService, codeService);
     }
 
     @Test
@@ -104,7 +108,7 @@ class MeetingVerificationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
 
-        verifyNoInteractions(meetingVerificationService);
+        verifyNoInteractions(meetingVerificationService, codeService);
     }
 
     @Test
@@ -123,7 +127,7 @@ class MeetingVerificationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
 
-        verifyNoInteractions(meetingVerificationService);
+        verifyNoInteractions(meetingVerificationService, codeService);
     }
 
     @Test
@@ -142,7 +146,7 @@ class MeetingVerificationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
 
-        verifyNoInteractions(meetingVerificationService);
+        verifyNoInteractions(meetingVerificationService, codeService);
     }
 
     @Test
@@ -246,5 +250,63 @@ class MeetingVerificationControllerTest {
                 .andExpect(jsonPath("$.data.confirmed").value(true))
                 .andExpect(jsonPath("$.data.codeRequired").value(false))
                 .andExpect(jsonPath("$.data.distanceMeters").value(42.7));
+    }
+
+    // ── Confirmation Code API ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("코드 발급은 201 이고 CurrentUser.id 를 Service 에 전달한다")
+    void issueCodeReturnsCreatedAndPassesUserId() throws Exception {
+        given(codeService.issue(eq(USER_ID), eq(CARD_ID)))
+                .willReturn(new ConfirmationCodeCreateResult("4821", Instant.now()));
+
+        mockMvc.perform(post("/meeting-cards/{cardId}/confirmation-codes", CARD_ID))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.code").value("4821"));
+
+        verify(codeService).issue(eq(USER_ID), eq(CARD_ID));
+    }
+
+    @Test
+    @DisplayName("verify code 형식 오류(123/12345/abcd)는 400 이고 Service 를 호출하지 않는다")
+    void verifyCodeInvalidFormatIsRejected() throws Exception {
+        for (String code : new String[]{"123", "12345", "abcd"}) {
+            mockMvc.perform(post("/meeting-cards/{cardId}/confirmation-codes/verify", CARD_ID)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"code\": \"" + code + "\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value(ErrorCode.VALIDATION_FAILED.name()));
+        }
+
+        verifyNoInteractions(codeService);
+    }
+
+    @Test
+    @DisplayName("정상 0123 verify 는 Service 에 정확히 전달된다")
+    void verifyCodeValidPassesToService() throws Exception {
+        given(codeService.verify(eq(USER_ID), eq(CARD_ID), eq("0123")))
+                .willReturn(new ConfirmationCodeResult(CARD_ID, "WAITING_ISSUER_CONFIRMATION",
+                        null, MeetingVerificationMethod.CODE, null));
+
+        mockMvc.perform(post("/meeting-cards/{cardId}/confirmation-codes/verify", CARD_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\": \"0123\"}"))
+                .andExpect(status().isOk());
+
+        verify(codeService).verify(eq(USER_ID), eq(CARD_ID), eq("0123"));
+    }
+
+    @Test
+    @DisplayName("confirm 성공은 200 이고 CurrentUser.id 를 Service 에 전달한다")
+    void confirmCodeReturnsOkAndPassesUserId() throws Exception {
+        given(codeService.confirm(eq(USER_ID), eq(CARD_ID)))
+                .willReturn(new ConfirmationCodeResult(CARD_ID, "CONFIRMED", 61L,
+                        MeetingVerificationMethod.CODE, Instant.now()));
+
+        mockMvc.perform(post("/meeting-cards/{cardId}/confirmation-codes/confirm", CARD_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
+
+        verify(codeService).confirm(eq(USER_ID), eq(CARD_ID));
     }
 }

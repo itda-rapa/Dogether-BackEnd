@@ -668,7 +668,7 @@ class MeetingVerificationPostgreSqlIntegrationTest {
                         insert into meeting_verifications
                             (meeting_card_id, participant_pet_id, status, latitude, longitude,
                              accuracy_meters, captured_at, submitted_at, client_request_id)
-                        values (?, ?, 'BOGUS', 37.5, 126.9, 10.0, now(), now(), ?)
+                        values (?, ?, 'BOGUS', null, null, null, null, now(), ?)
                         """, otherCardId, PET_1, UUID.randomUUID()))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 // BOGUS 는 허용 상태가 아니므로 상태 제약과 raw-location 상태 제약을
@@ -1077,16 +1077,21 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     private List<Object> runConcurrently(java.util.function.IntFunction<Object> action)
             throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(WORKERS);
+        CountDownLatch ready = new CountDownLatch(WORKERS);
         CountDownLatch start = new CountDownLatch(1);
         List<Future<Object>> futures = new ArrayList<>();
         try {
             for (int i = 0; i < WORKERS; i++) {
                 final int index = i;
                 Callable<Object> task = () -> {
+                    ready.countDown();
                     start.await();
                     return action.apply(index);
                 };
                 futures.add(executor.submit(task));
+            }
+            if (!ready.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("concurrent workers did not become ready");
             }
             start.countDown();
 
@@ -1104,17 +1109,23 @@ class MeetingVerificationPostgreSqlIntegrationTest {
     private List<Object> runTwoConcurrently(Callable<Object> first, Callable<Object> second)
             throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         List<Future<Object>> futures = new ArrayList<>();
         try {
             futures.add(executor.submit(() -> {
+                ready.countDown();
                 start.await();
                 return first.call();
             }));
             futures.add(executor.submit(() -> {
+                ready.countDown();
                 start.await();
                 return second.call();
             }));
+            if (!ready.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("concurrent workers did not become ready");
+            }
             start.countDown();
 
             List<Object> results = new ArrayList<>();

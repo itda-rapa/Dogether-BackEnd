@@ -1550,13 +1550,16 @@ Location은 유효한 `accuracyMeters >= 50`을 validation 오류로 소비하�
 }
 ```
 
-`status` 는 사용자용 API 상태(`NOT_SUBMITTED`·`WAITING_COUNTERPART`·`GPS_CONFIRMED`·`CODE_REQUIRED`·`CODE_CONFIRMED`·`REJECTED`·`EXPIRED`)다. `confirmed=false` 일 때 `meetingId`·`verificationMethod`·`confirmedAt`·`distanceMeters` 은 항상 null 이다. `codeRequired` 는 이번 제출이 LOW_ACCURACY(CODE_REQUIRED)여서 확인 코드가 필요한지 나타내며 GET status 의 `codeRequired` 와 의미가 일치한다. Confirmation Code 발급·입력·검증은 이번 범위에서 제외한다.
+`status` 는 사용자용 API 상태(`NOT_SUBMITTED`·`WAITING_COUNTERPART`·`GPS_CONFIRMED`·`CODE_REQUIRED`·`CODE_CONFIRMED`·`REJECTED`·`EXPIRED`)다. `confirmed=false` 일 때 `meetingId`·`verificationMethod`·`confirmedAt`·`distanceMeters` 은 항상 null 이다. `codeRequired` 는 이번 제출이 LOW_ACCURACY(CODE_REQUIRED)여서 확인 코드가 필요한지 나타내며 GET status 의 `codeRequired` 와 의미가 일치한다.
 
 GPS 확정 조건: DIRECT 카드만 허용하며, 같은 소유자의 두 Pet 은 불가하다. 양쪽 제출 모두 `card.meetAt ± 1시간`(경계 포함) 안에 있어야 하고, 양쪽 서버 수신시각(`submittedAt`) 차이가 5분 이내여야 하며, 두 위치 거리가 100m 이내여야 한다. 상대 제출 상태가 정확히 `SUBMITTED` 일 때만 GPS 판정한다.
 
 재시도·멱등: 권한·Chat 접근·카드 OPEN 검증을 통과한 뒤에만 immutable request ledger 를 조회한다. 같은 `clientRequestId` + 같은 카드·Pet·payload 는 서버 수신 deadline 경과 여부와 무관하게 Location 재평가·verification 갱신·Meeting 재생성 없이 기존 결과(replay)로 수렴하고, 같은 `clientRequestId` 인데 카드·Pet·payload 가 다르면 `409 MEETING_VERIFICATION_REQUEST_CONFLICT` 다. 새 `clientRequestId` 만 서버 수신 deadline·GPS 판정 대상이다. 현재 최신 verification 의 terminal/`CODE_REQUIRED` 상태가 과거 ledger 최초 상태보다 우선해, `EXPIRED`/`CODE_REQUIRED` 로 전이된 뒤에는 동일 요청 replay 도 그 상태로 수렴한다.
 
 CODE_REQUIRED 종결: LOW_ACCURACY 로 `CODE_REQUIRED` 가 된 Pet 은 새 `clientRequestId` GPS 로 `SUBMITTED`/`CODE_REQUIRED` 를 갱신할 수 없다(`409 MEETING_VERIFICATION_CODE_REQUIRED`). 기존 `CODE_REQUIRED` verification 과 raw GPS null 은 유지되고, 이후 확정 경로는 Confirmation Code 흐름(#149)만 사용한다.
+
+이 응답은 코드 발급이 아니다. 참여 Pet은 별도 `POST /confirmation-codes`를 호출하며,
+평문 4자리는 그 발급 응답에서만 한 번 반환한다.
 
 오류:
 
@@ -1598,33 +1601,69 @@ CODE_REQUIRED 종결: LOW_ACCURACY 로 `CODE_REQUIRED` 가 된 Pet 은 새 `clie
 
 오류: `404 MEETING_CARD_NOT_FOUND`(카드 없음·비DIRECT 카드·비참여자), `403 ACTIVE_PET_REQUIRED`.
 
-### `POST /meeting-cards/{cardId}/confirmation-code/verify`
+### `POST /meeting-cards/{cardId}/confirmation-codes`
+
+카드 참여 Pet만 호출할 수 있다. 서버가 저장한 현재 `meeting_verifications.status` 중
+`CODE_REQUIRED`가 있을 때만 발급된다. 평문 `code`는 응답에서만 반환되며 DB·로그·이벤트에는
+평문을 저장하지 않는다. `expiresAt`은 `min(now + TTL, meetAt + meetingTimeWindow)`이고,
+`expiresAt <= now`이면 발급하지 않는다. 임의 1ms 보정이나 meeting deadline을 넘는 TTL 연장은 하지 않는다.
+최초 발급은 두 참여자 모두 가능하지만, 기존 Code cycle의 재발급은 최초
+`issuerPetId`와 같은 Pet만 가능하고 issuer를 바꾸지 않는다. 다른 참여자는
+`403 MEETING_CODE_REISSUE_ISSUER_FORBIDDEN`이다. 상대가 검증 완료했고 아직 유효한 코드는 재발급할 수
+없으며(`409 MEETING_CODE_REISSUE_FORBIDDEN`), 검증 완료 뒤 TTL이 만료된 코드는 meeting
+deadline 이내라면 재발급할 수 있고 상대가 다시 검증해야 한다. 발급·재발급·verify·issuer-confirm은
+`receivedAt >= meetAt + meetingTimeWindow`에서 mutation 없이 `409 MEETING_TIME_WINDOW_EXCEEDED`다.
+GPS #148의 경계 정책은 변경하지 않고, 유효한 TTL이 필요한 Code fallback만 종료 시각에
+새 workflow를 시작하지 않는다. Code API에 `clientRequestId`는 없으며 행·Meeting 상태로 수렴한다.
 
 ```json
 {
-  "clientRequestId": "601f87bb-31d9-4f56-95bb-74016fb709f9",
+  "success": true,
+  "message": "확인 코드가 발급되었습니다.",
+  "data": { "code": "4821", "expiresAt": "2026-08-20T09:07:00Z" },
+  "error": null
+}
+```
+
+### `POST /meeting-cards/{cardId}/confirmation-codes/verify`
+
+```json
+{
   "code": "4821"
 }
 ```
+
+상대 Pet만 검증할 수 있다. 성공해도 생성자는 아직 확인되지 않았으므로 Meeting은 생성되지 않는다.
+이미 확정된 CODE Meeting은 deadline 이후 verify 재조회에도 기존 `CONFIRMED` 결과로 수렴한다.
 
 응답:
 
 ```json
 {
   "success": true,
-  "message": "확인 코드로 만남이 확인되었습니다.",
+  "message": "상대 확인이 기록되었습니다.",
   "data": {
     "cardId": 51,
-    "meetingId": 61,
-    "status": "CONFIRMED",
+    "meetingId": null,
+    "status": "WAITING_ISSUER_CONFIRMATION",
     "verificationMethod": "CODE",
-    "confirmedAt": "2026-08-20T09:04:00Z"
+    "confirmedAt": null
   },
   "error": null
 }
 ```
 
-오류: `400 MEETING_CODE_MISMATCH`, `410 MEETING_CODE_EXPIRED`, `429 MEETING_CODE_ATTEMPTS_EXCEEDED`, `409 MEETING_ALREADY_CONFIRMED`.
+### `POST /meeting-cards/{cardId}/confirmation-codes/confirm`
+
+코드 생성자만 호출한다. 상대 검증 뒤 이 호출에서만 `Meeting(verificationMethod=CODE)` 한 건을
+확정하고, 같은 transaction에서 아직 종결되지 않은 `SUBMITTED`/`CODE_REQUIRED` verification을
+`ACCEPTED`로 전이하며 raw GPS를 scrub한다. 이미 CODE Meeting이 있으면 `CONFIRMED`로 수렴하고,
+GPS Meeting이 있으면 `409 MEETING_ALREADY_CONFIRMED`다. 정상 동시성 제어는 Pair → Card → Code
+lock 순서다.
+이미 확정된 CODE Meeting은 deadline 이후 confirm 재요청에도 기존 `CONFIRMED` 결과로 수렴한다.
+
+오류: `400 MEETING_CODE_MISMATCH`, `410 MEETING_CODE_EXPIRED`, `429 MEETING_CODE_ATTEMPTS_EXCEEDED`,
+`409 MEETING_CODE_REQUIRED`, `409 MEETING_ALREADY_CONFIRMED`.
 
 ### `POST /meetings/{meetingId}/reviews`
 
