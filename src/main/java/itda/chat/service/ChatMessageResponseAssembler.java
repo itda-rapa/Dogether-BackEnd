@@ -53,6 +53,7 @@ public class ChatMessageResponseAssembler {
                 attachmentOf(message),
                 sharedSetlogOf(message),
                 mapOf(message),
+                message.getSharedRouteId(),
                 message.getMeetingCardId(),
                 message.getClientMessageId(),
                 message.getCreatedAt()
@@ -111,6 +112,7 @@ public class ChatMessageResponseAssembler {
                 attachmentOf(attachment, mediaDownloads),
                 sharedSetlogOf(message.getType(), message.getSharedSetlogId(), setlogViews),
                 mapOf(message),
+                message.getSharedRouteId(),
                 message.getMeetingCardId(),
                 message.getClientMessageId(),
                 message.getCreatedAt()

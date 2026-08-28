@@ -12,6 +12,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 
 import lombok.*;
 import lombok.experimental.Accessors;
@@ -51,6 +52,9 @@ public class ChatMessage {
 
     @Column(name = "shared_setlog_id")
     private Long sharedSetlogId;
+
+    @Column(name = "shared_route_id")
+    private UUID sharedRouteId;
 
     @Column(name = "map_trigger_message_id")
     private Long mapTriggerMessageId;

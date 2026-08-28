@@ -15,6 +15,7 @@ public record ChatMessageEvent(
         String type,
         String body,
         ChatMapMessageResponse map,
+        UUID sharedRouteId,
         Long meetingCardId,
         String clientMessageId,
         Instant sentAt
@@ -31,6 +32,7 @@ public record ChatMessageEvent(
                 message.type(),
                 message.body(),
                 message.map(),
+                message.sharedRouteId(),
                 message.meetingCardId(),
                 message.clientMessageId(),
                 message.createdAt()

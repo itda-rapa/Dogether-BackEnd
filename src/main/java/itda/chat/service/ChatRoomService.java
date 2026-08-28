@@ -11,6 +11,8 @@ import itda.common.constants.ErrorCode;
 import itda.common.exception.BusinessException;
 import itda.pet.service.query.ActivePetContext;
 import itda.pet.service.query.ActivePetQueryService;
+import itda.pet.service.query.PetDisplayQueryService;
+import itda.meetingcard.dto.response.OpenChatDraftParticipantResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -31,6 +33,7 @@ public class ChatRoomService {
     private final ChatRoomParticipantRepository participantRepository;
     private final ActivePetQueryService activePetQueryService;
     private final ChatAuthorizationCacheService chatAuthorizationCacheService;
+    private final PetDisplayQueryService petDisplayQueryService;
 
 
     @Transactional
@@ -101,6 +104,15 @@ public class ChatRoomService {
     }
 
     @Transactional(readOnly = true)
+    public List<OpenChatRoomResponse> getJoinedOpenChatRooms(long userId) {
+        ActivePetContext actor = activePetQueryService.requireActivePet(userId);
+        return chatRoomRepository.findJoinedOpenChatRooms(actor.petId()).stream()
+                .map(room -> OpenChatRoomResponse.from(
+                        room, participantRepository.countByRoomIdAndLeftAtIsNull(room.getId())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public OpenChatRoomResponse getOpenChatRoom(long userId, long roomId) {
         ActivePetContext actor = activePetQueryService.requireActivePet(userId);
         ChatRoom room = findActiveOpenChatRoom(roomId);
@@ -112,6 +124,28 @@ public class ChatRoomService {
 
         long activeParticipants = participantRepository.countByRoomIdAndLeftAtIsNull(roomId);
         return OpenChatRoomResponse.from(room, activeParticipants);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OpenChatDraftParticipantResponse> getOpenChatParticipants(
+            long userId, long roomId) {
+        ActivePetContext actor = activePetQueryService.requireActivePet(userId);
+        findActiveOpenChatRoom(roomId);
+        if (!participantRepository.existsByRoomIdAndPetIdAndLeftAtIsNull(
+                roomId, actor.petId())) {
+            throw new BusinessException(ErrorCode.CHAT_ROOM_NOT_FOUND);
+        }
+        List<Long> petIds = participantRepository.findByRoomId(roomId).stream()
+                .filter(participant -> participant.getLeftAt() == null)
+                .map(ChatRoomParticipant::getPetId)
+                .distinct()
+                .toList();
+        var pets = petDisplayQueryService.getPetDisplaySummaries(petIds);
+        return petIds.stream()
+                .map(pets::get)
+                .filter(java.util.Objects::nonNull)
+                .map(OpenChatDraftParticipantResponse::from)
+                .toList();
     }
 
     public OpenChatRoomResponse updateOpenChatRoom(

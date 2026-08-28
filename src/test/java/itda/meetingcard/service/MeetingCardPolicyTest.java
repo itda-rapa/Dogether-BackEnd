@@ -1,5 +1,6 @@
 package itda.meetingcard.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import itda.chat.domain.ChatRoom;
 import itda.chat.repository.ChatMessageRepository;
+import itda.chat.repository.ChatRoomParticipantRepository;
 import itda.chat.repository.ChatRoomRepository;
 import itda.chat.service.ChatMessageService;
 import itda.chat.service.ChatQueryService;
@@ -38,6 +40,8 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.List;
+import java.util.UUID;
+import itda.route.repository.RouteRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -69,6 +73,8 @@ class MeetingCardPolicyTest {
     @Mock
     private ChatRoomRepository chatRoomRepository;
     @Mock
+    private ChatRoomParticipantRepository chatRoomParticipantRepository;
+    @Mock
     private ChatMessageService chatMessageService;
     @Mock
     private MeetingCardRepository meetingCardRepository;
@@ -82,6 +88,8 @@ class MeetingCardPolicyTest {
     private InteractionPairLockService interactionPairLockService;
     @Mock
     private MeetingRepository meetingRepository;
+    @Mock
+    private RouteRequestRepository routeRequestRepository;
 
     private ActivePetContext actor;
 
@@ -208,6 +216,34 @@ class MeetingCardPolicyTest {
     }
 
     @Test
+    void routeMeetingAllowsOnlyTheCurrentOpenChatParticipant() {
+        MeetingCardService service = meetingCardService();
+        ChatRoom room = org.mockito.Mockito.mock(ChatRoom.class);
+        when(room.isOpenChat()).thenReturn(true);
+        when(chatRoomRepository.findById(ROOM_ID)).thenReturn(Optional.of(room));
+        var participant = itda.chat.domain.ChatRoomParticipant.join(room, PET_1);
+        when(chatRoomParticipantRepository.findByRoomId(ROOM_ID))
+                .thenReturn(List.of(participant));
+        when(chatQueryService.isActiveParticipant(ROOM_ID, PET_1)).thenReturn(true);
+        UUID routeId = UUID.randomUUID();
+        when(routeRequestRepository.isAvailableForMeeting(routeId, USER_1, ROOM_ID))
+                .thenReturn(true);
+        when(meetingCardRepository.save(org.mockito.ArgumentMatchers.any(MeetingCard.class)))
+                .thenAnswer(invocation -> {
+                    MeetingCard card = invocation.getArgument(0);
+                    org.springframework.test.util.ReflectionTestUtils.setField(card, "id", CARD_ID);
+                    return card;
+                });
+
+        var response = service.confirm(USER_1, new MeetingCardCreateRequest(
+                ROOM_ID, null, MeetingCardType.WALK, "서울숲",
+                NOW.plusSeconds(3600), List.of(PET_1), routeId, 1));
+
+        assertThat(response.participantPetIds()).containsExactly(PET_1);
+        assertThat(response.participantCount()).isEqualTo(1);
+    }
+
+    @Test
     void cancelIsRejectedWhenMeetingAlreadyConfirmed() {
         MeetingCardService service = meetingCardService();
         when(meetingCardRepository.findIdentityById(CARD_ID)).thenReturn(Optional.of(cardIdentity()));
@@ -252,11 +288,14 @@ class MeetingCardPolicyTest {
     }
 
     private MeetingCardService meetingCardService() {
-        return new MeetingCardService(
+        MeetingCardService service = new MeetingCardService(
                 activePetQueryService, chatQueryService, chatRoomRepository,
                 chatMessageService, meetingCardRepository, meetingParticipantRepository,
                 cardDraftRepository, cardDraftParticipantRepository,
                 interactionPairLockService, meetingRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+        service.setChatRoomParticipantRepository(chatRoomParticipantRepository);
+        service.setRouteRequestRepository(routeRequestRepository);
+        return service;
     }
 
     private void stubOpenChatDraft(List<Long> snapshotPetIds) {

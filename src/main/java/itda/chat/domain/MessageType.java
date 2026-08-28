@@ -6,6 +6,7 @@ public enum MessageType {
     IMAGE,
     VIDEO,
     SETLOG_SHARE,
+    ROUTE_SHARE,
     MAP,
     SYSTEM;
 

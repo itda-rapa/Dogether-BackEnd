@@ -36,9 +36,21 @@ springdoc:
 
 
 app:
+  route:
+    environment:
+      # 환경 정보는 경로 비용과 무관한 부가 정보다. 키가 없거나 외부 API가 실패해도
+      # 경로 계산 자체는 완료되며 응답에는 UNAVAILABLE 상태를 기록한다.
+      kma-api-base-url: ${KMA_API_BASE_URL:https://apihub.kma.go.kr}
+      kma-api-key: ${KMA_API_KEY:}
+      kma-short-term-path: ${KMA_SHORT_TERM_PATH:/api/typ02/openApi/VilageFcstInfoService_2.0/getVilageFcst}
+      kma-mid-term-path: ${KMA_MID_TERM_PATH:/api/typ02/openApi/MidFcstInfoService/getMidLandFcst}
+      # 단기예보 발표 직후 제공기관 반영 지연을 고려해 최신 사용 가능 회차를 선택한다.
+      kma-short-term-release-delay: ${KMA_SHORT_TERM_RELEASE_DELAY:15m}
+      air-korea-api-base-url: ${AIR_KOREA_API_BASE_URL:https://apis.data.go.kr/B552584}
+      air-korea-api-key: ${AIR_KOREA_API_KEY:}
   kakao:
     local:
-      base-url: ${https://dapi.kakao.com}
+      base-url: ${KAKAO_LOCAL_BASE_URL:https://dapi.kakao.com}
       rest-api-key: ${KAKAO_REST_API_KEY}
   meeting-card:
     ai:

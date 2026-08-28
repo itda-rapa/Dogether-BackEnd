@@ -122,6 +122,20 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             @Param("since") java.time.Instant since,
             org.springframework.data.domain.Pageable pageable);
 
+    /** AI 경로 추천에 전달할 최신 사용자 TEXT 메시지. 호출부가 시간순으로 되돌린다. */
+    @Query(value = """
+            SELECT m FROM ChatMessage m
+            WHERE m.room.id = :roomId
+              AND m.senderType = :senderType
+              AND m.type = :type
+            ORDER BY m.id DESC
+            """)
+    List<ChatMessage> findLatestPetTextMessages(
+            @Param("roomId") long roomId,
+            @Param("senderType") SenderType senderType,
+            @Param("type") MessageType type,
+            org.springframework.data.domain.Pageable pageable);
+
     @Query("""
             SELECT m FROM ChatMessage m
             WHERE m.room.id = :roomId

@@ -4,10 +4,12 @@ import itda.chat.dto.request.OpenChatRoomCreateRequest;
 import itda.chat.dto.request.OpenChatRoomUpdateRequest;
 import itda.chat.dto.response.OpenChatRoomResponse;
 import itda.chat.service.ChatRoomService;
+import itda.meetingcard.dto.response.OpenChatDraftParticipantResponse;
 import itda.common.dto.ApiResponse;
 import itda.common.dto.Paging;
 import itda.common.security.CurrentUser;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +48,14 @@ public class OpenChatController {
         return ResponseEntity.ok(ApiResponse.ok(response, "오픈채팅방 목록 조회 성공"));
     }
 
+    @GetMapping("/joined")
+    public ResponseEntity<ApiResponse<List<OpenChatRoomResponse>>> getJoinedOpenChatRooms(
+            @AuthenticationPrincipal CurrentUser currentUser
+    ) {
+        List<OpenChatRoomResponse> response = chatRoomService.getJoinedOpenChatRooms(currentUser.id());
+        return ResponseEntity.ok(ApiResponse.ok(response, "참여 중인 오픈채팅방 목록 조회 성공"));
+    }
+
     @GetMapping("/{roomId}")
     public ResponseEntity<ApiResponse<OpenChatRoomResponse>> getOpenChatRoom(
             @AuthenticationPrincipal CurrentUser currentUser,
@@ -53,6 +63,16 @@ public class OpenChatController {
     ) {
         OpenChatRoomResponse response = chatRoomService.getOpenChatRoom(currentUser.id(), roomId);
         return ResponseEntity.ok(ApiResponse.ok(response, "오픈채팅방 상세 조회 성공"));
+    }
+
+    @GetMapping("/{roomId}/participants")
+    public ResponseEntity<ApiResponse<List<OpenChatDraftParticipantResponse>>> getOpenChatParticipants(
+            @AuthenticationPrincipal CurrentUser currentUser,
+            @PathVariable long roomId
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                chatRoomService.getOpenChatParticipants(currentUser.id(), roomId),
+                "오픈채팅방 참여자 목록 조회 성공"));
     }
 
     @PatchMapping("/{roomId}")

@@ -25,6 +25,19 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
                                                                itda.chat.domain.RoomStatus status,
                                                                Pageable pageable);
 
+    @Query(value = """
+            SELECT room.*
+            FROM chat_room_participants participant
+            JOIN chat_rooms room ON room.id = participant.room_id
+            WHERE participant.pet_id = :activePetId
+              AND participant.left_at IS NULL
+              AND room.type = 'GROUP'
+              AND room.origin = 'OPEN_CHAT'
+              AND room.status = 'ACTIVE'
+            ORDER BY COALESCE(room.last_message_at, room.created_at) DESC, room.id DESC
+            """, nativeQuery = true)
+    List<ChatRoom> findJoinedOpenChatRooms(@Param("activePetId") long activePetId);
+
     default ChatRoom findByIdOrThrow(long id){
         return findById(id).orElseThrow(
                 ()-> new BusinessException(ErrorCode.CHATROOM_NOT_FOUND)

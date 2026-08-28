@@ -358,7 +358,7 @@ public class ChatMessageService {
                     throw new BusinessException(ErrorCode.CHAT_MESSAGE_PAYLOAD_INVALID);
                 }
             }
-            case MAP -> throw new BusinessException(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
+            case MAP, ROUTE_SHARE -> throw new BusinessException(ErrorCode.CHAT_MESSAGE_TYPE_INVALID);
         }
         if (clientMessageId != null && clientMessageId.length() > MAX_CLIENT_MESSAGE_ID_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED);
