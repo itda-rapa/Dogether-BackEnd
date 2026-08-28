@@ -1667,14 +1667,21 @@ lock 순서다.
 
 ### `POST /meetings/{meetingId}/reviews`
 
+요청:
+
 ```json
 {
   "clientRequestId": "9eb374ad-e81d-433a-8934-93faf399d48e",
+  "placeTag": "공원",
   "content": "즐겁게 산책했어요."
 }
 ```
 
-응답:
+- `placeTag`는 필수 장소 태그(공백 불가, 최대 30자). 허용 태그 enum/공용 DTO가 없어 String으로 저장.
+- `content`는 한 줄 후기로 선택 입력(최대 500자, null 허용). 별점 없음.
+- 응답 코드 `201`. `clientRequestId`가 같은 재요청은 같은 Meeting·Pet·`placeTag`·`content`일 때만 멱등으로 기존 후기를 반환한다.
+
+응답(신규 발자국 적립):
 
 ```json
 {
@@ -1683,6 +1690,7 @@ lock 순서다.
   "data": {
     "reviewId": 71,
     "meetingId": 61,
+    "placeTag": "공원",
     "content": "즐겁게 산책했어요.",
     "createdAt": "2026-08-20T09:10:00Z",
     "footprint": {
@@ -1696,11 +1704,51 @@ lock 순서다.
 }
 ```
 
-오류: `404 MEETING_NOT_FOUND`, `403 MEETING_NOT_PARTICIPANT`, `409 REVIEW_ALREADY_EXISTS`.
+응답(이미 그날 Asia/Seoul 발자국 존재 — 후기는 저장, 발자국은 기존 한 건 재사용):
+
+```json
+{
+  "success": true,
+  "message": "만남 후기가 등록되었습니다.",
+  "data": {
+    "reviewId": 72,
+    "meetingId": 62,
+    "placeTag": "카페",
+    "content": "또 만나요.",
+    "createdAt": "2026-08-20T11:00:00Z",
+    "footprint": {
+      "granted": false,
+      "footprintId": 81,
+      "duplicateDay": true,
+      "earnedDate": "2026-08-20"
+    }
+  },
+  "error": null
+}
+```
+
+- `granted`: **이번 HTTP 요청이 새 Footprint 행을 INSERT했는가**. 최초 신규 적립만 `true`다.
+  동일 `clientRequestId` replay, 기존 Meeting 후기 수렴, 같은 날 daily Footprint 재사용은 새 행이
+  없으므로 `false`다. 멱등성은 응답의 모든 boolean이 최초 응답과 같다는 뜻이 아니다.
+- `duplicateDay`: 이미 그날 발자국이 있어 새 발자국을 만들지 않았는가. `footprintId`는 그날 기존 발자국이다.
+- `earnedDate`: 후기 제출 시각을 Asia/Seoul로 변환한 날짜.
+- 동일 `clientRequestId` replay에서는 `reviewId`, `meetingId`, `content`, `placeTag`, `createdAt`,
+  `footprintId`, `earnedDate`와 Review/Footprint DB 행 수가 변하지 않는다. 최초 응답의
+  `granted=true`도 replay에서는 새 INSERT가 없으므로 `false`다.
+- 같은 날 다른 Meeting 후기는 정상 저장하면서 기존 daily Footprint를 재사용한다. 따라서
+  Review와 Footprint는 항상 1:1 관계가 아니다.
+- 후기 저장과 발자국 판단·생성은 한 트랜잭션이며, 후기 저장 실패 시 발자국도 남지 않고 신규 발자국 생성 실패 시 후기도 롤백된다.
+
+오류: `404 MEETING_NOT_FOUND`("만남을 찾을 수 없습니다."),
+`403 REVIEW_NOT_PARTICIPANT`("약속 참여 반려견만 후기를 작성할 수 있습니다."),
+`409 REVIEW_ALREADY_EXISTS`, `409 REVIEW_REQUEST_CONFLICT`,
+`409 REVIEW_CARD_NOT_OPEN`("취소되거나 닫힌 약속 카드에는 후기를 작성할 수 없습니다.")이다.
+후기 API는 비참여자를 403으로 유지하며 존재 은닉 404로 바꾸지 않는다. GPS/CODE 검증 방식과
+그 전용 ErrorCode·message는 후기 권한 변경의 영향을 받지 않는다.
 
 ### `GET /footprints`
 
-Query: `cursor`, `size` 기본 20·최대 100.
+Query: `cursor`, `size` 기본 20·최대 100. 커서는 `(createdAt|footprintId)`를 Base64URL 인코딩한 값이며, 목록은 최신순(createdAt DESC, id DESC)이다.
 
 ```json
 {

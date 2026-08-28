@@ -159,6 +159,14 @@ public enum ErrorCode {
             HttpStatus.FORBIDDEN,
             "최초 확인 코드 발급자만 코드를 재발급할 수 있습니다."
     ),
+    MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "만남을 찾을 수 없습니다."),
+    REVIEW_NOT_PARTICIPANT(HttpStatus.FORBIDDEN, "약속 참여 반려견만 후기를 작성할 수 있습니다."),
+    REVIEW_CARD_NOT_OPEN(HttpStatus.CONFLICT, "취소되거나 닫힌 약속 카드에는 후기를 작성할 수 없습니다."),
+    REVIEW_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 후기를 작성한 만남입니다."),
+    REVIEW_REQUEST_CONFLICT(
+             HttpStatus.CONFLICT,
+             "같은 요청 식별자로 이미 다른 내용의 후기가 접수되었습니다."
+     ),
     REPORT_ROOM_REQUIRED(HttpStatus.BAD_REQUEST, "신고할 DIRECT 채팅방이 필요합니다."),
     REPORT_SELF_FORBIDDEN(HttpStatus.BAD_REQUEST, "자기 자신을 신고할 수 없습니다."),
 
