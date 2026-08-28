@@ -10,6 +10,7 @@ import itda.pet.service.query.ActivePetQueryService;
 import itda.route.dto.NearestRouteNodeResponse;
 import itda.route.dto.RouteAcceptedResponse;
 import itda.route.dto.RouteCreateRequest;
+import itda.route.dto.RouteHeatmapResponse;
 import itda.route.dto.RouteResponse;
 import itda.route.dto.RoundTripRouteCreateRequest;
 import itda.route.domain.RouteActivityType;
@@ -21,7 +22,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -159,8 +159,8 @@ public class RouteService {
     }
 
     @Transactional(readOnly = true)
-    public JsonNode heatmap() {
-        return routeRepository.findSavedRouteHeatmap();
+    public RouteHeatmapResponse heatmap() {
+        return RouteHeatmapResponse.from(routeRepository.findSavedRouteHeatmap());
     }
 
     private void validateSpeed(RouteActivityType activityType, BigDecimal speed) {

@@ -5,6 +5,7 @@ import itda.common.security.CurrentUser;
 import itda.route.dto.NearestRouteNodeResponse;
 import itda.route.dto.RouteAcceptedResponse;
 import itda.route.dto.RouteCreateRequest;
+import itda.route.dto.RouteHeatmapResponse;
 import itda.route.dto.RouteResponse;
 import itda.route.dto.RoundTripRouteCreateRequest;
 import itda.route.domain.RouteActivityType;
@@ -23,7 +24,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/routes")
@@ -87,7 +87,7 @@ public class RouteController {
     }
 
     @GetMapping("/heatmap")
-    public ResponseEntity<ApiResponse<JsonNode>> heatmap() {
+    public ResponseEntity<ApiResponse<RouteHeatmapResponse>> heatmap() {
         return ResponseEntity.ok(ApiResponse.ok(routeService.heatmap(),
                 "저장 경로 이용 빈도를 조회했습니다."));
     }
